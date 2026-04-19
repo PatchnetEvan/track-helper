@@ -216,6 +216,8 @@
     if (setupRows) parts.push(`<h3>Setup</h3>${setupRows}`);
 
     const tires = {
+      "Tire brand": str("tire-brand"),
+      "Model / compound": str("tire-model"),
       "Front pre-session": str("front-pre"),
       "Rear pre-session": str("rear-pre"),
       "Front post-session": str("front-post"),
@@ -302,6 +304,8 @@
         notes: str("general-notes"),
       },
       tires: {
+        brand: str("tire-brand"),
+        model: str("tire-model"),
         frontPre: str("front-pre"),
         rearPre: str("rear-pre"),
         frontPost: str("front-post"),
@@ -339,6 +343,8 @@
     setId("general-notes", s.setup && s.setup.notes);
 
     const t = s.tires || {};
+    setId("tire-brand", t.brand);
+    setId("tire-model", t.model);
     setId("front-pre", t.frontPre != null && t.frontPre !== "" ? t.frontPre : t.frontCold);
     setId("rear-pre", t.rearPre != null && t.rearPre !== "" ? t.rearPre : t.rearCold);
     setId("front-post", t.frontPost != null && t.frontPost !== "" ? t.frontPost : t.frontHot);
@@ -534,6 +540,8 @@
     pushIf("Humidity", s.setup && s.setup.humidity);
     pushIf("Notes", s.setup && s.setup.notes);
     const t = s.tires || {};
+    pushIf("Tire brand", t.brand);
+    pushIf("Model / compound", t.model);
     pushIf("Front pre-session", t.frontPre || t.frontCold);
     pushIf("Rear pre-session", t.rearPre || t.rearCold);
     pushIf("Front post-session", t.frontPost || t.frontHot);
@@ -576,6 +584,8 @@
       ["Ambient temp", (s) => s.setup && s.setup.ambTemp],
       ["Track temp", (s) => s.setup && s.setup.trackTemp],
       ["Humidity", (s) => s.setup && s.setup.humidity],
+      ["Tire brand", (s) => (s.tires && s.tires.brand) || ""],
+      ["Model / compound", (s) => (s.tires && s.tires.model) || ""],
       ["Front pre-session", (s) => (s.tires && (s.tires.frontPre || s.tires.frontCold)) || ""],
       ["Rear pre-session", (s) => (s.tires && (s.tires.rearPre || s.tires.rearCold)) || ""],
       ["Front post-session", (s) => (s.tires && (s.tires.frontPost || s.tires.frontHot)) || ""],
