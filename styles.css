@@ -400,6 +400,31 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 }
 .app-footer p { margin: 4px 0; }
 
+.panel.prose p,
+.panel.prose li {
+  color: var(--text);
+  line-height: 1.55;
+}
+.panel.prose p { margin: 8px 0 12px; }
+.panel.prose ul,
+.panel.prose ol { padding-left: 22px; margin: 8px 0 14px; }
+.panel.prose li { margin: 6px 0; }
+.panel.prose h3 {
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 1.02rem;
+  margin-top: 18px;
+  margin-bottom: 6px;
+}
+.panel.prose code {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.9em;
+}
+
 .doc {
   max-width: 720px;
   margin: 0 auto;

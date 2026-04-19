@@ -10,6 +10,7 @@
     laps: document.getElementById("panel-laps"),
     review: document.getElementById("panel-review"),
     history: document.getElementById("panel-history"),
+    about: document.getElementById("panel-about"),
   };
 
   function showTab(name) {

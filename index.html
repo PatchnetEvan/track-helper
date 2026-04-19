@@ -26,6 +26,7 @@
     <button class="tab" role="tab" data-tab="laps" aria-selected="false">Laps</button>
     <button class="tab" role="tab" data-tab="review" aria-selected="false">Review</button>
     <button class="tab" role="tab" data-tab="history" aria-selected="false">History</button>
+    <button class="tab" role="tab" data-tab="about" aria-selected="false">About</button>
   </nav>
 
   <main>
@@ -237,6 +238,40 @@
 
       <h3>All saved sessions</h3>
       <div id="history-list"></div>
+    </section>
+
+    <!-- About -->
+    <section class="panel prose" id="panel-about" role="tabpanel" hidden>
+      <h2>About MotoTrack</h2>
+
+      <h3>What this is</h3>
+      <p>A digital notebook for the pits. Log tire pressures, suspension clicks, and lap times in the moment, so your setup decisions between sessions are based on what you recorded, not what you remember.</p>
+
+      <h3>Privacy, plainly</h3>
+      <ul>
+        <li><strong>No accounts.</strong> No passwords to forget.</li>
+        <li><strong>No tracking.</strong> No cookies, no analytics, no pixels. We don&rsquo;t know you&rsquo;re here.</li>
+        <li><strong>No noise.</strong> No notifications, no popups. It stays out of your way.</li>
+        <li><strong>No cloud.</strong> Nothing you type leaves your phone.</li>
+      </ul>
+
+      <h3>How your data works</h3>
+      <p>Everything lives in your browser. If you just type and close the tab, it&rsquo;s gone &mdash; like wiping a whiteboard.</p>
+      <p>If you want to keep a log, tap <strong>Save this session</strong> on the Review tab. That stores it in your phone&rsquo;s internal storage. We don&rsquo;t have a server, so we can&rsquo;t see it even if we wanted to.</p>
+      <p><strong>Export backup</strong> saves a file to your device &mdash; move it to a laptop or tablet any time. <strong>Clear all history</strong> deletes everything instantly.</p>
+
+      <h3>How to use it in a session</h3>
+      <ol>
+        <li><strong>Setup</strong> &mdash; before you roll out: bike, track, session label, ambient and track temp.</li>
+        <li><strong>Tires</strong> &mdash; cold PSI going out; hot PSI the moment you&rsquo;re back in. Tap <strong>Calculate</strong> for deltas and conservative suggestions.</li>
+        <li><strong>Suspension</strong> &mdash; log your clicks, tick the symptoms you felt (push, chatter, brake dive). Fixes appear for common ones.</li>
+        <li><strong>Laps</strong> &mdash; paste laps one per line (<code>1:42.318</code> or <code>102.4</code>). Get best, average, and delta-from-best.</li>
+        <li><strong>Review</strong> &mdash; <strong>Build summary</strong> for a one-screen recap. <strong>Save this session</strong> to compare later.</li>
+        <li><strong>History</strong> &mdash; compare two sessions, see per-track trends, back up or restore.</li>
+      </ol>
+
+      <h3>Before you ride</h3>
+      <p>Every suggestion here is a conservative starting point, not professional tuning advice. Track rules and your tire and suspension manufacturer specs always take priority. Full <a href="terms.html">terms</a>.</p>
     </section>
   </main>
 
