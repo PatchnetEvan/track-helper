@@ -667,14 +667,28 @@
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `mototrack-${stamp}.json`;
+    a.download = `mototrack-${buildExportFilenameStem(payload.sessions)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
+
+  function buildExportFilenameStem(sessions) {
+    const stamp = new Date().toISOString().slice(0, 10);
+    let latest = null;
+    for (const s of sessions) {
+      if (!latest || String(s.savedAt || "") > String(latest.savedAt || "")) latest = s;
+    }
+    const track = (latest && latest.setup && latest.setup.track) || "";
+    const slug = track
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    return slug ? `${stamp}-${slug}` : stamp;
+  }
 
   document.getElementById("import-history").addEventListener("change", (e) => {
     const file = e.target.files && e.target.files[0];
