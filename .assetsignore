@@ -1,0 +1,12 @@
+.git
+.gitattributes
+.assetsignore
+wrangler.jsonc
+wrangler.toml
+package.json
+package-lock.json
+node_modules
+README.md
+LICENSE
+SECURITY.md
+vercel.json
