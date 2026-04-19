@@ -23,6 +23,7 @@
     <button class="tab" role="tab" data-tab="suspension" aria-selected="false">Suspension</button>
     <button class="tab" role="tab" data-tab="laps" aria-selected="false">Laps</button>
     <button class="tab" role="tab" data-tab="review" aria-selected="false">Review</button>
+    <button class="tab" role="tab" data-tab="history" aria-selected="false">History</button>
   </nav>
 
   <main>
@@ -182,24 +183,67 @@
     <!-- Review -->
     <section class="panel" id="panel-review" role="tabpanel" hidden>
       <h2>Review</h2>
-      <p class="hint">A snapshot of the current session. Nothing here is saved.</p>
+      <p class="hint">A snapshot of the current session.</p>
 
       <button type="button" class="btn-secondary" id="build-summary">Build summary</button>
 
       <div class="result" id="summary-result" aria-live="polite"></div>
 
+      <div class="save-zone">
+        <p><strong>Keep this session?</strong> Saving stores it only on this device, in your browser. Nothing leaves your phone.</p>
+        <button type="button" class="btn-primary" id="save-session">Save this session</button>
+        <div class="result" id="save-result" aria-live="polite"></div>
+      </div>
+
       <div class="danger-zone">
-        <p><strong>Reset</strong> clears every field on every tab. There is no undo, and nothing was saved anywhere.</p>
+        <p><strong>Reset</strong> clears every field on every tab. Saved history is not touched.</p>
         <button type="button" class="btn-danger" id="reset-all">Reset session</button>
       </div>
+    </section>
+
+    <!-- History -->
+    <section class="panel" id="panel-history" role="tabpanel" hidden>
+      <h2>History</h2>
+      <p class="hint">Saved sessions stay on this device only. Export a backup any time — it's a plain JSON file on your phone or computer.</p>
+
+      <div id="storage-warning" class="result" hidden>
+        <p class="warn">This browser has storage disabled (private mode?). Saving, loading, and importing are unavailable here.</p>
+      </div>
+
+      <div class="history-actions">
+        <button type="button" class="btn-secondary" id="export-history">Export backup</button>
+        <label class="btn-secondary file-btn">
+          <span>Import backup</span>
+          <input type="file" id="import-history" accept="application/json,.json" hidden />
+        </label>
+        <button type="button" class="btn-danger" id="clear-history">Clear all history</button>
+      </div>
+
+      <div id="history-empty" class="result">
+        <p>No saved sessions yet. Fill in a session and tap <strong>Save this session</strong> on the Review tab.</p>
+      </div>
+
+      <div id="history-trends"></div>
+
+      <h3>Compare two sessions</h3>
+      <div class="grid-2">
+        <label class="field"><span>Session A</span><select id="compare-a"></select></label>
+        <label class="field"><span>Session B</span><select id="compare-b"></select></label>
+      </div>
+      <button type="button" class="btn-secondary" id="run-compare">Compare</button>
+      <div class="result" id="compare-result" aria-live="polite"></div>
+
+      <h3>All saved sessions</h3>
+      <div id="history-list"></div>
     </section>
   </main>
 
   <footer class="app-footer">
-    <p>No accounts. No database. No cookies. Refresh wipes everything.</p>
+    <p>No accounts. No server. Refresh wipes the current session. Saved history lives only on this device.</p>
     <p><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
   </footer>
 
+  <script src="storage.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
