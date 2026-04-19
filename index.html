@@ -75,30 +75,24 @@
     <section class="panel" id="panel-tires" role="tabpanel" hidden>
       <h2>Tires</h2>
 
+      <p class="hint">Pre-session is the pressure your tire is at right before you roll out — hot off the warmer if you use warmers, cold from the pit if you don't. Post-session is the reading the moment you're back in.</p>
+
       <div class="grid-2">
         <label class="field">
-          <span>Front cold PSI</span>
-          <input type="text" id="front-cold" inputmode="decimal" placeholder="e.g. 30" />
+          <span>Front pre-session PSI</span>
+          <input type="text" id="front-pre" inputmode="decimal" placeholder="e.g. 30" />
         </label>
         <label class="field">
-          <span>Rear cold PSI</span>
-          <input type="text" id="rear-cold" inputmode="decimal" placeholder="e.g. 28" />
+          <span>Rear pre-session PSI</span>
+          <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 28" />
         </label>
         <label class="field">
-          <span>Front hot PSI</span>
-          <input type="text" id="front-hot" inputmode="decimal" placeholder="e.g. 33" />
+          <span>Front post-session PSI</span>
+          <input type="text" id="front-post" inputmode="decimal" placeholder="e.g. 33" />
         </label>
         <label class="field">
-          <span>Rear hot PSI</span>
-          <input type="text" id="rear-hot" inputmode="decimal" placeholder="e.g. 31" />
-        </label>
-        <label class="field">
-          <span>Front target hot PSI <em>(optional)</em></span>
-          <input type="text" id="front-target" inputmode="decimal" placeholder="e.g. 33" />
-        </label>
-        <label class="field">
-          <span>Rear target hot PSI <em>(optional)</em></span>
-          <input type="text" id="rear-target" inputmode="decimal" placeholder="e.g. 30" />
+          <span>Rear post-session PSI</span>
+          <input type="text" id="rear-post" inputmode="decimal" placeholder="e.g. 31" />
         </label>
       </div>
 
@@ -263,7 +257,7 @@
       <h3>How to use it in a session</h3>
       <ol>
         <li><strong>Setup</strong> &mdash; before you roll out: bike, track, session label, ambient and track temp.</li>
-        <li><strong>Tires</strong> &mdash; cold PSI going out; hot PSI the moment you&rsquo;re back in. Tap <strong>Calculate</strong> for deltas and conservative suggestions.</li>
+        <li><strong>Tires</strong> &mdash; pre-session PSI right before you roll out (hot off the warmer or cold from the pit); post-session PSI the moment you&rsquo;re back in. Tap <strong>Calculate</strong> for deltas and conservative suggestions.</li>
         <li><strong>Suspension</strong> &mdash; log your clicks, tick the symptoms you felt (push, chatter, brake dive). Fixes appear for common ones.</li>
         <li><strong>Laps</strong> &mdash; paste laps one per line (<code>1:42.318</code> or <code>102.4</code>). Get best, average, and delta-from-best.</li>
         <li><strong>Review</strong> &mdash; <strong>Build summary</strong> for a one-screen recap. <strong>Save this session</strong> to compare later.</li>

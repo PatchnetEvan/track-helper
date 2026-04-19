@@ -57,44 +57,40 @@
   }
 
   // --- Tires ----------------------------------------------------------------
-  function tireSuggestions(label, cold, hot, target) {
-    const tips = [];
-    if (cold != null && hot != null) {
-      const delta = hot - cold;
-      tips.push(`${label} delta: ${delta.toFixed(1)} PSI (cold ${cold} → hot ${hot}).`);
-      if (delta < 2) {
-        tips.push(`${label}: very small rise. Tire may not be reaching working temp — consider lowering cold PSI slightly or more warm-up.`);
-      } else if (delta > 6) {
-        tips.push(`${label}: large rise. Tire may be overworked or cold PSI too low — consider raising cold PSI.`);
+  function tireSuggestions(label, pre, post, warmerOn) {
+    if (pre == null || post == null) return [];
+    const delta = post - pre;
+    const sign = delta >= 0 ? "+" : "−";
+    const tips = [`${label}: ${sign}${Math.abs(delta).toFixed(1)} PSI delta (pre ${pre} → post ${post}).`];
+
+    if (warmerOn) {
+      if (delta < -1) {
+        tips.push(`${label}: pressure dropped during the session. Check for a slow leak, or take the post reading sooner next time.`);
+      } else if (delta > 3) {
+        tips.push(`${label}: large rise despite warmers. Warmer may have been under-temp or the tire was overworked — consider raising pre-session PSI.`);
       }
-    }
-    if (hot != null && target != null) {
-      const gap = hot - target;
-      if (Math.abs(gap) >= 0.5) {
-        if (gap > 0) {
-          tips.push(`${label} hot is ${gap.toFixed(1)} PSI above target — consider lowering cold PSI by ~${gap.toFixed(1)}.`);
-        } else {
-          tips.push(`${label} hot is ${Math.abs(gap).toFixed(1)} PSI below target — consider raising cold PSI by ~${Math.abs(gap).toFixed(1)}.`);
-        }
-      } else {
-        tips.push(`${label}: hot PSI is on target.`);
+    } else {
+      if (delta < 2) {
+        tips.push(`${label}: small rise without warmers. Tire may not be reaching working temp — consider lowering pre-session PSI slightly or adding warm-up laps.`);
+      } else if (delta > 6) {
+        tips.push(`${label}: large rise. Pre-session may be too low — consider raising it.`);
       }
     }
     return tips;
   }
 
   document.getElementById("calc-tires").addEventListener("click", () => {
-    const fc = num("front-cold"), rc = num("rear-cold");
-    const fh = num("front-hot"), rh = num("rear-hot");
-    const ft = num("front-target"), rt = num("rear-target");
+    const fpre = num("front-pre"), rpre = num("rear-pre");
+    const fpost = num("front-post"), rpost = num("rear-post");
+    const warmerOn = document.getElementById("warmer-on").checked;
 
     const out = [];
-    out.push(...tireSuggestions("Front", fc, fh, ft));
-    out.push(...tireSuggestions("Rear", rc, rh, rt));
+    out.push(...tireSuggestions("Front", fpre, fpost, warmerOn));
+    out.push(...tireSuggestions("Rear", rpre, rpost, warmerOn));
 
     const el = document.getElementById("tire-result");
     if (out.length === 0) {
-      el.innerHTML = `<p>Enter cold and hot PSI to see deltas and suggestions.</p>`;
+      el.innerHTML = `<p>Enter pre-session and post-session PSI to see deltas and suggestions.</p>`;
       return;
     }
     el.innerHTML = `<h3>Tire feedback</h3><ul>${out.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
@@ -220,12 +216,10 @@
     if (setupRows) parts.push(`<h3>Setup</h3>${setupRows}`);
 
     const tires = {
-      "Front cold": str("front-cold"),
-      "Rear cold": str("rear-cold"),
-      "Front hot": str("front-hot"),
-      "Rear hot": str("rear-hot"),
-      "Front target hot": str("front-target"),
-      "Rear target hot": str("rear-target"),
+      "Front pre-session": str("front-pre"),
+      "Rear pre-session": str("rear-pre"),
+      "Front post-session": str("front-post"),
+      "Rear post-session": str("rear-post"),
       "Warmers": document.getElementById("warmer-on").checked ? "yes" : "",
       "Warmer time (min)": str("warmer-time"),
     };
@@ -308,12 +302,10 @@
         notes: str("general-notes"),
       },
       tires: {
-        frontCold: str("front-cold"),
-        rearCold: str("rear-cold"),
-        frontHot: str("front-hot"),
-        rearHot: str("rear-hot"),
-        frontTarget: str("front-target"),
-        rearTarget: str("rear-target"),
+        frontPre: str("front-pre"),
+        rearPre: str("rear-pre"),
+        frontPost: str("front-post"),
+        rearPost: str("rear-post"),
         warmerOn: document.getElementById("warmer-on").checked,
         warmerTime: str("warmer-time"),
       },
@@ -346,14 +338,13 @@
     setId("humidity", s.setup && s.setup.humidity);
     setId("general-notes", s.setup && s.setup.notes);
 
-    setId("front-cold", s.tires && s.tires.frontCold);
-    setId("rear-cold", s.tires && s.tires.rearCold);
-    setId("front-hot", s.tires && s.tires.frontHot);
-    setId("rear-hot", s.tires && s.tires.rearHot);
-    setId("front-target", s.tires && s.tires.frontTarget);
-    setId("rear-target", s.tires && s.tires.rearTarget);
-    setCheck("warmer-on", s.tires && s.tires.warmerOn);
-    setId("warmer-time", s.tires && s.tires.warmerTime);
+    const t = s.tires || {};
+    setId("front-pre", t.frontPre != null && t.frontPre !== "" ? t.frontPre : t.frontCold);
+    setId("rear-pre", t.rearPre != null && t.rearPre !== "" ? t.rearPre : t.rearCold);
+    setId("front-post", t.frontPost != null && t.frontPost !== "" ? t.frontPost : t.frontHot);
+    setId("rear-post", t.rearPost != null && t.rearPost !== "" ? t.rearPost : t.rearHot);
+    setCheck("warmer-on", t.warmerOn);
+    setId("warmer-time", t.warmerTime);
 
     setId("fork-preload", s.suspension && s.suspension.forkPreload);
     setId("fork-comp", s.suspension && s.suspension.forkComp);
@@ -542,12 +533,13 @@
     pushIf("Track temp", s.setup && s.setup.trackTemp);
     pushIf("Humidity", s.setup && s.setup.humidity);
     pushIf("Notes", s.setup && s.setup.notes);
-    pushIf("Front cold", s.tires && s.tires.frontCold);
-    pushIf("Rear cold", s.tires && s.tires.rearCold);
-    pushIf("Front hot", s.tires && s.tires.frontHot);
-    pushIf("Rear hot", s.tires && s.tires.rearHot);
-    pushIf("Warmers", s.tires && s.tires.warmerOn ? "yes" : "");
-    pushIf("Warmer time (min)", s.tires && s.tires.warmerTime);
+    const t = s.tires || {};
+    pushIf("Front pre-session", t.frontPre || t.frontCold);
+    pushIf("Rear pre-session", t.rearPre || t.rearCold);
+    pushIf("Front post-session", t.frontPost || t.frontHot);
+    pushIf("Rear post-session", t.rearPost || t.rearHot);
+    pushIf("Warmers", t.warmerOn ? "yes" : "");
+    pushIf("Warmer time (min)", t.warmerTime);
     pushIf("Fork preload", s.suspension && s.suspension.forkPreload);
     pushIf("Fork comp", s.suspension && s.suspension.forkComp);
     pushIf("Fork rebound", s.suspension && s.suspension.forkReb);
@@ -584,10 +576,10 @@
       ["Ambient temp", (s) => s.setup && s.setup.ambTemp],
       ["Track temp", (s) => s.setup && s.setup.trackTemp],
       ["Humidity", (s) => s.setup && s.setup.humidity],
-      ["Front cold", (s) => s.tires && s.tires.frontCold],
-      ["Rear cold", (s) => s.tires && s.tires.rearCold],
-      ["Front hot", (s) => s.tires && s.tires.frontHot],
-      ["Rear hot", (s) => s.tires && s.tires.rearHot],
+      ["Front pre-session", (s) => (s.tires && (s.tires.frontPre || s.tires.frontCold)) || ""],
+      ["Rear pre-session", (s) => (s.tires && (s.tires.rearPre || s.tires.rearCold)) || ""],
+      ["Front post-session", (s) => (s.tires && (s.tires.frontPost || s.tires.frontHot)) || ""],
+      ["Rear post-session", (s) => (s.tires && (s.tires.rearPost || s.tires.rearHot)) || ""],
       ["Warmers", (s) => s.tires && s.tires.warmerOn ? "yes" : ""],
       ["Fork preload", (s) => s.suspension && s.suspension.forkPreload],
       ["Fork comp", (s) => s.suspension && s.suspension.forkComp],
