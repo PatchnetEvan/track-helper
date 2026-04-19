@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none';" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="theme-color" content="#0b0d10" />
+  <title>Privacy — MotoTrack</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="doc">
+    <h1>Privacy</h1>
+    <p>MotoTrack is a session-only tool. It is designed to be forgettable — on purpose.</p>
+
+    <h2>What we store</h2>
+    <p>Nothing persistent. MotoTrack does not store any user data on our servers, because there is no server side to this app. The page is a static frontend.</p>
+
+    <h2>What stays in your browser (the current session)</h2>
+    <p>Anything you type — bike details, tire pressures, suspension clicks, lap times, notes — exists only in the current browser tab while it is open. It is held in memory by the page itself.</p>
+    <p>Refreshing the page, closing the tab, or navigating away clears the current session. We do not use cookies, IndexedDB, or any server-side storage.</p>
+
+    <h2>Optional on-device history</h2>
+    <p>If — and only if — you tap <strong>Save this session</strong> on the Review tab, that session is written to your browser's <code>localStorage</code> so you can review it later from the History tab. Nothing is written to storage automatically.</p>
+    <p>Saved sessions:</p>
+    <ul>
+      <li>Stay on the device and browser where you saved them.</li>
+      <li>Are never sent over the network — there is no server to receive them.</li>
+      <li>Can be deleted one at a time, or all at once with <strong>Clear all history</strong> on the History tab.</li>
+      <li>Can also be cleared by your browser's normal "clear site data" controls.</li>
+    </ul>
+
+    <h2>Backups (export and import)</h2>
+    <p>You can export your saved history to a JSON file and import it on another device. These are ordinary file operations that happen entirely on your machine — the file is saved to your device's downloads folder and read back locally. We do not see the file.</p>
+
+    <h2>Accounts, tracking, analytics</h2>
+    <p>There are no accounts, no logins, and no analytics or tracking scripts. We do not collect personal information and we do not build a profile of you.</p>
+
+    <h2>Network requests</h2>
+    <p>The app is a static page. It does not call any backend API to save your data. Your hosting provider (for example Cloudflare Pages) will see ordinary web traffic — the same as any other website visit — so it can deliver the page to you.</p>
+
+    <h2>Advertising</h2>
+    <p>Ads may be added to MotoTrack in the future. If that happens, this page will be updated to describe exactly what ad provider is used and what, if anything, it collects.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>If the behavior of the app changes — for example, if any data begins being stored anywhere — this page will be updated first.</p>
+
+    <p><a class="back" href="index.html">← Back to MotoTrack</a></p>
+  </main>
+</body>
+</html>
