@@ -1,4 +1,5 @@
 .git
+.github
 .gitattributes
 .assetsignore
 wrangler.jsonc
@@ -9,4 +10,5 @@ node_modules
 README.md
 LICENSE
 SECURITY.md
+ROADMAP.md
 vercel.json

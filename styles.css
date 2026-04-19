@@ -272,6 +272,16 @@ button {
   padding: 14px;
   border-radius: 8px;
 }
+.save-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.save-actions > button {
+  flex: 1 1 45%;
+  margin-top: 0;
+  width: auto;
+}
 .danger-zone {
   border: 1px dashed var(--danger);
   background: rgba(239, 68, 68, 0.05);

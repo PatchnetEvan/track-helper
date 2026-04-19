@@ -199,7 +199,11 @@
 
       <div class="save-zone">
         <p><strong>Keep this session?</strong> Saving stores it only on this device, in your browser. Nothing leaves your phone.</p>
-        <button type="button" class="btn-primary" id="save-session">Save this session</button>
+        <div class="save-actions">
+          <button type="button" class="btn-primary" id="save-session">Save this session</button>
+          <button type="button" class="btn-secondary" id="save-and-next">Save &amp; next</button>
+        </div>
+        <p class="hint"><strong>Save &amp; next</strong> saves this session and primes the form for the next one &mdash; bike, track, tire brand, and suspension settings stay; PSIs, symptoms, lap times, and notes clear. Session label auto-bumps its trailing number.</p>
         <div class="result" id="save-result" aria-live="polite"></div>
       </div>
 
@@ -277,6 +281,14 @@
 
       <h3>Before you ride</h3>
       <p>Every suggestion here is a conservative starting point, not professional tuning advice. Track rules and your tire and suspension manufacturer specs always take priority. Full <a href="terms.html">terms</a>.</p>
+
+      <h3>Feedback</h3>
+      <p>MotoTrack is a solo side project. Replies come when I&rsquo;m not at the track &mdash; please be patient.</p>
+      <ul>
+        <li><strong>Bugs and feature ideas:</strong> <a href="https://github.com/PatchnetEvan/track-helper/issues/new/choose" rel="noopener noreferrer">open an issue on GitHub</a>. Public, trackable, best for anything that needs a real back-and-forth.</li>
+        <li><strong>Everything else:</strong> <a href="mailto:evan.martinez@gmail.com?subject=MotoTrack%20feedback">email evan.martinez@gmail.com</a>. Private, no account needed.</li>
+      </ul>
+      <p>Source is on GitHub: <a href="https://github.com/PatchnetEvan/track-helper" rel="noopener noreferrer">PatchnetEvan/track-helper</a>. The &ldquo;no tracking&rdquo; promise is literally verifiable &mdash; read <code>app.js</code> and see for yourself.</p>
     </section>
   </main>
 

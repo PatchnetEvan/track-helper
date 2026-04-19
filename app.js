@@ -405,11 +405,11 @@
     el.hidden = storageReady();
   }
 
-  document.getElementById("save-session").addEventListener("click", () => {
+  function doSave() {
     const out = document.getElementById("save-result");
     if (!storageReady()) {
       out.innerHTML = `<p class="warn">Browser storage is unavailable, so nothing was saved.</p>`;
-      return;
+      return { ok: false };
     }
     const s = collectSession();
     const hasAny = Object.values(s.setup).some(Boolean)
@@ -418,14 +418,52 @@
       || (s.laps.times && s.laps.times.length);
     if (!hasAny) {
       out.innerHTML = `<p>Nothing to save yet — fill in some details first.</p>`;
-      return;
+      return { ok: false };
     }
     try {
       Store.add(s);
-      out.innerHTML = `<p class="good">Saved locally. Open the History tab any time.</p>`;
+      return { ok: true, out };
     } catch (e) {
       out.innerHTML = `<p class="warn">Could not save: ${escapeHtml(e.message || String(e))}</p>`;
+      return { ok: false };
     }
+  }
+
+  document.getElementById("save-session").addEventListener("click", () => {
+    const r = doSave();
+    if (r.ok) r.out.innerHTML = `<p class="good">Saved locally. Open the History tab any time.</p>`;
+  });
+
+  function bumpSessionLabel(label) {
+    if (!label) return label;
+    const m = label.match(/^(.*?)(\d+)(\D*)$/);
+    if (!m) return label;
+    const next = String(parseInt(m[2], 10) + 1);
+    return m[1] + next + m[3];
+  }
+
+  function clearTransientFields() {
+    ["amb-temp", "track-temp", "humidity", "general-notes",
+     "front-pre", "rear-pre", "front-post", "rear-post",
+     "laps-input"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    document.querySelectorAll("#symptoms input[type=checkbox]").forEach((cb) => { cb.checked = false; });
+    ["tire-result", "suspension-result", "laps-result", "summary-result"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = "";
+    });
+  }
+
+  document.getElementById("save-and-next").addEventListener("click", () => {
+    const r = doSave();
+    if (!r.ok) return;
+    const labelEl = document.getElementById("session-label");
+    if (labelEl) labelEl.value = bumpSessionLabel(labelEl.value.trim());
+    clearTransientFields();
+    r.out.innerHTML = `<p class="good">Saved. Form is ready for the next session — bike, track, tire brand, and suspension settings carried over.</p>`;
+    showTab("setup");
   });
 
   function renderHistory() {
