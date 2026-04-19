@@ -35,13 +35,51 @@ Just open `index.html` in a browser. No build step, no dependencies, no
 
 ## Deploy
 
-Works out of the box on any static host:
+**Recommended host: Cloudflare Pages.** The project is genuinely static, and
+Pages' free tier gives **unlimited bandwidth and unlimited requests** — the
+site effectively scales for free no matter how many riders use it.
 
-- **Cloudflare Pages** — connect the repo, leave build command empty, set
-  publish directory to `/`.
-- **Vercel** — import the repo, framework preset **Other**, build command
-  empty, output directory root.
-- **GitHub Pages / Netlify / S3 / nginx** — drop the files in and serve.
+### Cloudflare Pages (recommended)
+
+1. Push this repo to GitHub / GitLab.
+2. Cloudflare dashboard → **Workers & Pages** → **Create application** →
+   **Pages** → **Connect to Git** → pick the repo.
+3. Framework preset: **None**.
+4. Build command: *(leave empty)*.
+5. Build output directory: `/`.
+6. Deploy. You get a `*.pages.dev` URL immediately. Attach a custom domain
+   any time.
+
+The repo's `_headers` file is picked up automatically and applies the CSP
+and other hardening headers described in [SECURITY.md](SECURITY.md).
+
+**Cost at scale.** Free for a static site at essentially any realistic
+traffic level. Known quotas on the free plan: 500 builds/month (we have no
+build step, so each deploy is one "build" that just copies files), 20 000
+files per deployment, 25 MiB per file. Custom domains are free; the domain
+name itself (~$10/year) is the only out-of-pocket cost. Hosting only starts
+costing money if you later add Cloudflare Workers, KV, D1, or similar — all
+optional and not needed by this app.
+
+### Vercel (alternative)
+
+1. Import the repo.
+2. Framework preset: **Other**.
+3. Build command: *(leave empty)*.
+4. Output directory: root.
+5. Deploy.
+
+`vercel.json` is committed and sets the CSP, other security headers, and
+`cleanUrls` (so `/privacy` works in addition to `/privacy.html`). Vercel's
+free tier has bandwidth caps that Cloudflare Pages does not, which is why
+Pages is the default recommendation.
+
+### Anywhere else
+
+GitHub Pages, Netlify, S3 + CloudFront, nginx, Caddy — drop the files in and
+serve. The `<meta http-equiv="Content-Security-Policy">` tags in each HTML
+file keep the CSP active even when the host does not support custom
+headers.
 
 ## Tech
 
