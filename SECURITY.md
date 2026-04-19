@@ -120,43 +120,55 @@ No `package.json`. No CDN scripts or fonts. Zero third-party code.
 
 ## Recommendations (defense in depth)
 
-All of these are hardening — none is a fix for an exploitable bug.
+### Implemented
 
-1. **Add a strict Content-Security-Policy.** Because the app has no external
-   resources, an extremely tight policy is realistic, delivered either as a
-   `<meta http-equiv="Content-Security-Policy">` tag or via host headers
-   (`vercel.json` / Cloudflare Pages `_headers`):
-   ```
-   default-src 'self';
-   script-src  'self';
-   style-src   'self';
-   img-src     'self' data:;
-   connect-src 'none';
-   frame-ancestors 'none';
-   base-uri    'none';
-   form-action 'none';
-   ```
-   This neutralizes any future XSS regression (no inline scripts, no remote
-   script loads) and prevents framing.
+1. **Strict Content-Security-Policy — done.** Applied at two layers:
+   - A `<meta http-equiv="Content-Security-Policy">` tag in `index.html`,
+     `privacy.html`, and `terms.html` so the policy is active even when the
+     file is opened directly from disk or served by any host.
+     ```
+     default-src 'none'; script-src 'self'; style-src 'self';
+     img-src 'self'; connect-src 'none'; base-uri 'none';
+     form-action 'none';
+     ```
+   - Host headers in `_headers` (Cloudflare Pages / Netlify) and
+     `vercel.json` (Vercel) add `frame-ancestors 'none'` and ship the other
+     hardening headers (see below). `default-src 'none'` is chosen over
+     `'self'` so every resource type must be explicitly whitelisted,
+     eliminating accidental allow-by-default of manifests, fonts, workers,
+     frames, or media.
+2. **`Referrer-Policy: no-referrer` — done** via both a meta tag in every
+   HTML file and an HTTP header in `_headers` / `vercel.json`.
+3. **`X-Content-Type-Options: nosniff` — done** via `_headers` / `vercel.json`.
+4. **`X-Frame-Options: DENY` — done** as a legacy belt-and-suspenders
+   alongside the CSP's `frame-ancestors 'none'`.
+5. **`Permissions-Policy` — done.** Accelerometer, camera, geolocation,
+   gyroscope, magnetometer, microphone, payment, and USB are all denied
+   origin-wide.
+6. **`Strict-Transport-Security` — done** (`max-age=31536000; includeSubDomains`)
+   for HTTPS-only hosts.
 
-2. **Add `Referrer-Policy: no-referrer`** (or `same-origin`) to suppress
-   referrer leakage if external links are ever added.
+### Still recommended
 
-3. **Add `X-Content-Type-Options: nosniff`** as a host header.
-
-4. **Prefer `textContent` over `innerHTML`** where no HTML structure is
+1. **Prefer `textContent` over `innerHTML`** where no HTML structure is
    needed. Each such conversion removes one escaping footgun.
-
-5. **Validate imported sessions more strictly.** Check that required fields
+2. **Validate imported sessions more strictly.** Check that required fields
    exist and are of expected types before adding. Reject entries that fail,
    and reject files > 5 MB before parsing.
-
-6. **Namespace storage version.** The key is already `mototrack.sessions.v1`.
+3. **Namespace storage version.** The key is already `mototrack.sessions.v1`.
    Keep the `.vN` suffix so future schema changes can migrate or ignore old
    entries instead of silently corrupting them.
-
-7. **Document the opt-in storage in `privacy.html`** — already done, but
+4. **Document the opt-in storage in `privacy.html`** — already done, but
    keep it in sync if new persistent fields are added.
+
+### CSP self-compatibility check
+
+Verified no inline `style="…"` attributes, no inline event handlers
+(`onclick=`, `onload=`, `onchange=`, etc.), and no inline `<script>` blocks
+in any HTML file. All scripts and styles are same-origin externals
+(`storage.js`, `app.js`, `styles.css`). Blob-URL download via
+`URL.createObjectURL` + a synthetic `<a download>` click is not a CSP
+fetch directive target and works under `default-src 'none'`.
 
 ## Non-issues / explicitly considered
 
