@@ -35,31 +35,51 @@ Just open `index.html` in a browser. No build step, no dependencies, no
 
 ## Deploy
 
-**Recommended host: Cloudflare Pages.** The project is genuinely static, and
-Pages' free tier gives **unlimited bandwidth and unlimited requests** — the
-site effectively scales for free no matter how many riders use it.
+**Recommended host: Cloudflare.** The project is genuinely static, and
+Cloudflare's free tier gives **unlimited bandwidth and unlimited requests** —
+the site effectively scales for free no matter how many riders use it.
 
-### Cloudflare Pages (recommended)
+### Cloudflare Workers with Static Assets (recommended)
+
+Cloudflare has merged Pages and Workers under a single "Workers" product;
+pure static sites now deploy as a Worker whose only job is to serve a
+bundle of static files. This repo is configured for that flow via
+`wrangler.jsonc` at the root.
 
 1. Push this repo to GitHub / GitLab.
-2. Cloudflare dashboard → **Workers & Pages** → **Create application** →
-   **Pages** → **Connect to Git** → pick the repo.
-3. Framework preset: **None**.
-4. Build command: *(leave empty)*.
-5. Build output directory: `/`.
-6. Deploy. You get a `*.pages.dev` URL immediately. Attach a custom domain
-   any time.
+2. Cloudflare dashboard → **Workers & Pages** → **Create** → **Import a
+   repository** → pick the repo.
+3. Build command: *(leave empty)*.
+4. Deploy command: *(leave empty — `wrangler.jsonc` drives the upload)*.
+5. Deploy. You get a `*.workers.dev` URL immediately. Attach a custom
+   domain any time.
 
-The repo's `_headers` file is picked up automatically and applies the CSP
-and other hardening headers described in [SECURITY.md](SECURITY.md).
+Notes:
+
+- `wrangler.jsonc` declares an assets-only Worker (`assets.directory: "./"`)
+  — no Worker code, just files.
+- `.assetsignore` excludes repo metadata (`README.md`, `LICENSE`,
+  `SECURITY.md`, `wrangler.jsonc` itself, `.git`, `vercel.json`) from the
+  shipped bundle, so they can't be fetched at the production URL.
+- `_headers` is honored under Workers Static Assets exactly as it was under
+  classic Pages, applying the CSP and other hardening headers described in
+  [SECURITY.md](SECURITY.md).
+- Clean URLs work by default (`/privacy` resolves to `/privacy.html`) via
+  Cloudflare's default `html_handling` behavior.
 
 **Cost at scale.** Free for a static site at essentially any realistic
-traffic level. Known quotas on the free plan: 500 builds/month (we have no
-build step, so each deploy is one "build" that just copies files), 20 000
-files per deployment, 25 MiB per file. Custom domains are free; the domain
-name itself (~$10/year) is the only out-of-pocket cost. Hosting only starts
-costing money if you later add Cloudflare Workers, KV, D1, or similar — all
-optional and not needed by this app.
+traffic level. Free-plan quotas that actually exist: 500 builds/month (we
+have no build step — each deploy is just a file upload), 20 000 files per
+deployment, 25 MiB per file. Custom domains are free; the domain name
+itself (~$10/year) is the only out-of-pocket cost. Hosting only starts
+costing money if you later add Cloudflare Workers code (paid KV, D1, R2,
+cron triggers, etc.) — all optional and not needed by this app.
+
+### Cloudflare Pages (classic flow, still supported)
+
+If you prefer the legacy Pages flow, connect the repo the same way and set
+the build output directory to `/`. Both flows serve the same files with
+the same `_headers`.
 
 ### Vercel (alternative)
 
