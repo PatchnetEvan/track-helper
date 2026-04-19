@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d10" />
+  <meta name="description" content="MotoTrack — a privacy-first, session-only trackside notebook for club racers and track-day riders." />
+  <title>MotoTrack</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">MotoTrack</span>
+    </div>
+    <p class="tagline">Session-only notes. Nothing saved.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" data-tab="setup" aria-selected="true">Setup</button>
+    <button class="tab" role="tab" data-tab="tires" aria-selected="false">Tires</button>
+    <button class="tab" role="tab" data-tab="suspension" aria-selected="false">Suspension</button>
+    <button class="tab" role="tab" data-tab="laps" aria-selected="false">Laps</button>
+    <button class="tab" role="tab" data-tab="review" aria-selected="false">Review</button>
+  </nav>
+
+  <main>
+    <!-- Session Setup -->
+    <section class="panel" id="panel-setup" role="tabpanel" aria-labelledby="setup">
+      <h2>Session Setup</h2>
+
+      <label class="field">
+        <span>Bike name / model</span>
+        <input type="text" id="bike" placeholder="e.g. Yamaha R6 track bike" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Track</span>
+        <input type="text" id="track" placeholder="e.g. Thunderhill West" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Session number or label</span>
+        <input type="text" id="session-label" placeholder="e.g. Session 3 / B group" autocomplete="off" />
+      </label>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Ambient temp</span>
+          <input type="text" id="amb-temp" inputmode="decimal" placeholder="°F or °C" />
+        </label>
+        <label class="field">
+          <span>Track temp</span>
+          <input type="text" id="track-temp" inputmode="decimal" placeholder="°F or °C" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Humidity</span>
+        <input type="text" id="humidity" inputmode="decimal" placeholder="%" />
+      </label>
+
+      <label class="field">
+        <span>General notes</span>
+        <textarea id="general-notes" rows="3" placeholder="Wind, grip feel, clouds, track changes…"></textarea>
+      </label>
+    </section>
+
+    <!-- Tires -->
+    <section class="panel" id="panel-tires" role="tabpanel" hidden>
+      <h2>Tires</h2>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Front cold PSI</span>
+          <input type="text" id="front-cold" inputmode="decimal" placeholder="e.g. 30" />
+        </label>
+        <label class="field">
+          <span>Rear cold PSI</span>
+          <input type="text" id="rear-cold" inputmode="decimal" placeholder="e.g. 28" />
+        </label>
+        <label class="field">
+          <span>Front hot PSI</span>
+          <input type="text" id="front-hot" inputmode="decimal" placeholder="e.g. 33" />
+        </label>
+        <label class="field">
+          <span>Rear hot PSI</span>
+          <input type="text" id="rear-hot" inputmode="decimal" placeholder="e.g. 31" />
+        </label>
+        <label class="field">
+          <span>Front target hot PSI <em>(optional)</em></span>
+          <input type="text" id="front-target" inputmode="decimal" placeholder="e.g. 33" />
+        </label>
+        <label class="field">
+          <span>Rear target hot PSI <em>(optional)</em></span>
+          <input type="text" id="rear-target" inputmode="decimal" placeholder="e.g. 30" />
+        </label>
+      </div>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="warmer-on" />
+        <span>Tire warmers used</span>
+      </label>
+
+      <label class="field">
+        <span>Warmer time (minutes)</span>
+        <input type="text" id="warmer-time" inputmode="numeric" placeholder="e.g. 45" />
+      </label>
+
+      <button type="button" class="btn-primary" id="calc-tires">Calculate deltas &amp; suggestions</button>
+
+      <div class="result" id="tire-result" aria-live="polite"></div>
+    </section>
+
+    <!-- Suspension -->
+    <section class="panel" id="panel-suspension" role="tabpanel" hidden>
+      <h2>Suspension</h2>
+
+      <h3>Fork</h3>
+      <div class="grid-3">
+        <label class="field">
+          <span>Preload</span>
+          <input type="text" id="fork-preload" autocomplete="off" placeholder="turns / lines" />
+        </label>
+        <label class="field">
+          <span>Compression</span>
+          <input type="text" id="fork-comp" autocomplete="off" placeholder="clicks" />
+        </label>
+        <label class="field">
+          <span>Rebound</span>
+          <input type="text" id="fork-reb" autocomplete="off" placeholder="clicks" />
+        </label>
+      </div>
+
+      <h3>Shock</h3>
+      <div class="grid-3">
+        <label class="field">
+          <span>Preload</span>
+          <input type="text" id="shock-preload" autocomplete="off" placeholder="turns" />
+        </label>
+        <label class="field">
+          <span>Compression</span>
+          <input type="text" id="shock-comp" autocomplete="off" placeholder="clicks" />
+        </label>
+        <label class="field">
+          <span>Rebound</span>
+          <input type="text" id="shock-reb" autocomplete="off" placeholder="clicks" />
+        </label>
+      </div>
+
+      <h3>Symptoms</h3>
+      <div class="symptoms" id="symptoms">
+        <label class="chip"><input type="checkbox" value="midcorner-push" /> <span>Mid-corner push</span></label>
+        <label class="chip"><input type="checkbox" value="harsh-bumps" /> <span>Harsh on bumps</span></label>
+        <label class="chip"><input type="checkbox" value="rear-spin" /> <span>Rear spin on exit</span></label>
+        <label class="chip"><input type="checkbox" value="chatter" /> <span>Chatter</span></label>
+        <label class="chip"><input type="checkbox" value="brake-dive" /> <span>Brake dive</span></label>
+        <label class="chip"><input type="checkbox" value="wallow" /> <span>Wallow</span></label>
+      </div>
+
+      <button type="button" class="btn-primary" id="calc-suspension">Show recommendations</button>
+
+      <div class="result" id="suspension-result" aria-live="polite"></div>
+    </section>
+
+    <!-- Laps -->
+    <section class="panel" id="panel-laps" role="tabpanel" hidden>
+      <h2>Lap Times</h2>
+      <p class="hint">Paste one lap per line. Accepts <code>mm:ss.sss</code>, <code>m:ss.s</code>, or plain seconds.</p>
+
+      <label class="field">
+        <span>Laps</span>
+        <textarea id="laps-input" rows="8" placeholder="1:42.318&#10;1:41.872&#10;101.605&#10;1:41.2"></textarea>
+      </label>
+
+      <button type="button" class="btn-primary" id="calc-laps">Analyze laps</button>
+
+      <div class="result" id="laps-result" aria-live="polite"></div>
+    </section>
+
+    <!-- Review -->
+    <section class="panel" id="panel-review" role="tabpanel" hidden>
+      <h2>Review</h2>
+      <p class="hint">A snapshot of the current session. Nothing here is saved.</p>
+
+      <button type="button" class="btn-secondary" id="build-summary">Build summary</button>
+
+      <div class="result" id="summary-result" aria-live="polite"></div>
+
+      <div class="danger-zone">
+        <p><strong>Reset</strong> clears every field on every tab. There is no undo, and nothing was saved anywhere.</p>
+        <button type="button" class="btn-danger" id="reset-all">Reset session</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>No accounts. No database. No cookies. Refresh wipes everything.</p>
+    <p><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
