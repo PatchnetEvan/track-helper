@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none';" />
   <meta name="referrer" content="no-referrer" />
-  <meta name="theme-color" content="#0b0d10" />
+  <meta name="theme-color" content="#121212" />
   <meta name="description" content="MotoTrack — a privacy-first, session-only trackside notebook for club racers and track-day riders." />
   <title>MotoTrack</title>
   <link rel="stylesheet" href="styles.css" />
@@ -22,6 +22,7 @@
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-tab="setup" aria-selected="true">Setup</button>
     <button class="tab" role="tab" data-tab="tires" aria-selected="false">Tires</button>
+    <button class="tab" role="tab" data-tab="calculators" aria-selected="false">Calculators</button>
     <button class="tab" role="tab" data-tab="suspension" aria-selected="false">Suspension</button>
     <button class="tab" role="tab" data-tab="laps" aria-selected="false">Laps</button>
     <button class="tab" role="tab" data-tab="review" aria-selected="false">Review</button>
@@ -120,6 +121,60 @@
       <button type="button" class="btn-primary" id="calc-tires">Calculate deltas &amp; suggestions</button>
 
       <div class="result" id="tire-result" aria-live="polite"></div>
+    </section>
+
+    <!-- Calculators -->
+    <section class="panel" id="panel-calculators" role="tabpanel" hidden>
+      <h2>Calculators</h2>
+
+      <section class="calc-tool" aria-labelledby="rolling-circ-heading">
+        <h3 id="rolling-circ-heading">Rolling Circumference</h3>
+        <p class="hint">Rolling circumference is the stored setup value. Diameter is derived from it.</p>
+
+        <label class="field">
+          <span>Fill method</span>
+          <select id="tire-core-method">
+            <option value="measured">Measured rollout</option>
+            <option value="lookup">Lookup tire</option>
+            <option value="estimated">Calculate from size</option>
+          </select>
+        </label>
+
+        <div id="tire-core-measured-fields">
+          <div class="grid-2">
+            <label class="field">
+              <span>Measured rollout</span>
+              <input type="text" id="tire-core-measured" inputmode="decimal" placeholder="e.g. 1905" />
+            </label>
+            <label class="field">
+              <span>Unit</span>
+              <select id="tire-core-measured-unit">
+                <option value="mm">mm</option>
+                <option value="cm">cm</option>
+                <option value="in">in</option>
+                <option value="ft">ft</option>
+                <option value="m">m</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div id="tire-core-lookup-fields" hidden>
+          <label class="field">
+            <span>Lookup tire</span>
+            <select id="tire-core-lookup"></select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Size string <em>optional for measured, required for calculated</em></span>
+          <input type="text" id="tire-core-size" inputmode="text" placeholder="e.g. 180/55-17" autocomplete="off" />
+        </label>
+
+        <button type="button" class="btn-primary" id="calc-tire-core">Calculate tire value</button>
+
+        <div class="result" id="tire-core-result" aria-live="polite"></div>
+      </section>
     </section>
 
     <!-- Suspension -->
@@ -298,6 +353,7 @@
   </footer>
 
   <script src="storage.js" defer></script>
+  <script src="tire-core.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

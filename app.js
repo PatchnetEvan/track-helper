@@ -6,6 +6,7 @@
   const panels = {
     setup: document.getElementById("panel-setup"),
     tires: document.getElementById("panel-tires"),
+    calculators: document.getElementById("panel-calculators"),
     suspension: document.getElementById("panel-suspension"),
     laps: document.getElementById("panel-laps"),
     review: document.getElementById("panel-review"),
@@ -56,6 +57,10 @@
     return `<div class="row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
   }
 
+  function numericRow(label, value) {
+    return `<div class="row"><span>${escapeHtml(label)}</span><span class="numeric">${escapeHtml(value)}</span></div>`;
+  }
+
   // --- Tires ----------------------------------------------------------------
   function tireSuggestions(label, pre, post, warmerOn) {
     if (pre == null || post == null) return [];
@@ -96,6 +101,92 @@
     el.innerHTML = `<h3>Tire feedback</h3><ul>${out.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
       <p class="hint">Guidance is conservative and educational only. Always defer to your tire manufacturer and track conditions.</p>`;
   });
+
+  // --- Calculator foundation: tire + units core ----------------------------
+  const tireCore = window.MotoTrackTireCore;
+  const tireMethodEl = document.getElementById("tire-core-method");
+  const tireMeasuredFields = document.getElementById("tire-core-measured-fields");
+  const tireLookupFields = document.getElementById("tire-core-lookup-fields");
+  const tireLookupEl = document.getElementById("tire-core-lookup");
+
+  function formatMm(value, digits) {
+    if (!Number.isFinite(value)) return "";
+    return `${tireCore.round(value, digits == null ? 1 : digits).toFixed(digits == null ? 1 : digits)} mm`;
+  }
+
+  function formatPct(value) {
+    if (!Number.isFinite(value)) return "";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(1)}%`;
+  }
+
+  function syncTireCoreFields() {
+    const method = tireMethodEl.value;
+    tireMeasuredFields.hidden = method !== "measured";
+    tireLookupFields.hidden = method !== "lookup";
+  }
+
+  function renderLookupOptions() {
+    tireLookupEl.innerHTML = tireCore.LOOKUP_TIRES.map((tire) => {
+      const label = `${tire.manufacturer} ${tire.model} - ${tire.size}`;
+      return `<option value="${escapeHtml(tire.id)}">${escapeHtml(label)}</option>`;
+    }).join("");
+  }
+
+  if (tireCore && tireMethodEl && tireLookupEl) {
+    renderLookupOptions();
+    syncTireCoreFields();
+    tireMethodEl.addEventListener("change", syncTireCoreFields);
+
+    document.getElementById("calc-tire-core").addEventListener("click", () => {
+      const method = tireMethodEl.value;
+      const resultEl = document.getElementById("tire-core-result");
+      const tire = tireCore.resolveTire({
+        measuredValue: method === "measured" ? str("tire-core-measured") : "",
+        measuredUnit: document.getElementById("tire-core-measured-unit").value,
+        lookupId: method === "lookup" ? tireLookupEl.value : "",
+        size: str("tire-core-size"),
+      });
+
+      if (!tire) {
+        resultEl.innerHTML = `<p>Enter a measured rollout, choose a lookup tire, or use a size like <code>180/55-17</code>.</p>`;
+        return;
+      }
+
+      const sourceLabel = {
+        measured: "measured",
+        lookup: "lookup",
+        estimated: "estimated from size",
+      }[tire.source] || tire.source;
+
+      const rows = [
+        numericRow("Rolling circumference", formatMm(tire.rollingCircMm, 1)),
+        numericRow("Derived rolling diameter", formatMm(tire.diameterMm, 1)),
+        row("Source", sourceLabel),
+      ];
+
+      if (tire.source === "estimated") {
+        rows.push(numericRow("Sidewall", formatMm(tire.sidewallMm, 1)));
+        rows.push(numericRow("Geometric diameter", formatMm(tire.geometricDiameterMm, 1)));
+        rows.push(numericRow("Geometric circumference", formatMm(tire.geomCircMm, 1)));
+        rows.push(row("Rolling factor", String(tire.rollingFactor)));
+      }
+
+      if (tire.source === "lookup") {
+        rows.push(row("Tire", `${tire.manufacturer} ${tire.model} ${tire.size}`));
+      }
+
+      if (tire.deltaFromTheoreticalPct != null) {
+        const smaller = tire.deltaFromTheoreticalPct < 0 ? "smaller" : "larger";
+        rows.push(numericRow("Delta from nominal", `${formatMm(tire.deltaFromTheoreticalMm, 1)} (${formatPct(tire.deltaFromTheoreticalPct)})`));
+        rows.push(row("Readout", `Running ${Math.abs(tire.deltaFromTheoreticalPct).toFixed(1)}% ${smaller} than nominal.`));
+      } else if (tire.theoretical && tire.source === "lookup") {
+        rows.push(numericRow("Nominal calculated reference", formatMm(tire.theoretical.rollingCircMm, 1)));
+      }
+
+      resultEl.innerHTML = `<h3>Tire value</h3>${rows.join("")}`;
+    });
+  }
 
   // --- Suspension -----------------------------------------------------------
   const SYMPTOM_ADVICE = {
