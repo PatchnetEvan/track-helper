@@ -175,6 +175,66 @@
 
         <div class="result" id="tire-core-result" aria-live="polite"></div>
       </section>
+
+      <section class="calc-tool" aria-labelledby="geometry-deltas-heading">
+        <h3 id="geometry-deltas-heading">Geometry Deltas</h3>
+        <p class="hint">Direction is the important output. Magnitudes are estimates unless all precise constants are supplied.</p>
+
+        <h3>Front End</h3>
+        <div class="grid-2">
+          <label class="field">
+            <span>Slide forks up through clamps <em>front end drops</em></span>
+            <input type="text" id="geo-fork-up" inputmode="decimal" placeholder="mm" />
+          </label>
+          <label class="field">
+            <span>Slide forks down through clamps <em>front end rises</em></span>
+            <input type="text" id="geo-fork-down" inputmode="decimal" placeholder="mm" />
+          </label>
+        </div>
+
+        <h3>Rear End</h3>
+        <div class="grid-2">
+          <label class="field">
+            <span>Raise rear ride height <em>longer shock / link</em></span>
+            <input type="text" id="geo-rear-raise" inputmode="decimal" placeholder="mm" />
+          </label>
+          <label class="field">
+            <span>Lower rear ride height</span>
+            <input type="text" id="geo-rear-lower" inputmode="decimal" placeholder="mm" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Rear tire diameter change <em>larger tire is +, smaller is -</em></span>
+          <input type="text" id="geo-rear-tire-diameter" inputmode="decimal" placeholder="mm" />
+        </label>
+
+        <details class="advanced">
+          <summary>Optional bike constants for precise trail</summary>
+          <div class="grid-2">
+            <label class="field">
+              <span>Wheelbase</span>
+              <input type="text" id="geo-wheelbase" inputmode="decimal" placeholder="mm" />
+            </label>
+            <label class="field">
+              <span>Design rake <em>from vertical</em></span>
+              <input type="text" id="geo-design-rake" inputmode="decimal" placeholder="degrees" />
+            </label>
+            <label class="field">
+              <span>Front tire radius</span>
+              <input type="text" id="geo-front-radius" inputmode="decimal" placeholder="mm" />
+            </label>
+            <label class="field">
+              <span>Triple-clamp offset</span>
+              <input type="text" id="geo-fork-offset" inputmode="decimal" placeholder="mm" />
+            </label>
+          </div>
+        </details>
+
+        <button type="button" class="btn-primary" id="calc-geometry">Calculate geometry delta</button>
+
+        <div class="result" id="geometry-result" aria-live="polite"></div>
+      </section>
     </section>
 
     <!-- Suspension -->

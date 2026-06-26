@@ -409,6 +409,29 @@ select {
 }
 select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 
+.calc-tool {
+  padding-top: 2px;
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.calc-tool:first-of-type {
+  margin-top: 0;
+  border-top: 0;
+}
+.advanced {
+  margin: 4px 0 14px;
+  padding: 10px 12px 0;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.advanced summary {
+  min-height: 36px;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+}
+
 .app-footer {
   max-width: 720px;
   margin: 0 auto;
