@@ -1,74 +1,146 @@
 # MotoTrack roadmap
 
-Ideas on the table but not yet built. Nothing here is committed — each item
-gets its own design discussion before code lands.
+Ideas on the table but not yet built. Each item gets its own design discussion
+before code lands.
 
-## Opt-in advertising — "help pay for the app"
+## Product split
 
-A single checkbox (likely in the footer or on the About tab) that lets a rider
-voluntarily enable ads. **Default off.** Riders who never tick it see zero ads
-and load zero third-party scripts — the existing privacy promise stays intact
-for them.
+MotoTrack has two intended lanes:
+
+- **MotoTrack Log** - the free, local-first paddock notebook. No account, no
+  cloud requirement, no coaching, no prescriptive setup advice.
+- **MotoTrack Pro** - a future paid layer for advanced calculators, setup
+  analysis, AI-assisted review, and optional sync if the Pro product needs it.
+
+The free version should stay faster than paper. The Pro version can add deeper
+analysis after the logging foundation is trusted.
+
+## Free version: MotoTrack Log
+
+Goal: a paddock-fast setup log that records what happened without trying to
+coach the rider.
+
+### Core principles
+
+- Local-first, account-free, and no tracking.
+- Nothing required. A rider can fill in four fields and walk away.
+- Consequences are okay; prescriptions are not. The free app may state neutral
+  facts, but it should not tell riders what setup change to make.
+- Keep the default workflow optimized for the 30 seconds after pit-in.
+
+### Near-term logging work
+
+- **Diff-based setup changes.** Capture setup changes as first-class records:
+  from value, to value, reason/symptom, and result.
+- **Hot Log fast path.** One-tap entry for post-session hot pressures,
+  immediate symptoms, gut feel, and quick notes.
+- **Duplicate last session.** New sessions should start from the last known
+  setup rather than a blank form.
+- **Auto-save.** Local-first storage makes explicit save buttons optional; avoid
+  a workflow where riders lose notes because they forgot to save.
+- **Large stepper controls.** Use big +/- controls for tire PSI, suspension
+  clicks, sprocket teeth, and heat-cycle counts.
+- **Outdoor / sunlight mode.** Add a high-contrast display mode for direct
+  paddock sun.
+
+### Free fields to add or elevate
+
+- Tire heat-cycle or session-on-this-tire counters.
+- Fuel load: full, half, low/reserve, unknown.
+- Session status: complete, red flag, mechanical, off/crash, rain, traffic.
+- Sag: front and rear, plus fuel level when measured.
+- Chain link count alongside sprocket changes.
+- ECU/fueling/map note as optional free text.
+- Subjective confidence or feel rating.
+
+### Free guardrails
+
+- No built-in GPS lap timer.
+- No Bluetooth/data-logger integration.
+- No social feeds, leaderboards, or public setup sharing.
+- No account or cloud nags.
+- No prescriptive AI setup advice.
+- No mandatory schema that makes quick notes slower than paper.
+
+## Pro version: MotoTrack Pro
+
+Goal: turn a rider's setup history into useful analysis while keeping the free
+logger simple and trustworthy.
+
+### Pro calculators and analysis
+
+- **Bike profiles.** Drivetrain ratios, variable-length gearbox ratios,
+  sprockets, tire references, chain links, and optional geometry constants.
+- **Gearing calculator.** Simple and full modes, speed at redline per gear,
+  RPM at speed, corner-speed RPM, and speed/RPM tables.
+- **Tire diameter comparison.** Circumference and diameter deltas, equivalent
+  rear-sprocket change, speedo error, and ride-height delta.
+- **Geometry deltas.** Direction-first geometry outputs, estimated trail delta,
+  and optional formula-based trail delta when bike constants exist.
+- **Setup-log annotations.** Passive inline consequences on logged changes:
+  gearing percentage, RPM change, tire ride-height effect, and geometry
+  direction.
+- **Pattern review.** Summaries of what changed, why it changed, and what result
+  the rider recorded.
+
+### Pro AI layer
+
+- AI-assisted session review.
+- Setup-history summaries.
+- Cause/effect pattern detection from the rider's own logs.
+- Optional setup assistant recommendations after there is enough rider-specific
+  history to support them.
+
+The Pro AI layer should be clearly separate from the free app. Free MotoTrack
+logs facts; Pro may help interpret them.
+
+### Pro guardrails
+
+- Start with consequences and summaries before prescriptive advice.
+- Do not present AI output as race-engineer certainty.
+- Keep safety-sensitive language conservative and evidence-based.
+- Make any sync/account requirement explicit and optional to the Pro product,
+  not a requirement for the free logger.
+
+## Opt-in advertising
+
+Status: possible free-version monetization idea, not committed.
+
+A single checkbox could let a rider voluntarily enable ads. **Default off.**
+Riders who never enable it see zero ads and load zero third-party scripts.
 
 ### Why this respects the ethos
 
-- Default-off keeps the no-tracking promise for everyone who doesn't opt in.
-- One toggle, on the same page, no account, reversible at any time.
-- The privacy page would clearly distinguish the **default state** (nothing
-  loads, nothing tracked) from the **opt-in state** (named provider loads,
-  spelled-out behavior).
+- Default-off keeps the no-tracking promise for everyone who does not opt in.
+- One toggle, reversible at any time.
+- The privacy page would clearly distinguish the default state from the opt-in
+  ad state.
 
 ### Open before building
 
 - **Provider.** Privacy-respecting options fit best:
-  - [EthicalAds](https://www.ethicalads.io/) — no cookies, no behavioral
-    targeting, content-targeted. Used by Read the Docs. Leading candidate.
-  - [CodeFund](https://codefund.io/) — similar approach.
-  - Carbon Ads — tech audience, no cookies.
-  - Generic networks (AdSense, Media.net) — pay more, conflict with the ethos.
-- **CSP impact.** The current `default-src 'none'` policy must allow the ad
-  provider's script and image origins **only when the toggle is on**. Cleanest
-  approach: a different CSP served for a path or query parameter that signals
-  ads enabled, plus a conditional script load in `app.js` that reads the same
-  flag.
-- **Toggle persistence.** Either store the opt-in flag in `localStorage`
-  (`mototrack.ads-opt-in.v1`) so it sticks across visits, or ask every visit.
-  Asking every visit is more honest about consent but adds friction.
-- **`privacy.html` rewrite** to spell out exactly which provider loads and what
-  it may collect in the opt-in state, and how to switch back off.
+  - EthicalAds - no cookies, no behavioral targeting, content-targeted.
+  - CodeFund - similar approach.
+  - Carbon Ads - tech audience, no cookies.
+  - Generic networks such as AdSense or Media.net pay more but conflict with
+    the ethos.
+- **CSP impact.** The current `default-src 'none'` policy must allow provider
+  origins only when ads are enabled.
+- **Toggle persistence.** Store opt-in in `localStorage` or ask every visit.
+- **Privacy page rewrite.** Explain exactly which provider loads and how to
+  turn ads back off.
 
 ### Out of scope for this idea
 
-- Account-based supporters, donation buttons — separate conversation.
-- Geo-targeted ads or behavioral profiling — would violate the ethos regardless
-  of provider, and will not be added.
+- Account-based supporters and donation buttons.
+- Geo-targeted ads or behavioral profiling.
 
-## Session-advance workflow
+## Cross-device sync
 
-Status: discussed in PR #1, paused on a design call.
+Status: Pro-only possibility, deferred until cross-device is the actual goal.
 
-A **Save & start next session** button on the Review tab that saves the current
-session and pre-fills a new form for the next one. Bike, track, tire brand,
-suspension settings carry forward; PSIs, symptoms, lap times, and notes clear;
-session label auto-increments. Treats the form like a spreadsheet row,
-advancing one row at a time through a track day.
-
-### Open before building
-
-- **Temps / humidity** — carry forward (saves a retype if conditions are stable)
-  or clear (forces an honest re-read each session)?
-- **Button label** — "Save & start next session" / "Save & next" / "Save & advance".
-- **Auto-increment for non-numeric labels** — `Session 2` → `Session 3` is easy;
-  `Practice 1` → `Practice 2` is a regex on the last integer; `B group` becomes
-  blank for the rider to re-type.
-
-## Cross-device sync ("Rung 3")
-
-Status: deferred until cross-device is the actual goal.
-
-If the product later wants riders to compare sessions across devices or share
-with a coach, persistence can move from `localStorage` to a real backend
-(Supabase or similar). `storage.js` was written as a thin wrapper specifically
-so this swap is one file. Adding a backend before cross-device is the goal
-would force accounts, auth, and a privacy rewrite for a feature nobody is
-asking for.
+If Pro later needs riders to compare sessions across devices or share with a
+coach, persistence can move from `localStorage` to a backend. `storage.js` was
+written as a thin wrapper so this can be isolated later. Adding a backend before
+sync is a real product need would force accounts, auth, and a privacy rewrite
+too early.
