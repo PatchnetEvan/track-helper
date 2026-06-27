@@ -6,6 +6,7 @@
   const panels = {
     setup: document.getElementById("panel-setup"),
     tires: document.getElementById("panel-tires"),
+    calculators: document.getElementById("panel-calculators"),
     suspension: document.getElementById("panel-suspension"),
     laps: document.getElementById("panel-laps"),
     review: document.getElementById("panel-review"),
@@ -56,6 +57,23 @@
     return `<div class="row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
   }
 
+  function numericRow(label, value) {
+    return `<div class="row"><span>${escapeHtml(label)}</span><span class="numeric">${escapeHtml(value)}</span></div>`;
+  }
+
+  function signedMm(value, digits) {
+    if (!Number.isFinite(value)) return "";
+    const precision = digits == null ? 1 : digits;
+    const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+    return `${sign}${Math.abs(value).toFixed(precision)} mm`;
+  }
+
+  function signedDeg(value) {
+    if (!Number.isFinite(value)) return "";
+    const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+    return `${sign}${Math.abs(value).toFixed(2)} deg`;
+  }
+
   // --- Tires ----------------------------------------------------------------
   function tireSuggestions(label, pre, post, warmerOn) {
     if (pre == null || post == null) return [];
@@ -95,6 +113,191 @@
     }
     el.innerHTML = `<h3>Tire feedback</h3><ul>${out.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
       <p class="hint">Guidance is conservative and educational only. Always defer to your tire manufacturer and track conditions.</p>`;
+  });
+
+  // --- Calculator foundation: tire + units core ----------------------------
+  const tireCore = window.MotoTrackTireCore;
+  const tireMethodEl = document.getElementById("tire-core-method");
+  const tireMeasuredFields = document.getElementById("tire-core-measured-fields");
+  const tireLookupFields = document.getElementById("tire-core-lookup-fields");
+  const tireLookupEl = document.getElementById("tire-core-lookup");
+
+  function formatMm(value, digits) {
+    if (!Number.isFinite(value)) return "";
+    return `${tireCore.round(value, digits == null ? 1 : digits).toFixed(digits == null ? 1 : digits)} mm`;
+  }
+
+  function formatPct(value) {
+    if (!Number.isFinite(value)) return "";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(1)}%`;
+  }
+
+  function syncTireCoreFields() {
+    const method = tireMethodEl.value;
+    tireMeasuredFields.hidden = method !== "measured";
+    tireLookupFields.hidden = method !== "lookup";
+  }
+
+  function renderLookupOptions() {
+    tireLookupEl.innerHTML = tireCore.LOOKUP_TIRES.map((tire) => {
+      const label = `${tire.manufacturer} ${tire.model} - ${tire.size}`;
+      return `<option value="${escapeHtml(tire.id)}">${escapeHtml(label)}</option>`;
+    }).join("");
+  }
+
+  if (tireCore && tireMethodEl && tireLookupEl) {
+    renderLookupOptions();
+    syncTireCoreFields();
+    tireMethodEl.addEventListener("change", syncTireCoreFields);
+
+    document.getElementById("calc-tire-core").addEventListener("click", () => {
+      const method = tireMethodEl.value;
+      const resultEl = document.getElementById("tire-core-result");
+      const tire = tireCore.resolveTire({
+        measuredValue: method === "measured" ? str("tire-core-measured") : "",
+        measuredUnit: document.getElementById("tire-core-measured-unit").value,
+        lookupId: method === "lookup" ? tireLookupEl.value : "",
+        size: str("tire-core-size"),
+      });
+
+      if (!tire) {
+        resultEl.innerHTML = `<p>Enter a measured rollout, choose a lookup tire, or use a size like <code>180/55-17</code>.</p>`;
+        return;
+      }
+
+      const sourceLabel = {
+        measured: "measured",
+        lookup: "lookup",
+        estimated: "estimated from size",
+      }[tire.source] || tire.source;
+
+      const rows = [
+        numericRow("Rolling circumference", formatMm(tire.rollingCircMm, 1)),
+        numericRow("Derived rolling diameter", formatMm(tire.diameterMm, 1)),
+        row("Source", sourceLabel),
+      ];
+
+      if (tire.source === "estimated") {
+        rows.push(numericRow("Sidewall", formatMm(tire.sidewallMm, 1)));
+        rows.push(numericRow("Geometric diameter", formatMm(tire.geometricDiameterMm, 1)));
+        rows.push(numericRow("Geometric circumference", formatMm(tire.geomCircMm, 1)));
+        rows.push(row("Rolling factor", String(tire.rollingFactor)));
+      }
+
+      if (tire.source === "lookup") {
+        rows.push(row("Tire", `${tire.manufacturer} ${tire.model} ${tire.size}`));
+      }
+
+      if (tire.deltaFromTheoreticalPct != null) {
+        const smaller = tire.deltaFromTheoreticalPct < 0 ? "smaller" : "larger";
+        rows.push(numericRow("Delta from nominal", `${formatMm(tire.deltaFromTheoreticalMm, 1)} (${formatPct(tire.deltaFromTheoreticalPct)})`));
+        rows.push(row("Readout", `Running ${Math.abs(tire.deltaFromTheoreticalPct).toFixed(1)}% ${smaller} than nominal.`));
+      } else if (tire.theoretical && tire.source === "lookup") {
+        rows.push(numericRow("Nominal calculated reference", formatMm(tire.theoretical.rollingCircMm, 1)));
+      }
+
+      resultEl.innerHTML = `<h3>Tire value</h3>${rows.join("")}`;
+    });
+  }
+
+  // --- Geometry deltas ------------------------------------------------------
+  function optionalPositive(id) {
+    const value = num(id);
+    return value == null || value < 0 ? 0 : value;
+  }
+
+  function geometryDirection(steepeningMm) {
+    if (steepeningMm > 0) {
+      return {
+        rake: "less rake",
+        trail: "less trail",
+        steering: "quicker / twitchier",
+      };
+    }
+    if (steepeningMm < 0) {
+      return {
+        rake: "more rake",
+        trail: "more trail",
+        steering: "slower / stabler",
+      };
+    }
+    return {
+      rake: "no net rake change",
+      trail: "no net trail change",
+      steering: "neutral",
+    };
+  }
+
+  function trailFromConstants(radiusMm, rakeDeg, offsetMm) {
+    const rakeRad = rakeDeg * Math.PI / 180;
+    const cos = Math.cos(rakeRad);
+    if (Math.abs(cos) < 0.0001) return null;
+    return (radiusMm * Math.sin(rakeRad) - offsetMm) / cos;
+  }
+
+  function preciseTrailDelta(steepeningMm, constants) {
+    const wheelbase = constants.wheelbaseMm;
+    const radius = constants.frontRadiusMm;
+    const rake = constants.designRakeDeg;
+    const offset = constants.forkOffsetMm;
+    if (![wheelbase, radius, rake, offset].every((v) => Number.isFinite(v) && v > 0)) return null;
+
+    const rakeDeltaDeg = -(steepeningMm / wheelbase) * 57.2957795;
+    const baseline = trailFromConstants(radius, rake, offset);
+    const changed = trailFromConstants(radius, rake + rakeDeltaDeg, offset);
+    if (baseline == null || changed == null) return null;
+    return { trailDeltaMm: changed - baseline, rakeDeltaDeg };
+  }
+
+  function geometryConstantsFromForm() {
+    const constants = {
+      wheelbaseMm: num("geo-wheelbase"),
+      designRakeDeg: num("geo-design-rake"),
+      frontRadiusMm: num("geo-front-radius"),
+      forkOffsetMm: num("geo-fork-offset"),
+    };
+    return Object.values(constants).some((value) => value != null) ? constants : null;
+  }
+
+  document.getElementById("calc-geometry").addEventListener("click", () => {
+    const forkUpMm = optionalPositive("geo-fork-up");
+    const forkDownMm = optionalPositive("geo-fork-down");
+    const rearRaiseMm = optionalPositive("geo-rear-raise");
+    const rearLowerMm = optionalPositive("geo-rear-lower");
+    const tireDiameterDeltaMm = num("geo-rear-tire-diameter") || 0;
+
+    const frontEndRiseMm = forkDownMm - forkUpMm;
+    const rearRideHeightDeltaMm = rearRaiseMm - rearLowerMm + (tireDiameterDeltaMm / 2);
+    const steepeningMm = rearRideHeightDeltaMm - frontEndRiseMm;
+    const direction = geometryDirection(steepeningMm);
+    const tier2TrailDeltaMm = -(steepeningMm / 4);
+    const precise = preciseTrailDelta(steepeningMm, geometryConstantsFromForm() || {});
+
+    const resultEl = document.getElementById("geometry-result");
+    if (frontEndRiseMm === 0 && rearRideHeightDeltaMm === 0) {
+      resultEl.innerHTML = `<p>Enter a fork, rear ride-height, or rear-tire diameter change to see the geometry direction.</p>`;
+      return;
+    }
+
+    const rows = [
+      numericRow("Front ride-height result", signedMm(frontEndRiseMm, 1)),
+      numericRow("Rear ride-height result", signedMm(rearRideHeightDeltaMm, 1)),
+      row("Tier 1 direction", `${direction.rake}, ${direction.trail}`),
+      row("Steering effect", direction.steering),
+      numericRow("Tier 2 trail estimate", `${signedMm(tier2TrailDeltaMm, 1)} (estimated)`),
+    ];
+
+    if (precise) {
+      rows.push(numericRow("Rake estimate", `${signedDeg(precise.rakeDeltaDeg)} (from wheelbase)`));
+      rows.push(numericRow("Tier 3 trail delta", `${signedMm(precise.trailDeltaMm, 1)} (formula estimate)`));
+    } else {
+      rows.push(row("Tier 3 trail delta", "Add wheelbase, front radius, design rake, and offset to estimate with the trail formula."));
+    }
+
+    resultEl.innerHTML = `<h3>Geometry consequence</h3>${rows.join("")}
+      <p class="hint">Static baseline only - rake changes dynamically under braking and acceleration.</p>
+      <p class="hint">Short-wheelbase bikes amplify every change.</p>`;
   });
 
   // --- Suspension -----------------------------------------------------------
@@ -274,7 +477,7 @@
   function clearForm() {
     document.querySelectorAll('input[type="text"], textarea').forEach((el) => { el.value = ""; });
     document.querySelectorAll('input[type="checkbox"]').forEach((el) => { el.checked = false; });
-    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result"].forEach((id) => {
+    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result", "geometry-result"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.innerHTML = "";
     });
@@ -302,6 +505,7 @@
         trackTemp: str("track-temp"),
         humidity: str("humidity"),
         notes: str("general-notes"),
+        geometryConstants: geometryConstantsFromForm(),
       },
       tires: {
         brand: str("tire-brand"),
@@ -341,6 +545,11 @@
     setId("track-temp", s.setup && s.setup.trackTemp);
     setId("humidity", s.setup && s.setup.humidity);
     setId("general-notes", s.setup && s.setup.notes);
+    const geometryConstants = s.setup && s.setup.geometryConstants || {};
+    setId("geo-wheelbase", geometryConstants.wheelbaseMm);
+    setId("geo-design-rake", geometryConstants.designRakeDeg);
+    setId("geo-front-radius", geometryConstants.frontRadiusMm);
+    setId("geo-fork-offset", geometryConstants.forkOffsetMm);
 
     const t = s.tires || {};
     setId("tire-brand", t.brand);
@@ -366,7 +575,7 @@
 
     setId("laps-input", s.laps && s.laps.raw);
 
-    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result"].forEach((id) => {
+    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result", "geometry-result"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.innerHTML = "";
     });
@@ -577,6 +786,11 @@
     pushIf("Track temp", s.setup && s.setup.trackTemp);
     pushIf("Humidity", s.setup && s.setup.humidity);
     pushIf("Notes", s.setup && s.setup.notes);
+    const geometryConstants = s.setup && s.setup.geometryConstants || {};
+    pushIf("Wheelbase", geometryConstants.wheelbaseMm);
+    pushIf("Design rake", geometryConstants.designRakeDeg);
+    pushIf("Front tire radius", geometryConstants.frontRadiusMm);
+    pushIf("Fork offset", geometryConstants.forkOffsetMm);
     const t = s.tires || {};
     pushIf("Tire brand", t.brand);
     pushIf("Model / compound", t.model);
@@ -622,6 +836,10 @@
       ["Ambient temp", (s) => s.setup && s.setup.ambTemp],
       ["Track temp", (s) => s.setup && s.setup.trackTemp],
       ["Humidity", (s) => s.setup && s.setup.humidity],
+      ["Wheelbase", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.wheelbaseMm],
+      ["Design rake", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.designRakeDeg],
+      ["Front tire radius", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.frontRadiusMm],
+      ["Fork offset", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.forkOffsetMm],
       ["Tire brand", (s) => (s.tires && s.tires.brand) || ""],
       ["Model / compound", (s) => (s.tires && s.tires.model) || ""],
       ["Front pre-session", (s) => (s.tires && (s.tires.frontPre || s.tires.frontCold)) || ""],

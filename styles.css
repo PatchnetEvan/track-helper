@@ -1,13 +1,13 @@
 :root {
-  --bg: #0b0d10;
-  --bg-elev: #14181d;
-  --bg-elev-2: #1b2026;
-  --border: #262c34;
+  --bg: #121212;
+  --bg-elev: #181818;
+  --bg-elev-2: #202020;
+  --border: #303030;
   --text: #e8ecf1;
   --text-dim: #a0a8b3;
-  --accent: #ff6b2c;
-  --accent-dim: #b94e1f;
-  --good: #4ade80;
+  --accent: #ff6600;
+  --accent-dim: #b94a00;
+  --good: #00ff88;
   --warn: #fbbf24;
   --danger: #ef4444;
   --radius: 10px;
@@ -21,7 +21,7 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: Barlow, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 17px;
   line-height: 1.45;
   -webkit-text-size-adjust: 100%;
@@ -49,9 +49,9 @@ main {
 .brand-mark {
   width: 14px; height: 14px; border-radius: 3px;
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255, 107, 44, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.15);
 }
-.brand-name { font-weight: 700; letter-spacing: 0.02em; font-size: 1.1rem; }
+.brand-name { font-family: Orbitron, Barlow, system-ui, sans-serif; font-weight: 700; letter-spacing: 0.02em; font-size: 1.1rem; }
 .tagline { margin: 4px 0 0; color: var(--text-dim); font-size: 0.85rem; }
 
 .tabs {
@@ -97,6 +97,7 @@ main {
 h2 {
   margin: 0 0 12px;
   font-size: 1.2rem;
+  font-family: Orbitron, Barlow, system-ui, sans-serif;
 }
 h3 {
   margin: 14px 0 8px;
@@ -186,7 +187,7 @@ input:focus, textarea:focus {
 .chip input { width: 18px; height: 18px; }
 .chip:has(input:checked) {
   border-color: var(--accent);
-  background: rgba(255, 107, 44, 0.12);
+  background: rgba(255, 102, 0, 0.12);
 }
 
 button {
@@ -241,6 +242,14 @@ button {
   gap: 10px;
   padding: 4px 0;
   border-bottom: 1px dashed var(--border);
+}
+.result .row span:last-child,
+.numeric,
+.lap-table,
+.trend-block .trend-row,
+.compare-table td.val,
+code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
 .result .row:last-child { border-bottom: 0; }
@@ -385,7 +394,7 @@ button {
   vertical-align: top;
 }
 .compare-table td.val { font-variant-numeric: tabular-nums; }
-.compare-table tr.diff td { background: rgba(255, 107, 44, 0.08); }
+.compare-table tr.diff td { background: rgba(255, 102, 0, 0.08); }
 .compare-table tr.diff td:first-child { border-left: 3px solid var(--accent); }
 
 select {
@@ -399,6 +408,29 @@ select {
   font: inherit;
 }
 select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+
+.calc-tool {
+  padding-top: 2px;
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.calc-tool:first-of-type {
+  margin-top: 0;
+  border-top: 0;
+}
+.advanced {
+  margin: 4px 0 14px;
+  padding: 10px 12px 0;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.advanced summary {
+  min-height: 36px;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+}
 
 .app-footer {
   max-width: 720px;
