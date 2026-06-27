@@ -24,8 +24,9 @@ coach the rider.
 
 - Local-first, account-free, and no tracking.
 - Nothing required. A rider can fill in four fields and walk away.
-- Consequences are okay; prescriptions are not. The free app may state neutral
-  facts, but it should not tell riders what setup change to make.
+- Keep calculations light in the free app. The free logger can capture what
+  changed and what the rider felt, but deeper setup interpretation belongs in
+  Pro.
 - Keep the default workflow optimized for the 30 seconds after pit-in.
 
 ### Near-term logging work
@@ -77,6 +78,16 @@ logger simple and trustworthy.
   rear-sprocket change, speedo error, and ride-height delta.
 - **Geometry deltas.** Direction-first geometry outputs, estimated trail delta,
   and optional formula-based trail delta when bike constants exist.
+- **Trail-budget geometry.** Treat front ride height, rear ride height, tire
+  diameter, rake, and offset as levers that move trail. Store the rider's
+  physical adjustment separately from the computed trail consequence and the
+  rider's felt result.
+- **Front/rear side-effect comparison.** Frame dropping the front and raising
+  the rear as two ways to reduce trail, then explain the different side effects:
+  front load and ground clearance versus swingarm angle and anti-squat.
+- **Advanced geometry wording.** Prefer rider-measurable inputs such as visible
+  fork tube above the top clamp, then compute the mechanical result instead of
+  making riders reason through "forks up/down" terminology.
 - **Setup-log annotations.** Passive inline consequences on logged changes:
   gearing percentage, RPM change, tire ride-height effect, and geometry
   direction.
