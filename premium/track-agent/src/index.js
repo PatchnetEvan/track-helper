@@ -1,4 +1,5 @@
 import { userHasPremiumAccess } from "./premium-access.js";
+import { renderTrackAgentClientScript, renderTrackAgentHtml } from "./ui.js";
 import {
   getTrackAgentSession,
   getTrackAgentSessions,
@@ -13,6 +14,24 @@ function json(data, status = 200) {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function html(body) {
+  return new Response(body, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function javascript(body) {
+  return new Response(body, {
+    headers: {
+      "content-type": "text/javascript; charset=utf-8",
       "cache-control": "no-store",
     },
   });
@@ -40,6 +59,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const { pathname } = url;
+
+    if (request.method === "GET" && (pathname === "/" || pathname === "/track-agent")) {
+      return html(renderTrackAgentHtml());
+    }
+
+    if (request.method === "GET" && pathname === "/track-agent/ui.js") {
+      return javascript(renderTrackAgentClientScript());
+    }
 
     if (request.method === "GET" && pathname === "/health") {
       return json({ ok: true, service: "track-agent" });
