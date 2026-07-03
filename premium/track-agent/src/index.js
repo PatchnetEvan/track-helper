@@ -78,13 +78,13 @@ export default {
       if (!access.allowed) return json({ error: "premium_access_required" }, 403);
 
       const rawNote = body.raw_note || body.rawNote || body.note || "";
-      const parsed = parseTrackSessionNote(rawNote, {
+      const parsed = await parseTrackSessionNote(rawNote, {
         user_id: access.userId,
         motorcycle_ref: body.motorcycle_ref || null,
         track_ref: body.track_ref || null,
         event_ref: body.event_ref || null,
         app_session_ref: body.app_session_ref || null,
-      });
+      }, env);
       return json({ parsed });
     }
 

@@ -107,6 +107,40 @@ function optionalNumber(value) {
 }
 
 function normalizeParsedToCanonical(parsed, rawNote) {
+  if (parsed.entry || parsed.session || parsed.lap_times || parsed.tire_pressures || parsed.notes) {
+    const entry = parsed.entry || {};
+    const session = parsed.session || {};
+    const sessionNumber = session.session_number == null || session.session_number === ""
+      ? null
+      : Number(session.session_number);
+    return {
+      confirmed: true,
+      source: "manual_review",
+      entry: {
+        raw_note: entry.raw_note || rawNote,
+        track_name: entry.track_name || null,
+        bike_name: entry.bike_name || null,
+        event_ref: entry.event_ref || null,
+        motorcycle_ref: entry.motorcycle_ref || null,
+        track_ref: entry.track_ref || null,
+        app_session_ref: entry.app_session_ref || null,
+      },
+      session: {
+        session_number: Number.isFinite(sessionNumber) ? sessionNumber : null,
+        session_label: session.session_label || null,
+        session_type: session.session_type || null,
+        occurred_at: session.occurred_at || null,
+        conditions: session.conditions || { weather: null, track_temp: null, air_temp: null },
+      },
+      lap_times: Array.isArray(parsed.lap_times) ? parsed.lap_times : [],
+      tire_pressures: Array.isArray(parsed.tire_pressures) ? parsed.tire_pressures : [],
+      setup_changes: Array.isArray(parsed.setup_changes) ? parsed.setup_changes : [],
+      notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+      confidence: parsed.confidence && typeof parsed.confidence === "object" ? parsed.confidence : { overall: null, fields: {} },
+    };
+  }
+
   const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
   const setupChange = Array.isArray(parsed.setup_changes) && parsed.setup_changes[0]
     ? parsed.setup_changes[0]
