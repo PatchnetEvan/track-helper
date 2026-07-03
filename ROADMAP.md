@@ -15,6 +15,26 @@ MotoTrack has two intended lanes:
 The free version should stay faster than paper. The Pro version can add deeper
 analysis after the logging foundation is trusted.
 
+## Premium deployment boundary
+
+MotoTrack Log stays at:
+
+- `mototrack.app`
+
+Premium Track Agent should launch as an invitation-only prototype on a separate
+subdomain:
+
+- `agent.mototrack.app`
+
+This keeps the free app's no-server/no-network promise intact while giving
+Track Agent its own Cloudflare Worker, D1 database, invite gate, AI parsing
+service, CSP, and deployment lifecycle. The free app may link to Track Agent
+later, but it should not absorb Track Agent logic or data storage into the
+local-only session model.
+
+If Premium expands beyond Track Agent, `agent.mototrack.app` can either remain
+the premium workspace or graduate into a broader `pro.mototrack.app` app.
+
 ## Free version: MotoTrack Log
 
 Goal: a paddock-fast setup log that records what happened without trying to
