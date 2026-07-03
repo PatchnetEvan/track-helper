@@ -107,82 +107,37 @@ function optionalNumber(value) {
 }
 
 function normalizeParsedToCanonical(parsed, rawNote) {
-  if (parsed.entry || parsed.session || parsed.lap_times || parsed.tire_pressures || parsed.notes) {
-    const entry = parsed.entry || {};
-    const session = parsed.session || {};
-    const sessionNumber = session.session_number == null || session.session_number === ""
-      ? null
-      : Number(session.session_number);
-    return {
-      confirmed: true,
-      source: "manual_review",
-      entry: {
-        raw_note: entry.raw_note || rawNote,
-        track_name: entry.track_name || null,
-        bike_name: entry.bike_name || null,
-        event_ref: entry.event_ref || null,
-        motorcycle_ref: entry.motorcycle_ref || null,
-        track_ref: entry.track_ref || null,
-        app_session_ref: entry.app_session_ref || null,
-      },
-      session: {
-        session_number: Number.isFinite(sessionNumber) ? sessionNumber : null,
-        session_label: session.session_label || null,
-        session_type: session.session_type || null,
-        occurred_at: session.occurred_at || null,
-        conditions: session.conditions || { weather: null, track_temp: null, air_temp: null },
-      },
-      lap_times: Array.isArray(parsed.lap_times) ? parsed.lap_times : [],
-      tire_pressures: Array.isArray(parsed.tire_pressures) ? parsed.tire_pressures : [],
-      setup_changes: Array.isArray(parsed.setup_changes) ? parsed.setup_changes : [],
-      notes: Array.isArray(parsed.notes) ? parsed.notes : [],
-      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
-      confidence: parsed.confidence && typeof parsed.confidence === "object" ? parsed.confidence : { overall: null, fields: {} },
-    };
-  }
-
-  const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
-  const setupChange = Array.isArray(parsed.setup_changes) && parsed.setup_changes[0]
-    ? parsed.setup_changes[0]
-    : null;
-  const notes = parsed.handling_notes
-    ? [{ note_type: "handling", area: null, note: parsed.handling_notes, source: "rider_note" }]
-    : [];
+  const entry = parsed.entry || {};
+  const session = parsed.session || {};
+  const sessionNumber = session.session_number == null || session.session_number === ""
+    ? null
+    : Number(session.session_number);
 
   return {
     confirmed: true,
     source: "manual_review",
     entry: {
-      raw_note: parsed.raw_note || rawNote,
-      track_name: parsed.track_name || null,
-      bike_name: parsed.bike_name || null,
-      event_ref: null,
-      motorcycle_ref: null,
-      track_ref: null,
-      app_session_ref: null,
+      raw_note: entry.raw_note || rawNote,
+      track_name: entry.track_name || null,
+      bike_name: entry.bike_name || null,
+      event_ref: entry.event_ref || null,
+      motorcycle_ref: entry.motorcycle_ref || null,
+      track_ref: entry.track_ref || null,
+      app_session_ref: entry.app_session_ref || null,
     },
     session: {
-      session_number: parsed.session_number == null ? null : Number(parsed.session_number),
-      session_label: parsed.session_number == null ? null : "Session " + parsed.session_number,
-      session_type: null,
-      occurred_at: null,
-      conditions: { weather: null, track_temp: null, air_temp: null },
+      session_number: Number.isFinite(sessionNumber) ? sessionNumber : null,
+      session_label: session.session_label || null,
+      session_type: session.session_type || null,
+      occurred_at: session.occurred_at || null,
+      conditions: session.conditions || { weather: null, track_temp: null, air_temp: null },
     },
-    lap_times: parsed.best_lap_time ? [{ lap_number: null, lap_time: String(parsed.best_lap_time), is_best: true, source: "rider_note" }] : [],
-    tire_pressures: [
-      { position: "front", timing: "hot", pressure_psi: parsed.front_hot_pressure, source: "rider_note" },
-      { position: "rear", timing: "hot", pressure_psi: parsed.rear_hot_pressure, source: "rider_note" },
-    ].filter((pressure) => pressure.pressure_psi != null),
-    setup_changes: setupChange ? [{
-      timing: null,
-      component: setupChange.category || null,
-      adjustment: setupChange.field || null,
-      change: setupChange.to_value || setupChange.delta || setupChange.raw_text || null,
-      source: "rider_note",
-    }] : [],
-    notes,
-    warnings,
-    confidence: { overall: typeof parsed.confidence === "number" ? parsed.confidence : null, fields: {} },
+    lap_times: Array.isArray(parsed.lap_times) ? parsed.lap_times : [],
+    tire_pressures: Array.isArray(parsed.tire_pressures) ? parsed.tire_pressures : [],
+    setup_changes: Array.isArray(parsed.setup_changes) ? parsed.setup_changes : [],
+    notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+    warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+    confidence: parsed.confidence && typeof parsed.confidence === "object" ? parsed.confidence : { overall: null, fields: {} },
   };
 }
 

@@ -34,6 +34,23 @@ The Worker chooses a provider with `getTrackAgentParserProvider(env)`.
 - `TRACK_AGENT_AI_PROVIDER=stub_ai`: `stub_ai`
 - Any other value: safely falls back to `mock`
 
+## Canonical enforcement & normalization rules
+
+The canonical reviewed payload is the single source of truth for Track Agent
+after parsing. Providers must return that shape, and the service layer always
+passes provider output through `normalizeReviewedTrackAgentPayload()` before it
+leaves `parseTrackSessionNote()`.
+
+Validation is the final gate:
+
+- Provider draft: provider -> normalize -> `validateTrackAgentReviewPayload()`
+- Confirmed save: request payload -> normalize -> `validateTrackAgentReviewPayload({ requireConfirmed: true })` -> D1
+
+`normalizeReviewedTrackAgentPayload()` is the only boundary that accepts legacy,
+partial, or provider-specific payloads. UI and persistence code should consume
+canonical fields only. Parser output may have `confirmed: false`, but persistence
+requires the reviewed request to send `confirmed: true`.
+
 ## Why real AI is not wired yet
 
 Phase 4 only proves the adapter boundary. It intentionally avoids Cloudflare AI,

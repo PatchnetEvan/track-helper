@@ -1,7 +1,12 @@
 import { getTrackAgentParserProvider } from "./providers/index.js";
+import {
+  TRACK_AGENT_TIRE_POSITIONS,
+  TRACK_AGENT_TIRE_TIMINGS,
+  validateTrackAgentReviewPayload,
+} from "./schemas/track-agent-review.schema.js";
 
-const PRESSURE_POSITIONS = new Set(["front", "rear", "unknown"]);
-const PRESSURE_TIMINGS = new Set(["cold", "hot", "before", "after", "unknown", "pre", "post"]);
+const PRESSURE_POSITIONS = new Set(TRACK_AGENT_TIRE_POSITIONS);
+const PRESSURE_TIMINGS = new Set(TRACK_AGENT_TIRE_TIMINGS);
 
 export class TrackAgentValidationError extends Error {
   constructor(message, details = []) {
@@ -81,7 +86,18 @@ function normalizePosition(value) {
 
 export async function parseTrackSessionNote(rawNote, context = {}, env = {}) {
   const provider = getTrackAgentParserProvider(env);
-  return provider.parseRawTrackNote(rawNote, context);
+  const providerPayload = await provider.parseRawTrackNote(rawNote, context);
+  const providerValidation = validateTrackAgentReviewPayload(providerPayload);
+  if (!providerValidation.ok) {
+    throw new TrackAgentValidationError("Track Agent provider returned invalid payload.", providerValidation.errors);
+  }
+
+  const normalized = normalizeReviewedTrackAgentPayload(providerPayload);
+  const validation = validateTrackAgentReviewPayload(normalized);
+  if (!validation.ok) {
+    throw new TrackAgentValidationError("Track Agent provider returned invalid canonical payload.", validation.errors);
+  }
+  return normalized;
 }
 
 export function normalizeReviewedTrackAgentPayload(payload = {}) {
@@ -216,50 +232,18 @@ function normalizeConfidence(confidence) {
   };
 }
 
-export function validateReviewedTrackAgentPayload(payload) {
-  const errors = [];
-  const warnings = [];
-  if (payload.confirmed !== true) errors.push("confirmed must be true.");
-  if (!payload.entry.raw_note) errors.push("entry.raw_note is required.");
-  if (payload.session.session_number != null && !Number.isFinite(payload.session.session_number)) {
-    errors.push("session.session_number must be numeric when present.");
-  }
-  payload.lap_times.forEach((lap, index) => {
-    if (lap.lap_time != null && typeof lap.lap_time !== "string") {
-      errors.push(`lap_times[${index}].lap_time must be a string when present.`);
-    }
-  });
-  payload.tire_pressures.forEach((pressure, index) => {
-    if (!PRESSURE_POSITIONS.has(pressure.position)) {
-      errors.push(`tire_pressures[${index}].position is not supported.`);
-    }
-    if (!PRESSURE_TIMINGS.has(pressure.timing)) {
-      errors.push(`tire_pressures[${index}].timing is not supported.`);
-    }
-    if (pressure.pressure_psi != null && !Number.isFinite(pressure.pressure_psi)) {
-      errors.push(`tire_pressures[${index}].pressure_psi must be numeric when present.`);
-    }
-  });
-
-  if (!payload.entry.track_name) warnings.push("Track name is missing.");
-  if (!payload.entry.bike_name) warnings.push("Bike name is missing.");
-  if (payload.session.session_number == null) warnings.push("Session number is missing.");
-  if (!payload.lap_times.length) warnings.push("No lap times were reviewed.");
-  if (!payload.tire_pressures.length) warnings.push("No tire pressures were reviewed.");
-  if (!payload.setup_changes.length) warnings.push("No setup changes were reviewed.");
-  if (!payload.notes.length) warnings.push("No rider notes were reviewed.");
-
-  return { ok: errors.length === 0, errors, warnings };
+export function validateReviewedTrackAgentPayload(payload, options = {}) {
+  return validateTrackAgentReviewPayload(payload, options);
 }
 
 export async function saveReviewedTrackAgentSession(env, reviewedPayload) {
-  const database = db(env);
   const normalized = normalizeReviewedTrackAgentPayload(reviewedPayload);
-  const validation = validateReviewedTrackAgentPayload(normalized);
+  const validation = validateTrackAgentReviewPayload(normalized, { requireConfirmed: true });
   if (!validation.ok) {
     throw new TrackAgentValidationError("Reviewed Track Agent payload is invalid.", validation.errors);
   }
 
+  const database = db(env);
   const entryId = newId("tae");
   const sessionId = newId("tas");
   const userId = reviewedPayload.user_id || normalized.entry.user_id || "anonymous";
