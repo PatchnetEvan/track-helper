@@ -5,6 +5,7 @@ import {
   parseTrackSessionNote,
   saveReviewedTrackAgentSession,
   summarizeTrackAgentDay,
+  TrackAgentValidationError,
 } from "./track-agent-service.js";
 
 function json(data, status = 200) {
@@ -72,11 +73,22 @@ export default {
         }, 400);
       }
 
-      const saved = await saveReviewedTrackAgentSession(env, {
-        ...body,
-        user_id: access.userId,
-      });
-      return json({ saved });
+      try {
+        const saved = await saveReviewedTrackAgentSession(env, {
+          ...body,
+          user_id: access.userId,
+        });
+        return json({ saved });
+      } catch (error) {
+        if (error instanceof TrackAgentValidationError) {
+          return json({
+            error: "validation_failed",
+            message: error.message,
+            details: error.details,
+          }, 400);
+        }
+        throw error;
+      }
     }
 
     if (request.method === "GET" && pathname === "/track-agent/sessions") {
