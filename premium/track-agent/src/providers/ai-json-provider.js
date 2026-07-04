@@ -52,6 +52,10 @@ function buildSystemPrompt() {
     "Do not invent missing data.",
     "If uncertain, use null and add a warning.",
     "Only structure what the rider said.",
+    "Only extract facts explicitly present in raw_note.",
+    "Never copy values from examples.",
+    "Never include example values unless the exact value or phrase appears in raw_note.",
+    "Examples are demonstrations of format only, not facts to extract.",
     "Set confirmed to false and source to ai_json.",
     "Use empty arrays for missing lap_times, tire_pressures, setup_changes, and notes.",
     "Treat 'best lap 97.4', 'best 97.4', and 'lap 1:37.4' as lap_times rows with is_best true when the rider says best.",
@@ -59,6 +63,8 @@ function buildSystemPrompt() {
     "Treat handling phrases such as 'felt loose on exit of Turn 7', 'pushing on entry', and 'running wide' as notes with note_type handling; put corner/area text such as 'Turn 7 exit' in area when present.",
     "Treat setup phrases such as 'rear rebound softer one click', 'rear comp +2', and 'sprocket 45 -> 47' as setup_changes.",
     "Do not convert handling notes into advice.",
+    "Before returning JSON, verify every lap_time, pressure value, setup change, note, and area appears in raw_note or is a direct paraphrase of raw_note.",
+    "If unsure whether an item appears in raw_note, omit it and add a warning.",
   ].join(" ");
 }
 
@@ -67,6 +73,7 @@ function buildUserPrompt(rawNote, context) {
     raw_note: rawNote,
     context,
     canonical_schema_instruction: "Return exactly the canonical Track Agent reviewed payload. Unknown scalar fields must be null. Missing child rows must be empty arrays. Do not include any extra fields.",
+    example_warning: "EXAMPLE ONLY - DO NOT COPY THESE VALUES. The examples below show output format only. Their values must not appear in your output unless they are present in raw_note.",
     examples: [
       {
         raw_note: "Road Atlanta session 2 on Ninja 400. Best lap 97.4. Front hot 31, rear hot 27.5.",
@@ -83,16 +90,6 @@ function buildUserPrompt(rawNote, context) {
         expected_fragments: {
           notes: [
             { note_type: "handling", area: "Turn 7 exit", note: "Bike felt loose on exit of Turn 7 and was running wide.", source: "rider_note" },
-          ],
-        },
-      },
-      {
-        raw_note: "Changed rear rebound softer one click, rear comp +2, sprocket 45 -> 47.",
-        expected_fragments: {
-          setup_changes: [
-            { timing: null, component: "rear suspension", adjustment: "rebound", change: "softer one click", source: "rider_note" },
-            { timing: null, component: "rear suspension", adjustment: "compression", change: "+2", source: "rider_note" },
-            { timing: null, component: "gearing", adjustment: "rear sprocket", change: "45 -> 47", source: "rider_note" },
           ],
         },
       },
@@ -130,6 +127,7 @@ function validateAiPayloadContract(payload, rawNote) {
   if (payload.confirmed !== false) errors.push("confirmed must be false for AI parse drafts.");
   if (payload.source !== "ai_json") errors.push("source must be ai_json.");
   if (!payload.entry || payload.entry.raw_note !== rawNote) errors.push("entry.raw_note must match the submitted raw note.");
+  errors.push(...detectKnownExampleBleed(payload, rawNote));
 
   const validation = validateTrackAgentReviewPayload(payload);
   errors.push(...validation.errors);
@@ -141,6 +139,49 @@ function validateAiPayloadContract(payload, rawNote) {
       502,
     );
   }
+}
+
+function normalizeText(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function compactText(value) {
+  return normalizeText(value).replace(/\s*-\s*>\s*/g, " -> ");
+}
+
+function setupChangeText(change) {
+  return compactText([change.component, change.adjustment, change.change].filter(Boolean).join(" "));
+}
+
+function detectKnownExampleBleed(payload, rawNote) {
+  const note = compactText(rawNote);
+  const errors = [];
+  const setupChanges = Array.isArray(payload.setup_changes) ? payload.setup_changes : [];
+  const suspiciousExamples = [
+    {
+      outputPatterns: ["rear suspension compression +2", "rear compression +2", "rear comp +2"],
+      rawPatterns: ["rear compression +2", "rear comp +2"],
+      label: "rear compression +2",
+    },
+    {
+      outputPatterns: ["gearing rear sprocket 45 -> 47", "rear sprocket 45 -> 47", "sprocket 45 -> 47", "45 -> 47"],
+      rawPatterns: ["sprocket 45 -> 47", "rear sprocket 45 -> 47", "45 -> 47"],
+      label: "sprocket 45 -> 47",
+    },
+  ];
+
+  for (const change of setupChanges) {
+    const text = setupChangeText(change);
+    for (const example of suspiciousExamples) {
+      const appearsInOutput = example.outputPatterns.some((pattern) => text.includes(pattern));
+      const appearsInRawNote = example.rawPatterns.some((pattern) => note.includes(pattern));
+      if (appearsInOutput && !appearsInRawNote) {
+        errors.push(`AI output appears to include example-only setup change '${example.label}' that is not present in raw_note.`);
+      }
+    }
+  }
+
+  return errors;
 }
 
 async function runWithTimeout(aiRunPromise, timeoutMs) {

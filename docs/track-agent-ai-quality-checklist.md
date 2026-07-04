@@ -43,8 +43,21 @@ AI must not produce:
 - setup recommendations
 - safety-critical advice
 - invented lap times, pressures, bike names, tracks, or setup changes
+- example values that are not present in the rider's raw note
 - `confirmed: true`
 - fields outside the canonical Track Agent reviewed payload
+
+## Example bleed issue
+
+The Phase 6C live test extracted the required fields, but it also copied example
+setup changes that were not in the raw note:
+
+- `rear compression +2`
+- `rear sprocket 45 -> 47`
+
+Examples must be treated as format demonstrations only. They are not facts to
+extract. If an example value is not present in `raw_note`, it must not appear in
+the AI output.
 
 ## One-shot live retest phrase
 
@@ -63,6 +76,7 @@ Expected extraction:
 - two tire pressure rows: front/hot/31 and rear/hot/27.5
 - one handling note for loose feeling at Turn 7 exit
 - one setup change for rear rebound softer one click
+- no setup changes for rear compression, rear comp, sprocket, or `45 -> 47`
 
 Do not repeat live tests in a loop. If the one-shot live test still misses
 obvious fields, adjust prompt/schema guidance or consider a larger approved

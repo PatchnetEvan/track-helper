@@ -84,7 +84,9 @@ assert.equal(parsed.setup_changes[0].adjustment, "rebound");
 assert.equal(parsed.notes[0].area, "Turn 7 exit");
 assert.equal(capturedPrompt.includes("best lap 97.4"), true);
 assert.equal(capturedPrompt.includes("rear rebound softer one click"), true);
-assert.equal(capturedPrompt.includes("sprocket 45 -> 47"), true);
+assert.equal(capturedPrompt.includes("EXAMPLE ONLY"), true);
+assert.equal(capturedPrompt.includes("Never copy values from examples"), true);
+assert.equal(capturedPrompt.includes("raw_note: \"Changed rear rebound softer one click, rear comp +2, sprocket 45 -> 47.\""), false);
 assert.equal(capturedSchema.properties.lap_times.items.properties.lap_time.description.includes("best lap"), true);
 assert.equal(capturedSchema.properties.notes.items.properties.note.description.includes("pushing on entry"), true);
 
@@ -101,6 +103,27 @@ await assertProviderRejects("{not json", TRACK_AGENT_PROVIDER_ERROR_CODES.PROVID
 await assertProviderRejects({
   ...qualityPayload(),
   setup_changes: [{ timing: null, component: "rear suspension", adjustment: 99, change: "softer one click", source: "rider_note" }],
+}, TRACK_AGENT_PROVIDER_ERROR_CODES.PROVIDER_SCHEMA_VALIDATION_FAILED);
+await assertProviderRejects({
+  ...qualityPayload(),
+  setup_changes: [
+    { timing: null, component: "rear suspension", adjustment: "rebound", change: "softer one click", source: "rider_note" },
+    { timing: null, component: "rear suspension", adjustment: "compression", change: "+2", source: "rider_note" },
+  ],
+}, TRACK_AGENT_PROVIDER_ERROR_CODES.PROVIDER_SCHEMA_VALIDATION_FAILED);
+await assertProviderRejects({
+  ...qualityPayload(),
+  setup_changes: [
+    { timing: null, component: "rear suspension", adjustment: "rebound", change: "softer one click", source: "rider_note" },
+    { timing: null, component: "gearing", adjustment: "rear sprocket", change: "45 -> 47", source: "rider_note" },
+  ],
+}, TRACK_AGENT_PROVIDER_ERROR_CODES.PROVIDER_SCHEMA_VALIDATION_FAILED);
+await assertProviderRejects({
+  ...qualityPayload(),
+  setup_changes: [
+    { timing: null, component: "rear suspension", adjustment: "rebound", change: "softer one click", source: "rider_note" },
+    { timing: null, component: "gearing", adjustment: "rear sprocket", change: "sprocket 45 -> 47", source: "rider_note" },
+  ],
 }, TRACK_AGENT_PROVIDER_ERROR_CODES.PROVIDER_SCHEMA_VALIDATION_FAILED);
 
 console.log("ai-quality.test.js passed");
