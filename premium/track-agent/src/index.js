@@ -1,4 +1,5 @@
 import { requireTrackAgentAccess } from "./premium-access.js";
+import { TrackAgentProviderError } from "./providers/provider-errors.js";
 import { renderTrackAgentClientScript, renderTrackAgentHtml } from "./ui.js";
 import {
   getTrackAgentSession,
@@ -111,15 +112,26 @@ export default {
       const access = await requireTrackAgentAccess(request, env, body);
       if (!access.allowed) return access.response;
 
-      const rawNote = body.raw_note || body.rawNote || body.note || "";
-      const parsed = await parseTrackSessionNote(rawNote, {
-        user_id: access.userId,
-        motorcycle_ref: body.motorcycle_ref || null,
-        track_ref: body.track_ref || null,
-        event_ref: body.event_ref || null,
-        app_session_ref: body.app_session_ref || null,
-      }, env);
-      return json({ parsed });
+      try {
+        const rawNote = body.raw_note || body.rawNote || body.note || "";
+        const parsed = await parseTrackSessionNote(rawNote, {
+          user_id: access.userId,
+          motorcycle_ref: body.motorcycle_ref || null,
+          track_ref: body.track_ref || null,
+          event_ref: body.event_ref || null,
+          app_session_ref: body.app_session_ref || null,
+        }, env);
+        return json({ parsed });
+      } catch (error) {
+        if (error instanceof TrackAgentProviderError) {
+          return json({
+            error: error.code,
+            provider: error.provider,
+            message: error.message,
+          }, error.status);
+        }
+        throw error;
+      }
     }
 
     if (request.method === "POST" && pathname === "/track-agent/save") {

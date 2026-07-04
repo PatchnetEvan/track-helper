@@ -32,6 +32,7 @@ The Worker chooses a provider with `getTrackAgentParserProvider(env)`.
 - `TRACK_AGENT_AI_PROVIDER` unset: `mock`
 - `TRACK_AGENT_AI_PROVIDER=mock`: `mock`
 - `TRACK_AGENT_AI_PROVIDER=stub_ai`: `stub_ai`
+- `TRACK_AGENT_AI_PROVIDER=ai_json`: disabled future AI provider scaffold
 - Any other value: safely falls back to `mock`
 
 ## Canonical enforcement & normalization rules
