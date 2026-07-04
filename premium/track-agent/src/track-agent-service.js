@@ -1,5 +1,12 @@
-const PRESSURE_POSITIONS = new Set(["front", "rear", "unknown"]);
-const PRESSURE_TIMINGS = new Set(["cold", "hot", "before", "after", "unknown", "pre", "post"]);
+import { getTrackAgentParserProvider } from "./providers/index.js";
+import {
+  TRACK_AGENT_TIRE_POSITIONS,
+  TRACK_AGENT_TIRE_TIMINGS,
+  validateTrackAgentReviewPayload,
+} from "./schemas/track-agent-review.schema.js";
+
+const PRESSURE_POSITIONS = new Set(TRACK_AGENT_TIRE_POSITIONS);
+const PRESSURE_TIMINGS = new Set(TRACK_AGENT_TIRE_TIMINGS);
 
 export class TrackAgentValidationError extends Error {
   constructor(message, details = []) {
@@ -9,24 +16,10 @@ export class TrackAgentValidationError extends Error {
   }
 }
 
-function firstMatch(text, pattern) {
-  const match = text.match(pattern);
-  return match ? match[1].trim() : null;
-}
-
 function numberValue(value) {
   if (value == null || value === "") return null;
   const n = Number(String(value).replace(/[^\d.-]/g, ""));
   return Number.isFinite(n) ? n : null;
-}
-
-function lapTimeValue(text) {
-  return firstMatch(text, /\b(\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?|\d{2,3}\.\d{1,3})\b/);
-}
-
-function pressureValue(text, label) {
-  const pattern = new RegExp(`(?:${label})[^\\d]*(\\d{2}(?:\\.\\d+)?)`, "i");
-  return numberValue(firstMatch(text, pattern));
 }
 
 function newId(prefix) {
@@ -91,75 +84,20 @@ function normalizePosition(value) {
   return PRESSURE_POSITIONS.has(position) ? position : "unknown";
 }
 
-export function parseTrackSessionNote(rawNote, context = {}) {
-  const note = String(rawNote || "").trim();
-  const warnings = [];
-
-  if (!note) {
-    warnings.push("raw_note is required before saving.");
+export async function parseTrackSessionNote(rawNote, context = {}, env = {}) {
+  const provider = getTrackAgentParserProvider(env);
+  const providerPayload = await provider.parseRawTrackNote(rawNote, context, env);
+  const providerValidation = validateTrackAgentReviewPayload(providerPayload);
+  if (!providerValidation.ok) {
+    throw new TrackAgentValidationError("Track Agent provider returned invalid payload.", providerValidation.errors);
   }
 
-  const trackName = firstMatch(note, /\b(?:at|track)\s+([A-Z][A-Za-z0-9 .'-]+?)(?:[,.;]|\s+session|\s+s\d|\s+on\b|\s+best\b|\s+front\b|\s+rear\b|$)/i);
-  const bikeName = firstMatch(note, /\b(?:bike|on)\s+([A-Z][A-Za-z0-9 .'-]+?)(?:[,.;]|\s+session|\s+s\d|\s+at\b|\s+best\b|\s+front\b|\s+rear\b|$)/i);
-  const sessionRaw = firstMatch(note, /\b(?:session|s)\s*#?\s*(\d+)\b/i);
-  const sessionNumber = sessionRaw == null ? null : Number(sessionRaw);
-
-  const parsed = {
-    track_name: trackName || context.track_ref || null,
-    bike_name: bikeName || context.motorcycle_ref || null,
-    session_number: Number.isFinite(sessionNumber) ? sessionNumber : null,
-    best_lap_time: lapTimeValue(note),
-    front_cold_pressure: pressureValue(note, "front cold|fc|front pre"),
-    front_hot_pressure: pressureValue(note, "front hot|fh|front post"),
-    rear_cold_pressure: pressureValue(note, "rear cold|rc|rear pre"),
-    rear_hot_pressure: pressureValue(note, "rear hot|rh|rear post"),
-    handling_notes: firstMatch(note, /\b(?:felt|handling|bike felt)\s*[:=-]?\s*([^.;]+)/i),
-    setup_changes: [],
-    coaching_focus: firstMatch(note, /\b(?:focus|working on|chasing)\s*[:=-]?\s*([^.;]+)/i),
-    raw_note: note,
-    warnings,
-    confidence: 0.55,
-  };
-
-  const changePatterns = [
-    /\b(rear\s+comp(?:ression)?|front\s+comp(?:ression)?|rear\s+reb(?:ound)?|front\s+reb(?:ound)?)\s*([+-]\s*\d+)\b/ig,
-    /\b(?:sprocket|rear\s+sprocket)\s*(\d{2})\s*(?:->|to)\s*(\d{2})\b/ig,
-    /\b(?:fork|forks)\s*(?:tube\s*)?(?:raised|up|showing)\s*(\d+(?:\.\d+)?)\s*mm\b/ig,
-  ];
-
-  for (const pattern of changePatterns) {
-    for (const match of note.matchAll(pattern)) {
-      if (match.length === 3 && /^\d{2}$/.test(match[1])) {
-        parsed.setup_changes.push({
-          category: "gearing",
-          field: "rear_sprocket",
-          from_value: match[1],
-          to_value: match[2],
-          raw_text: match[0],
-        });
-      } else if (match.length === 3) {
-        parsed.setup_changes.push({
-          category: "suspension",
-          field: match[1].toLowerCase().replace(/\s+/g, "_"),
-          delta: match[2].replace(/\s+/g, ""),
-          raw_text: match[0],
-        });
-      } else {
-        parsed.setup_changes.push({
-          category: "geometry",
-          field: "visible_fork_tube_mm",
-          to_value: match[1],
-          raw_text: match[0],
-        });
-      }
-    }
+  const normalized = normalizeReviewedTrackAgentPayload(providerPayload);
+  const validation = validateTrackAgentReviewPayload(normalized);
+  if (!validation.ok) {
+    throw new TrackAgentValidationError("Track Agent provider returned invalid canonical payload.", validation.errors);
   }
-
-  if (!parsed.track_name) warnings.push("Track name was not detected.");
-  if (!parsed.bike_name) warnings.push("Bike name was not detected.");
-  if (parsed.session_number == null) warnings.push("Session number was not detected.");
-
-  return parsed;
+  return normalized;
 }
 
 export function normalizeReviewedTrackAgentPayload(payload = {}) {
@@ -294,50 +232,18 @@ function normalizeConfidence(confidence) {
   };
 }
 
-export function validateReviewedTrackAgentPayload(payload) {
-  const errors = [];
-  const warnings = [];
-  if (payload.confirmed !== true) errors.push("confirmed must be true.");
-  if (!payload.entry.raw_note) errors.push("entry.raw_note is required.");
-  if (payload.session.session_number != null && !Number.isFinite(payload.session.session_number)) {
-    errors.push("session.session_number must be numeric when present.");
-  }
-  payload.lap_times.forEach((lap, index) => {
-    if (lap.lap_time != null && typeof lap.lap_time !== "string") {
-      errors.push(`lap_times[${index}].lap_time must be a string when present.`);
-    }
-  });
-  payload.tire_pressures.forEach((pressure, index) => {
-    if (!PRESSURE_POSITIONS.has(pressure.position)) {
-      errors.push(`tire_pressures[${index}].position is not supported.`);
-    }
-    if (!PRESSURE_TIMINGS.has(pressure.timing)) {
-      errors.push(`tire_pressures[${index}].timing is not supported.`);
-    }
-    if (pressure.pressure_psi != null && !Number.isFinite(pressure.pressure_psi)) {
-      errors.push(`tire_pressures[${index}].pressure_psi must be numeric when present.`);
-    }
-  });
-
-  if (!payload.entry.track_name) warnings.push("Track name is missing.");
-  if (!payload.entry.bike_name) warnings.push("Bike name is missing.");
-  if (payload.session.session_number == null) warnings.push("Session number is missing.");
-  if (!payload.lap_times.length) warnings.push("No lap times were reviewed.");
-  if (!payload.tire_pressures.length) warnings.push("No tire pressures were reviewed.");
-  if (!payload.setup_changes.length) warnings.push("No setup changes were reviewed.");
-  if (!payload.notes.length) warnings.push("No rider notes were reviewed.");
-
-  return { ok: errors.length === 0, errors, warnings };
+export function validateReviewedTrackAgentPayload(payload, options = {}) {
+  return validateTrackAgentReviewPayload(payload, options);
 }
 
 export async function saveReviewedTrackAgentSession(env, reviewedPayload) {
-  const database = db(env);
   const normalized = normalizeReviewedTrackAgentPayload(reviewedPayload);
-  const validation = validateReviewedTrackAgentPayload(normalized);
+  const validation = validateTrackAgentReviewPayload(normalized, { requireConfirmed: true });
   if (!validation.ok) {
     throw new TrackAgentValidationError("Reviewed Track Agent payload is invalid.", validation.errors);
   }
 
+  const database = db(env);
   const entryId = newId("tae");
   const sessionId = newId("tas");
   const userId = reviewedPayload.user_id || normalized.entry.user_id || "anonymous";
