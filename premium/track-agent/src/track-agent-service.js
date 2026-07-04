@@ -7,6 +7,24 @@ import {
 
 const PRESSURE_POSITIONS = new Set(TRACK_AGENT_TIRE_POSITIONS);
 const PRESSURE_TIMINGS = new Set(TRACK_AGENT_TIRE_TIMINGS);
+const LOW_VALUE_WARNING_PATTERNS = [
+  /\bevent[_\s-]?ref\b/i,
+  /\btrack[_\s-]?ref\b/i,
+  /\bmotorcycle[_\s-]?ref\b/i,
+  /\bbike[_\s-]?ref\b/i,
+  /\bapp[_\s-]?session[_\s-]?ref\b/i,
+  /\bweather\b/i,
+  /\btrack[_\s-]?temp\b/i,
+  /\bair[_\s-]?temp\b/i,
+  /\bextra lap\b/i,
+  /\badditional lap\b/i,
+  /\blap[_\s-]?number\b/i,
+  /\boccurred[_\s-]?at\b/i,
+  /\bmissing\b.*\bsetup[_\s-]?changes?\b/i,
+  /\bno setup[_\s-]?changes?\b/i,
+  /\bmissing\b.*\bnotes?\b/i,
+  /\bno (?:rider\s+)?notes?\b/i,
+];
 
 export class TrackAgentValidationError extends Error {
   constructor(message, details = []) {
@@ -69,7 +87,8 @@ function asArray(value) {
 
 function nullableString(value) {
   if (value == null || value === "") return null;
-  return String(value);
+  const text = String(value).trim();
+  return text ? text : null;
 }
 
 function normalizeTiming(value) {
@@ -82,6 +101,92 @@ function normalizeTiming(value) {
 function normalizePosition(value) {
   const position = String(value || "unknown").toLowerCase();
   return PRESSURE_POSITIONS.has(position) ? position : "unknown";
+}
+
+function compareText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function collapseWarnings(warnings) {
+  const kept = [];
+  const seen = new Set();
+  for (const warning of asArray(warnings)) {
+    const text = String(warning || "").trim();
+    if (!text) continue;
+    if (LOW_VALUE_WARNING_PATTERNS.some((pattern) => pattern.test(text))) continue;
+    const key = compareText(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(text);
+  }
+  return kept;
+}
+
+function notesOverlap(a, b) {
+  const sameType = compareText(a.note_type) === compareText(b.note_type);
+  const sameArea = compareText(a.area) === compareText(b.area);
+  if (!sameType || !sameArea) return false;
+  const aNote = compareText(a.note);
+  const bNote = compareText(b.note);
+  return aNote === bNote || aNote.includes(bNote) || bNote.includes(aNote);
+}
+
+function preferLongerNote(a, b) {
+  return compareText(b.note).length > compareText(a.note).length ? b : a;
+}
+
+function dedupeNotes(notes) {
+  const deduped = [];
+  for (const note of notes) {
+    const index = deduped.findIndex((existing) => notesOverlap(existing, note));
+    if (index === -1) {
+      deduped.push(note);
+    } else {
+      deduped[index] = preferLongerNote(deduped[index], note);
+    }
+  }
+  return deduped;
+}
+
+function setupChangesOverlap(a, b) {
+  const sameComponent = compareText(a.component) === compareText(b.component);
+  const sameAdjustment = compareText(a.adjustment) === compareText(b.adjustment);
+  if (!sameComponent || !sameAdjustment) return false;
+  const aChange = compareText(a.change);
+  const bChange = compareText(b.change);
+  if (!aChange || !bChange) return false;
+  if (aChange === bChange || aChange.includes(bChange) || bChange.includes(aChange)) return true;
+
+  const bothSoftOneClick = [aChange, bChange].every((text) =>
+    /\bsoft(?:er|ened|en)?\b/.test(text) && /\b(?:one|1)\s+click\b/.test(text)
+  );
+  return bothSoftOneClick;
+}
+
+function setupChangeCompleteness(change) {
+  return ["timing", "component", "adjustment", "change", "source"]
+    .reduce((score, field) => score + (change[field] ? String(change[field]).length : 0), 0);
+}
+
+function preferMoreCompleteSetupChange(a, b) {
+  return setupChangeCompleteness(b) > setupChangeCompleteness(a) ? b : a;
+}
+
+function dedupeSetupChanges(changes) {
+  const deduped = [];
+  for (const change of changes) {
+    const index = deduped.findIndex((existing) => setupChangesOverlap(existing, change));
+    if (index === -1) {
+      deduped.push(change);
+    } else {
+      deduped[index] = preferMoreCompleteSetupChange(deduped[index], change);
+    }
+  }
+  return deduped;
 }
 
 export async function parseTrackSessionNote(rawNote, context = {}, env = {}) {
@@ -148,20 +253,20 @@ export function normalizeReviewedTrackAgentPayload(payload = {}) {
     pressure_psi: pressure.pressure_psi == null || pressure.pressure_psi === "" ? null : Number(pressure.pressure_psi),
     source: nullableString(pressure.source) || "rider_note",
   }));
-  canonical.setup_changes = canonical.setup_changes.map((change) => ({
+  canonical.setup_changes = dedupeSetupChanges(canonical.setup_changes.map((change) => ({
     timing: nullableString(change.timing),
     component: nullableString(change.component || change.category),
     adjustment: nullableString(change.adjustment || change.field),
     change: nullableString(change.change || change.to_value || change.delta || change.raw_text),
     source: nullableString(change.source) || "rider_note",
-  }));
-  canonical.notes = canonical.notes.map((note) => ({
+  })).filter((change) => change.component || change.adjustment || change.change));
+  canonical.notes = dedupeNotes(canonical.notes.map((note) => ({
     note_type: nullableString(note.note_type) || "rider",
     area: nullableString(note.area),
     note: nullableString(note.note || note.body),
     source: nullableString(note.source) || "rider_note",
-  })).filter((note) => note.note);
-  canonical.warnings = asArray(canonical.warnings).map(String);
+  })).filter((note) => note.note));
+  canonical.warnings = collapseWarnings(canonical.warnings);
   canonical.confidence = normalizeConfidence(canonical.confidence);
   return canonical;
 }

@@ -343,10 +343,5 @@ export function validateTrackAgentReviewPayload(payload, options = {}) {
     }
   }
 
-  if (Array.isArray(payload.lap_times) && !payload.lap_times.length) warnings.push("No lap times were reviewed.");
-  if (Array.isArray(payload.tire_pressures) && !payload.tire_pressures.length) warnings.push("No tire pressures were reviewed.");
-  if (Array.isArray(payload.setup_changes) && !payload.setup_changes.length) warnings.push("No setup changes were reviewed.");
-  if (Array.isArray(payload.notes) && !payload.notes.length) warnings.push("No rider notes were reviewed.");
-
   return { ok: errors.length === 0, errors, warnings };
 }
