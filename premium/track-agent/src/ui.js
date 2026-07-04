@@ -38,6 +38,7 @@ export function renderTrackAgentHtml() {
     <section>
       <h2>Raw Session Note</h2>
       <p class="notice">Parse creates an editable draft only. Nothing is saved until you click Save / Confirm.</p>
+      <p class="notice">Track Agent uses AI to convert your session notes into structured review fields. AI output is not saved automatically. You must review and confirm before anything is stored. Do not enter sensitive personal information, medical information, financial information, or anything unrelated to your track session.</p>
       <label>
         Rider note
         <textarea id="raw-note">At Road Atlanta session 2 on Ninja 400 best 97.4 front cold 30 rear hot 27 sprocket 45 -> 47 rear comp +2 chasing exit drive felt better</textarea>

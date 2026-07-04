@@ -53,6 +53,132 @@ export const TRACK_AGENT_REVIEW_PAYLOAD_SCHEMA = {
   },
 };
 
+const nullableString = { type: ["string", "null"] };
+const nullableNumber = { type: ["number", "null"] };
+
+export const TRACK_AGENT_REVIEW_PAYLOAD_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "confirmed",
+    "source",
+    "entry",
+    "session",
+    "lap_times",
+    "tire_pressures",
+    "setup_changes",
+    "notes",
+    "warnings",
+    "confidence",
+  ],
+  properties: {
+    confirmed: { type: "boolean", const: false },
+    source: { type: "string", const: "ai_json" },
+    entry: {
+      type: "object",
+      additionalProperties: false,
+      required: ["raw_note", "track_name", "bike_name", "event_ref", "motorcycle_ref", "track_ref", "app_session_ref"],
+      properties: {
+        raw_note: { type: "string" },
+        track_name: nullableString,
+        bike_name: nullableString,
+        event_ref: nullableString,
+        motorcycle_ref: nullableString,
+        track_ref: nullableString,
+        app_session_ref: nullableString,
+      },
+    },
+    session: {
+      type: "object",
+      additionalProperties: false,
+      required: ["session_number", "session_label", "session_type", "occurred_at", "conditions"],
+      properties: {
+        session_number: nullableNumber,
+        session_label: nullableString,
+        session_type: nullableString,
+        occurred_at: nullableString,
+        conditions: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+    },
+    lap_times: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["lap_number", "lap_time", "is_best", "source"],
+        properties: {
+          lap_number: nullableNumber,
+          lap_time: nullableString,
+          is_best: { type: "boolean" },
+          source: { type: "string" },
+        },
+      },
+    },
+    tire_pressures: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["position", "timing", "pressure_psi", "source"],
+        properties: {
+          position: { type: "string", enum: TRACK_AGENT_TIRE_POSITIONS },
+          timing: { type: "string", enum: TRACK_AGENT_TIRE_TIMINGS },
+          pressure_psi: nullableNumber,
+          source: { type: "string" },
+        },
+      },
+    },
+    setup_changes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["timing", "component", "adjustment", "change", "source"],
+        properties: {
+          timing: nullableString,
+          component: nullableString,
+          adjustment: nullableString,
+          change: nullableString,
+          source: { type: "string" },
+        },
+      },
+    },
+    notes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["note_type", "area", "note", "source"],
+        properties: {
+          note_type: { type: "string" },
+          area: nullableString,
+          note: nullableString,
+          source: { type: "string" },
+        },
+      },
+    },
+    warnings: {
+      type: "array",
+      items: { type: "string" },
+    },
+    confidence: {
+      type: "object",
+      additionalProperties: false,
+      required: ["overall", "fields"],
+      properties: {
+        overall: nullableNumber,
+        fields: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+    },
+  },
+};
+
 const TIRE_POSITION_SET = new Set(TRACK_AGENT_TIRE_POSITIONS);
 const TIRE_TIMING_SET = new Set(TRACK_AGENT_TIRE_TIMINGS);
 const SESSION_TYPE_SET = new Set(TRACK_AGENT_SESSION_TYPES);

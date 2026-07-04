@@ -1,76 +1,99 @@
-# Track Agent AI integration plan
+# Track Agent AI integration
 
-Phase 6A adds the AI adapter scaffold only. Live AI parsing is intentionally not
-enabled yet.
+Phase 6B wires live Cloudflare Workers AI through the existing `ai_json`
+provider only. The mock provider remains the default unless
+`TRACK_AGENT_AI_PROVIDER=ai_json` is explicitly configured.
 
-## Current behavior
+## Approved provider and model
 
-`TRACK_AGENT_AI_PROVIDER=ai_json` selects the future JSON AI provider, but the
-provider throws `provider_not_configured` and makes no external call. This is
-deliberate: accidental enabling should fail loudly before any rider note leaves
-the Worker.
+- Provider: Cloudflare Workers AI
+- Binding: `AI`
+- Starting model: `@cf/meta/llama-3.1-8b-instruct-fast`
 
-The default remains:
+Worker config includes:
 
-```text
-TRACK_AGENT_AI_PROVIDER unset -> mock
+```jsonc
+"ai": {
+  "binding": "AI"
+}
 ```
 
-## Future configuration contract
-
-Before Phase 6B can enable live AI, the Worker needs explicit configuration for
-the chosen provider:
+Required runtime config:
 
 - `TRACK_AGENT_AI_PROVIDER=ai_json`
-- `TRACK_AGENT_AI_MODEL`
-- `TRACK_AGENT_AI_TIMEOUT_MS`
-- `TRACK_AGENT_AI_MAX_INPUT_CHARS`
-- `TRACK_AGENT_AI_MAX_OUTPUT_TOKENS`
-- Cloudflare AI binding or an external provider key/binding
+- `TRACK_AGENT_AI_MODEL=@cf/meta/llama-3.1-8b-instruct-fast`
+- `TRACK_AGENT_AI_TIMEOUT_MS=8000`
+- `TRACK_AGENT_AI_MAX_INPUT_CHARS=4000`
+- `TRACK_AGENT_AI_MAX_OUTPUT_TOKENS=1200`
 
-No secrets or provider bindings are required or used in Phase 6A.
+## Scope
 
-## Error behavior
+AI is extraction-only. It may structure what the rider wrote, but it must not
+provide coaching, setup recommendations, safety advice, or interpretation. It
+must not invent missing data.
 
-AI provider failures should use structured error codes:
+The provider prompt instructs the model to return:
 
-- `provider_not_configured`
-- `provider_timeout`
-- `provider_invalid_json`
-- `provider_schema_validation_failed`
+- `confirmed: false`
+- `source: "ai_json"`
+- canonical Track Agent reviewed payload fields only
+- `null` for unknown scalar fields
+- empty arrays for missing child rows
+- warnings for ambiguity or missing important fields
 
-The parse endpoint should return a clear JSON error and must not save anything
-when a provider fails.
+## JSON Mode and validation
 
-## JSON-only output
+The provider uses Cloudflare Workers AI JSON Mode via `response_format` with the
+canonical Track Agent JSON Schema. The provider parses the model response as
+JSON and rejects:
 
-Live AI responses must be strict JSON only. The response must map to the
-canonical Track Agent reviewed payload shape before it can leave the provider
-boundary.
+- non-JSON responses
+- extra fields
+- `confirmed: true`
+- wrong source
+- changed raw note text
+- payloads that fail Track Agent schema validation
 
 The validation path remains:
 
 ```text
-provider output
--> raw validation
+access guard
+-> ai_json provider
+-> Cloudflare AI JSON Mode
+-> JSON parse
+-> raw provider payload validation
 -> normalization
 -> canonical validation
 -> review UI
+-> user edits
 -> confirmed save
 -> final validation
--> D1
+-> D1 persistence
 ```
 
-## Privacy and product requirements
+## Error behavior
 
-Before live AI is wired, MotoTrack needs approved privacy copy explaining what
-data is sent to the AI provider, when it is sent, and how review-before-save
-works. The UI should make it clear that parsed output is a draft.
+The parse endpoint returns structured JSON and never saves failed AI output:
 
-Invitation-only gating must remain enabled before AI is exposed. The free
-MotoTrack Log app stays local-first and account-free.
+- `provider_not_configured`: missing `env.AI`, model, timeout, input limit, or
+  output limit
+- `provider_timeout`: AI parsing exceeds `TRACK_AGENT_AI_TIMEOUT_MS`
+- `provider_invalid_json`: response cannot be parsed as JSON
+- `provider_schema_validation_failed`: response fails canonical schema checks or
+  input exceeds `TRACK_AGENT_AI_MAX_INPUT_CHARS`
+
+## Privacy notice
+
+The Track Agent UI displays:
+
+> Track Agent uses AI to convert your session notes into structured review fields. AI output is not saved automatically. You must review and confirm before anything is stored. Do not enter sensitive personal information, medical information, financial information, or anything unrelated to your track session.
 
 ## No auto-save rule
 
-AI output must never be persisted directly. The rider must review and confirm
-the canonical payload before `POST /track-agent/save` writes to D1.
+AI output is never persisted directly. The rider must review and confirm the
+canonical payload before `POST /track-agent/save` writes to D1.
+
+## Separation guarantee
+
+This integration is isolated to `premium/track-agent/`. The free MotoTrack Log
+app remains local-first and account-free.

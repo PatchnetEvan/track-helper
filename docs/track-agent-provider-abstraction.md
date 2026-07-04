@@ -24,6 +24,8 @@ always be shown to the rider for review and saved only after the request sends
 - `stub_ai`: implements the same interface but does not call any external AI
   service. It delegates to the mock parser and adds a warning that no external
   AI call was made.
+- `ai_json`: opt-in Cloudflare Workers AI JSON Mode provider. It is only used
+  when `TRACK_AGENT_AI_PROVIDER=ai_json` is configured.
 
 ## Provider selection
 
@@ -52,17 +54,15 @@ partial, or provider-specific payloads. UI and persistence code should consume
 canonical fields only. Parser output may have `confirmed: false`, but persistence
 requires the reviewed request to send `confirmed: true`.
 
-## Why real AI is not wired yet
+## AI wiring
 
-Phase 4 only proves the adapter boundary. It intentionally avoids Cloudflare AI,
-OpenAI, secrets, credentials, and external network calls. That keeps the
-known-good Phase 3.5 vertical slice deterministic while the future provider
-surface is introduced.
+Cloudflare Workers AI is wired only inside `ai_json`. The default parser remains
+`mock`, and invalid provider names still fall back to `mock`. AI output must
+pass the same canonical validation gates and still requires review before save.
 
 ## Future path
 
-A future provider can call Cloudflare AI or another approved AI service from
-inside the same contract. That provider should return strict canonical JSON,
-include warnings and confidence, and preserve the same review-before-save rule.
-The D1 persistence functions should not need to know which parser provider made
-the draft.
+A future provider can call another approved AI service from inside the same
+contract. It should return strict canonical JSON, include warnings and
+confidence, and preserve the same review-before-save rule. The D1 persistence
+functions should not need to know which parser provider made the draft.

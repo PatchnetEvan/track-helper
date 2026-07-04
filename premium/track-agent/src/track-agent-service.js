@@ -86,7 +86,7 @@ function normalizePosition(value) {
 
 export async function parseTrackSessionNote(rawNote, context = {}, env = {}) {
   const provider = getTrackAgentParserProvider(env);
-  const providerPayload = await provider.parseRawTrackNote(rawNote, context);
+  const providerPayload = await provider.parseRawTrackNote(rawNote, context, env);
   const providerValidation = validateTrackAgentReviewPayload(providerPayload);
   if (!providerValidation.ok) {
     throw new TrackAgentValidationError("Track Agent provider returned invalid payload.", providerValidation.errors);
