@@ -1,0 +1,617 @@
+import { getTrackAgentParserProvider } from "./providers/index.js";
+import {
+  TRACK_AGENT_TIRE_POSITIONS,
+  TRACK_AGENT_TIRE_TIMINGS,
+  validateTrackAgentReviewPayload,
+} from "./schemas/track-agent-review.schema.js";
+
+const PRESSURE_POSITIONS = new Set(TRACK_AGENT_TIRE_POSITIONS);
+const PRESSURE_TIMINGS = new Set(TRACK_AGENT_TIRE_TIMINGS);
+const LOW_VALUE_WARNING_PATTERNS = [
+  /\bevent[_\s-]?ref\b/i,
+  /\btrack[_\s-]?ref\b/i,
+  /\bmotorcycle[_\s-]?ref\b/i,
+  /\bbike[_\s-]?ref\b/i,
+  /\bapp[_\s-]?session[_\s-]?ref\b/i,
+  /\bweather\b/i,
+  /\btrack[_\s-]?temp\b/i,
+  /\bair[_\s-]?temp\b/i,
+  /\bextra lap\b/i,
+  /\badditional lap\b/i,
+  /\blap[_\s-]?number\b/i,
+  /\boccurred[_\s-]?at\b/i,
+  /\bmissing\b.*\bsetup[_\s-]?changes?\b/i,
+  /\bno setup[_\s-]?changes?\b/i,
+  /\bmissing\b.*\bnotes?\b/i,
+  /\bno (?:rider\s+)?notes?\b/i,
+];
+
+export class TrackAgentValidationError extends Error {
+  constructor(message, details = []) {
+    super(message);
+    this.name = "TrackAgentValidationError";
+    this.details = details;
+  }
+}
+
+function numberValue(value) {
+  if (value == null || value === "") return null;
+  const n = Number(String(value).replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function newId(prefix) {
+  const random = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+    ? globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 18)
+    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${random}`;
+}
+
+function db(env) {
+  if (!env || !env.TRACK_AGENT_DB) {
+    throw new Error("TRACK_AGENT_DB binding is not available.");
+  }
+  return env.TRACK_AGENT_DB;
+}
+
+function jsonText(value, fallback) {
+  try {
+    return JSON.stringify(value == null ? fallback : value);
+  } catch (e) {
+    return JSON.stringify(fallback);
+  }
+}
+
+function lapTimeToMs(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (/^\d+(?:\.\d+)?$/.test(text)) return Math.round(Number(text) * 1000);
+  const parts = text.split(":");
+  if (parts.length === 2) {
+    const mins = Number(parts[0]);
+    const secs = Number(parts[1]);
+    if (Number.isFinite(mins) && Number.isFinite(secs)) return Math.round((mins * 60 + secs) * 1000);
+  }
+  if (parts.length === 3) {
+    const hours = Number(parts[0]);
+    const mins = Number(parts[1]);
+    const secs = Number(parts[2]);
+    if ([hours, mins, secs].every(Number.isFinite)) return Math.round((hours * 3600 + mins * 60 + secs) * 1000);
+  }
+  return null;
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function nullableString(value) {
+  if (value == null || value === "") return null;
+  const text = String(value).trim();
+  return text ? text : null;
+}
+
+function normalizeTiming(value) {
+  const timing = String(value || "unknown").toLowerCase();
+  if (timing === "pre") return "before";
+  if (timing === "post") return "after";
+  return PRESSURE_TIMINGS.has(timing) ? timing : "unknown";
+}
+
+function normalizePosition(value) {
+  const position = String(value || "unknown").toLowerCase();
+  return PRESSURE_POSITIONS.has(position) ? position : "unknown";
+}
+
+function compareText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function collapseWarnings(warnings) {
+  const kept = [];
+  const seen = new Set();
+  for (const warning of asArray(warnings)) {
+    const text = String(warning || "").trim();
+    if (!text) continue;
+    if (LOW_VALUE_WARNING_PATTERNS.some((pattern) => pattern.test(text))) continue;
+    const key = compareText(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(text);
+  }
+  return kept;
+}
+
+function notesOverlap(a, b) {
+  const sameType = compareText(a.note_type) === compareText(b.note_type);
+  const sameArea = compareText(a.area) === compareText(b.area);
+  if (!sameType || !sameArea) return false;
+  const aNote = compareText(a.note);
+  const bNote = compareText(b.note);
+  return aNote === bNote || aNote.includes(bNote) || bNote.includes(aNote);
+}
+
+function preferLongerNote(a, b) {
+  return compareText(b.note).length > compareText(a.note).length ? b : a;
+}
+
+function dedupeNotes(notes) {
+  const deduped = [];
+  for (const note of notes) {
+    const index = deduped.findIndex((existing) => notesOverlap(existing, note));
+    if (index === -1) {
+      deduped.push(note);
+    } else {
+      deduped[index] = preferLongerNote(deduped[index], note);
+    }
+  }
+  return deduped;
+}
+
+function setupChangesOverlap(a, b) {
+  const sameComponent = compareText(a.component) === compareText(b.component);
+  const sameAdjustment = compareText(a.adjustment) === compareText(b.adjustment);
+  if (!sameComponent || !sameAdjustment) return false;
+  const aChange = compareText(a.change);
+  const bChange = compareText(b.change);
+  if (!aChange || !bChange) return false;
+  if (aChange === bChange || aChange.includes(bChange) || bChange.includes(aChange)) return true;
+
+  const bothSoftOneClick = [aChange, bChange].every((text) =>
+    /\bsoft(?:er|ened|en)?\b/.test(text) && /\b(?:one|1)\s+click\b/.test(text)
+  );
+  return bothSoftOneClick;
+}
+
+function setupChangeCompleteness(change) {
+  return ["timing", "component", "adjustment", "change", "source"]
+    .reduce((score, field) => score + (change[field] ? String(change[field]).length : 0), 0);
+}
+
+function preferMoreCompleteSetupChange(a, b) {
+  return setupChangeCompleteness(b) > setupChangeCompleteness(a) ? b : a;
+}
+
+function dedupeSetupChanges(changes) {
+  const deduped = [];
+  for (const change of changes) {
+    const index = deduped.findIndex((existing) => setupChangesOverlap(existing, change));
+    if (index === -1) {
+      deduped.push(change);
+    } else {
+      deduped[index] = preferMoreCompleteSetupChange(deduped[index], change);
+    }
+  }
+  return deduped;
+}
+
+export async function parseTrackSessionNote(rawNote, context = {}, env = {}) {
+  const provider = getTrackAgentParserProvider(env);
+  const providerPayload = await provider.parseRawTrackNote(rawNote, context, env);
+  const providerValidation = validateTrackAgentReviewPayload(providerPayload);
+  if (!providerValidation.ok) {
+    throw new TrackAgentValidationError("Track Agent provider returned invalid payload.", providerValidation.errors);
+  }
+
+  const normalized = normalizeReviewedTrackAgentPayload(providerPayload);
+  const validation = validateTrackAgentReviewPayload(normalized);
+  if (!validation.ok) {
+    throw new TrackAgentValidationError("Track Agent provider returned invalid canonical payload.", validation.errors);
+  }
+  return normalized;
+}
+
+export function normalizeReviewedTrackAgentPayload(payload = {}) {
+  const source = payload.source || "manual_review";
+  const raw = payload.parsed || payload.reviewed || payload.data || payload;
+  const canonical = raw.entry || raw.session || raw.lap_times || raw.tire_pressures || raw.notes
+    ? {
+        confirmed: payload.confirmed === true,
+        source,
+        entry: raw.entry || {},
+        session: raw.session || {},
+        lap_times: asArray(raw.lap_times),
+        tire_pressures: asArray(raw.tire_pressures),
+        setup_changes: asArray(raw.setup_changes),
+        notes: asArray(raw.notes),
+        warnings: asArray(raw.warnings),
+        confidence: raw.confidence || {},
+      }
+    : normalizeLegacyPayload(payload, raw, source);
+
+  canonical.entry = {
+    raw_note: nullableString(canonical.entry.raw_note),
+    track_name: nullableString(canonical.entry.track_name),
+    bike_name: nullableString(canonical.entry.bike_name),
+    event_ref: nullableString(canonical.entry.event_ref || payload.event_ref),
+    motorcycle_ref: nullableString(canonical.entry.motorcycle_ref || payload.motorcycle_ref),
+    track_ref: nullableString(canonical.entry.track_ref || payload.track_ref),
+    app_session_ref: nullableString(canonical.entry.app_session_ref || payload.app_session_ref),
+  };
+  canonical.session = {
+    session_number: canonical.session.session_number == null || canonical.session.session_number === ""
+      ? null
+      : Number(canonical.session.session_number),
+    session_label: nullableString(canonical.session.session_label),
+    session_type: nullableString(canonical.session.session_type),
+    occurred_at: nullableString(canonical.session.occurred_at),
+    conditions: canonical.session.conditions || {},
+  };
+  canonical.lap_times = canonical.lap_times.map((lap) => ({
+    lap_number: lap.lap_number == null || lap.lap_number === "" ? null : Number(lap.lap_number),
+    lap_time: lap.lap_time == null || lap.lap_time === "" ? null : String(lap.lap_time),
+    is_best: lap.is_best === true,
+    source: nullableString(lap.source) || "rider_note",
+  }));
+  canonical.tire_pressures = canonical.tire_pressures.map((pressure) => ({
+    position: normalizePosition(pressure.position),
+    timing: normalizeTiming(pressure.timing),
+    pressure_psi: pressure.pressure_psi == null || pressure.pressure_psi === "" ? null : Number(pressure.pressure_psi),
+    source: nullableString(pressure.source) || "rider_note",
+  }));
+  canonical.setup_changes = dedupeSetupChanges(canonical.setup_changes.map((change) => ({
+    timing: nullableString(change.timing),
+    component: nullableString(change.component || change.category),
+    adjustment: nullableString(change.adjustment || change.field),
+    change: nullableString(change.change || change.to_value || change.delta || change.raw_text),
+    source: nullableString(change.source) || "rider_note",
+  })).filter((change) => change.component || change.adjustment || change.change));
+  canonical.notes = dedupeNotes(canonical.notes.map((note) => ({
+    note_type: nullableString(note.note_type) || "rider",
+    area: nullableString(note.area),
+    note: nullableString(note.note || note.body),
+    source: nullableString(note.source) || "rider_note",
+  })).filter((note) => note.note));
+  canonical.warnings = collapseWarnings(canonical.warnings);
+  canonical.confidence = normalizeConfidence(canonical.confidence);
+  return canonical;
+}
+
+function normalizeLegacyPayload(payload, raw, source) {
+  const tirePressures = [];
+  [
+    ["front_cold_pressure", "front", "cold"],
+    ["front_hot_pressure", "front", "hot"],
+    ["rear_cold_pressure", "rear", "cold"],
+    ["rear_hot_pressure", "rear", "hot"],
+  ].forEach(([field, position, timing]) => {
+    if (raw[field] != null && raw[field] !== "") {
+      tirePressures.push({ position, timing, pressure_psi: raw[field], source: "rider_note" });
+    }
+  });
+
+  return {
+    confirmed: payload.confirmed === true,
+    source,
+    entry: {
+      raw_note: raw.raw_note || payload.raw_note || null,
+      track_name: raw.track_name || null,
+      bike_name: raw.bike_name || null,
+      event_ref: payload.event_ref || null,
+      motorcycle_ref: payload.motorcycle_ref || null,
+      track_ref: payload.track_ref || null,
+      app_session_ref: payload.app_session_ref || null,
+    },
+    session: {
+      session_number: raw.session_number == null ? null : raw.session_number,
+      session_label: raw.session_number == null ? null : `Session ${raw.session_number}`,
+      session_type: null,
+      occurred_at: null,
+      conditions: {},
+    },
+    lap_times: raw.best_lap_time ? [{
+      lap_number: null,
+      lap_time: raw.best_lap_time,
+      is_best: true,
+      source: "rider_note",
+    }] : [],
+    tire_pressures: tirePressures,
+    setup_changes: asArray(raw.setup_changes).map((change) => ({
+      timing: null,
+      component: change.category || null,
+      adjustment: change.field || null,
+      change: change.to_value || change.delta || change.raw_text || null,
+      source: "rider_note",
+    })),
+    notes: raw.handling_notes ? [{
+      note_type: "handling",
+      area: null,
+      note: raw.handling_notes,
+      source: "rider_note",
+    }] : [],
+    warnings: asArray(raw.warnings),
+    confidence: { overall: numberValue(raw.confidence), fields: {} },
+  };
+}
+
+function normalizeConfidence(confidence) {
+  if (typeof confidence === "number") return { overall: confidence, fields: {} };
+  if (!confidence || typeof confidence !== "object") return { overall: null, fields: {} };
+  return {
+    overall: confidence.overall == null ? null : numberValue(confidence.overall),
+    fields: confidence.fields && typeof confidence.fields === "object" ? confidence.fields : {},
+  };
+}
+
+export function validateReviewedTrackAgentPayload(payload, options = {}) {
+  return validateTrackAgentReviewPayload(payload, options);
+}
+
+export async function saveReviewedTrackAgentSession(env, reviewedPayload) {
+  const normalized = normalizeReviewedTrackAgentPayload(reviewedPayload);
+  const validation = validateTrackAgentReviewPayload(normalized, { requireConfirmed: true });
+  if (!validation.ok) {
+    throw new TrackAgentValidationError("Reviewed Track Agent payload is invalid.", validation.errors);
+  }
+
+  const database = db(env);
+  const entryId = newId("tae");
+  const sessionId = newId("tas");
+  const userId = reviewedPayload.user_id || normalized.entry.user_id || "anonymous";
+  const allWarnings = [...normalized.warnings, ...validation.warnings];
+  const statements = [
+    database.prepare(`
+      INSERT INTO track_agent_entries (
+        id, user_id, motorcycle_ref, track_ref, event_ref, app_session_ref,
+        raw_note, parser_version, confidence, warnings_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      entryId,
+      userId,
+      normalized.entry.motorcycle_ref,
+      normalized.entry.track_ref,
+      normalized.entry.event_ref,
+      normalized.entry.app_session_ref,
+      normalized.entry.raw_note,
+      "review-v1",
+      normalized.confidence.overall,
+      jsonText(allWarnings, [])
+    ),
+    database.prepare(`
+      INSERT INTO track_agent_sessions (
+        id, entry_id, user_id, track_name, bike_name, session_number,
+        coaching_focus, handling_notes, confirmed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(
+      sessionId,
+      entryId,
+      userId,
+      normalized.entry.track_name,
+      normalized.entry.bike_name,
+      normalized.session.session_number,
+      null,
+      normalized.notes.map((note) => note.note).filter(Boolean).join(" | ") || null
+    ),
+  ];
+
+  const reviewedLapTimes = normalized.lap_times.filter((lap) => lap.lap_time);
+  for (const lap of reviewedLapTimes) {
+    statements.push(database.prepare(`
+      INSERT INTO track_agent_lap_times (
+        id, session_id, user_id, lap_label, lap_time_raw, lap_time_ms
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      newId("tal"),
+      sessionId,
+      userId,
+      lap.is_best ? "best" : lap.lap_number == null ? null : `lap ${lap.lap_number}`,
+      lap.lap_time,
+      lapTimeToMs(lap.lap_time)
+    ));
+  }
+
+  const reviewedPressures = normalized.tire_pressures.filter((pressure) => pressure.pressure_psi != null);
+  for (const tire of reviewedPressures) {
+    statements.push(database.prepare(`
+      INSERT INTO track_agent_tire_pressures (
+        id, session_id, user_id, position, timing, pressure_psi
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      newId("tap"),
+      sessionId,
+      userId,
+      tire.position,
+      tire.timing,
+      tire.pressure_psi
+    ));
+  }
+
+  for (const change of normalized.setup_changes) {
+    statements.push(database.prepare(`
+      INSERT INTO track_agent_setup_changes (
+        id, session_id, user_id, category, field, from_value, to_value,
+        delta, reason, result, raw_text
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      newId("tac"),
+      sessionId,
+      userId,
+      change.component,
+      change.adjustment,
+      null,
+      change.change,
+      null,
+      change.timing,
+      null,
+      [change.component, change.adjustment, change.change].filter(Boolean).join(" ") || null
+    ));
+  }
+
+  for (const note of normalized.notes) {
+    statements.push(database.prepare(`
+      INSERT INTO track_agent_notes (
+        id, session_id, user_id, note_type, body
+      ) VALUES (?, ?, ?, ?, ?)
+    `).bind(
+      newId("tan"),
+      sessionId,
+      userId,
+      note.note_type,
+      note.area ? `${note.area}: ${note.note}` : note.note
+    ));
+  }
+
+  await database.batch(statements);
+
+  return {
+    id: sessionId,
+    entry_id: entryId,
+    session_id: sessionId,
+    status: "saved",
+    persisted: true,
+    warnings: allWarnings,
+    counts: {
+      entries: 1,
+      sessions: 1,
+      lap_times: reviewedLapTimes.length,
+      tire_pressures: reviewedPressures.length,
+      setup_changes: normalized.setup_changes.length,
+      notes: normalized.notes.length,
+    },
+  };
+}
+
+export async function getTrackAgentSessions(env, userId) {
+  const database = db(env);
+  const result = await database.prepare(`
+    SELECT
+      s.id,
+      s.entry_id,
+      s.user_id,
+      s.track_name,
+      s.bike_name,
+      s.session_number,
+      s.coaching_focus,
+      s.handling_notes,
+      s.confirmed_at,
+      s.created_at,
+      e.raw_note,
+      e.confidence,
+      e.warnings_json
+    FROM track_agent_sessions s
+    JOIN track_agent_entries e ON e.id = s.entry_id
+    WHERE s.user_id = ?
+    ORDER BY s.created_at DESC
+    LIMIT 50
+  `).bind(userId).all();
+  return (result.results || []).map((row) => ({
+    ...row,
+    warnings: parseJsonArray(row.warnings_json),
+  }));
+}
+
+export async function getTrackAgentSession(env, userId, sessionId) {
+  const database = db(env);
+  const session = await database.prepare(`
+    SELECT
+      s.id,
+      s.entry_id,
+      s.user_id,
+      s.track_name,
+      s.bike_name,
+      s.session_number,
+      s.coaching_focus,
+      s.handling_notes,
+      s.confirmed_at,
+      s.created_at,
+      s.updated_at,
+      e.motorcycle_ref,
+      e.track_ref,
+      e.event_ref,
+      e.app_session_ref,
+      e.raw_note,
+      e.parser_version,
+      e.confidence,
+      e.warnings_json,
+      e.created_at AS entry_created_at
+    FROM track_agent_sessions s
+    JOIN track_agent_entries e ON e.id = s.entry_id
+    WHERE s.id = ? AND s.user_id = ?
+  `).bind(sessionId, userId).first();
+
+  if (!session) return null;
+
+  const [lapTimes, tirePressures, setupChanges, notes] = await Promise.all([
+    database.prepare(`
+      SELECT id, lap_label, lap_time_raw, lap_time_ms, created_at
+      FROM track_agent_lap_times
+      WHERE session_id = ? AND user_id = ?
+      ORDER BY created_at ASC
+    `).bind(sessionId, userId).all(),
+    database.prepare(`
+      SELECT id, position, timing, pressure_psi, created_at
+      FROM track_agent_tire_pressures
+      WHERE session_id = ? AND user_id = ?
+      ORDER BY position ASC, timing ASC
+    `).bind(sessionId, userId).all(),
+    database.prepare(`
+      SELECT id, category, field, from_value, to_value, delta, reason, result, raw_text, created_at
+      FROM track_agent_setup_changes
+      WHERE session_id = ? AND user_id = ?
+      ORDER BY created_at ASC
+    `).bind(sessionId, userId).all(),
+    database.prepare(`
+      SELECT id, note_type, body, created_at
+      FROM track_agent_notes
+      WHERE session_id = ? AND user_id = ?
+      ORDER BY created_at ASC
+    `).bind(sessionId, userId).all(),
+  ]);
+
+  return {
+    id: session.id,
+    entry: {
+      id: session.entry_id,
+      user_id: session.user_id,
+      motorcycle_ref: session.motorcycle_ref,
+      track_ref: session.track_ref,
+      event_ref: session.event_ref,
+      app_session_ref: session.app_session_ref,
+      raw_note: session.raw_note,
+      parser_version: session.parser_version,
+      confidence: session.confidence,
+      warnings: parseJsonArray(session.warnings_json),
+      created_at: session.entry_created_at,
+    },
+    session: {
+      id: session.id,
+      user_id: session.user_id,
+      track_name: session.track_name,
+      bike_name: session.bike_name,
+      session_number: session.session_number,
+      coaching_focus: session.coaching_focus,
+      handling_notes: session.handling_notes,
+      confirmed_at: session.confirmed_at,
+      created_at: session.created_at,
+      updated_at: session.updated_at,
+    },
+    lap_times: lapTimes.results || [],
+    tire_pressures: tirePressures.results || [],
+    setup_changes: setupChanges.results || [],
+    notes: notes.results || [],
+  };
+}
+
+export async function summarizeTrackAgentDay(env, userId, dayId) {
+  const sessions = await getTrackAgentSessions(env, userId);
+  return {
+    id: dayId,
+    user_id: userId,
+    status: "summary",
+    session_count: sessions.length,
+    sessions,
+  };
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}

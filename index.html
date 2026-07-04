@@ -126,6 +126,7 @@
     <!-- Calculators -->
     <section class="panel" id="panel-calculators" role="tabpanel" hidden>
       <h2>Calculators</h2>
+      <p class="hint">Workflow: check sag at the start of the weekend to validate your spring rates and ride-height balance, then use Geometry Deltas between sessions to track direction and magnitude of changes from that baseline.</p>
 
       <section class="calc-tool" aria-labelledby="rolling-circ-heading">
         <h3 id="rolling-circ-heading">Rolling Circumference</h3>
@@ -176,9 +177,62 @@
         <div class="result" id="tire-core-result" aria-live="polite"></div>
       </section>
 
+      <section class="calc-tool" aria-labelledby="sag-heading">
+        <h3 id="sag-heading">Suspension Sag</h3>
+        <p class="hint">Measure from the same reference point each time: rear axle to a fixed subframe point (rear), or axle to a fixed fork point (front). All values in mm.</p>
+
+        <label class="field">
+          <span>Method</span>
+          <select id="sag-method">
+            <option value="simple">Simple — L1 − L3</option>
+            <option value="racetech">Race Tech — L1 − (L2 + L3) ÷ 2 (corrects for stiction)</option>
+          </select>
+        </label>
+
+        <div class="grid-2">
+          <div>
+            <h4>Front</h4>
+            <label class="field">
+              <span>L1 — fully extended <em>wheel off ground</em></span>
+              <input type="text" id="sag-front-l1" inputmode="decimal" placeholder="mm" />
+            </label>
+            <div id="sag-front-l2-field" hidden>
+              <label class="field">
+                <span>L2 — static <em>bike weight only</em></span>
+                <input type="text" id="sag-front-l2" inputmode="decimal" placeholder="mm" />
+              </label>
+            </div>
+            <label class="field">
+              <span>L3 — rider <em>in gear, neutral position</em></span>
+              <input type="text" id="sag-front-l3" inputmode="decimal" placeholder="mm" />
+            </label>
+          </div>
+          <div>
+            <h4>Rear</h4>
+            <label class="field">
+              <span>L1 — fully extended</span>
+              <input type="text" id="sag-rear-l1" inputmode="decimal" placeholder="mm" />
+            </label>
+            <div id="sag-rear-l2-field" hidden>
+              <label class="field">
+                <span>L2 — static</span>
+                <input type="text" id="sag-rear-l2" inputmode="decimal" placeholder="mm" />
+              </label>
+            </div>
+            <label class="field">
+              <span>L3 — rider</span>
+              <input type="text" id="sag-rear-l3" inputmode="decimal" placeholder="mm" />
+            </label>
+          </div>
+        </div>
+
+        <button type="button" class="btn-primary" id="calc-sag">Calculate sag</button>
+        <div class="result" id="sag-result" aria-live="polite"></div>
+      </section>
+
       <section class="calc-tool" aria-labelledby="geometry-deltas-heading">
         <h3 id="geometry-deltas-heading">Geometry Deltas</h3>
-        <p class="hint">Direction is the important output. Magnitudes are estimates unless all precise constants are supplied.</p>
+        <p class="hint">Direction is the important output. Magnitudes are estimates unless all precise constants are supplied. Use after sag is set — these track changes from that baseline.</p>
 
         <h3>Front End</h3>
         <div class="grid-2">

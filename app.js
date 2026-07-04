@@ -201,6 +201,82 @@
     });
   }
 
+  // --- Sag calculator -------------------------------------------------------
+  let _sagCache = {};
+
+  const sagMethodEl = document.getElementById("sag-method");
+  const sagFrontL2Field = document.getElementById("sag-front-l2-field");
+  const sagRearL2Field = document.getElementById("sag-rear-l2-field");
+
+  function syncSagMethodFields() {
+    const showL2 = sagMethodEl.value === "racetech";
+    sagFrontL2Field.hidden = !showL2;
+    sagRearL2Field.hidden = !showL2;
+  }
+
+  sagMethodEl.addEventListener("change", syncSagMethodFields);
+
+  function computeSag(l1, l2, l3, method) {
+    if (l1 == null || l3 == null) return null;
+    if (method === "racetech") {
+      if (l2 == null) return null;
+      return l1 - (l2 + l3) / 2;
+    }
+    return l1 - l3;
+  }
+
+  document.getElementById("calc-sag").addEventListener("click", () => {
+    const method = sagMethodEl.value;
+    const fl1 = num("sag-front-l1"), fl2 = num("sag-front-l2"), fl3 = num("sag-front-l3");
+    const rl1 = num("sag-rear-l1"), rl2 = num("sag-rear-l2"), rl3 = num("sag-rear-l3");
+    const resultEl = document.getElementById("sag-result");
+
+    const frontSag = computeSag(fl1, fl2, fl3, method);
+    const rearSag = computeSag(rl1, rl2, rl3, method);
+    const frontStatic = (fl1 != null && fl2 != null) ? fl1 - fl2 : null;
+    const rearStatic = (rl1 != null && rl2 != null) ? rl1 - rl2 : null;
+
+    if (frontSag == null && rearSag == null) {
+      const l2note = method === "racetech" ? ", L2," : "";
+      resultEl.innerHTML = `<p>Enter L1${l2note} and L3 for front or rear to calculate sag.</p>`;
+      return;
+    }
+
+    _sagCache = {
+      frontL1Mm: fl1,
+      rearL1Mm: rl1,
+      frontSagMm: frontSag,
+      rearSagMm: rearSag,
+    };
+
+    const SAG_MIN = 25, SAG_MAX = 40;
+    function sagTag(sag) {
+      if (sag == null || sag < 0) return "";
+      if (sag < SAG_MIN) return " — below typical range";
+      if (sag > SAG_MAX) return " — above typical range";
+      return " — within typical range";
+    }
+
+    const rows = [];
+    if (frontSag != null) {
+      rows.push(numericRow("Front rider sag", `${frontSag.toFixed(1)} mm${sagTag(frontSag)}`));
+      if (frontStatic != null) rows.push(numericRow("Front static sag", `${frontStatic.toFixed(1)} mm`));
+    }
+    if (rearSag != null) {
+      rows.push(numericRow("Rear rider sag", `${rearSag.toFixed(1)} mm${sagTag(rearSag)}`));
+      if (rearStatic != null) rows.push(numericRow("Rear static sag", `${rearStatic.toFixed(1)} mm`));
+    }
+    if (frontSag != null && rearSag != null) {
+      const balance = rearSag - frontSag;
+      const balLabel = Math.abs(balance) <= 5 ? "balanced" : (balance > 0 ? "rear higher" : "front higher");
+      rows.push(numericRow("Front / rear balance", `${signedMm(balance, 1)} (${balLabel})`));
+    }
+
+    const methodLabel = method === "racetech" ? "Race Tech method — stiction corrected" : "Simple method — L1 − L3";
+    resultEl.innerHTML = `<h3>Sag result</h3>${rows.join("")}
+      <p class="hint">${methodLabel}. Typical sport/track range: 25–40 mm rider sag. L1 and sag values are stored with this session when saved.</p>`;
+  });
+
   // --- Geometry deltas ------------------------------------------------------
   function optionalPositive(id) {
     const value = num(id);
@@ -256,6 +332,10 @@
       designRakeDeg: num("geo-design-rake"),
       frontRadiusMm: num("geo-front-radius"),
       forkOffsetMm: num("geo-fork-offset"),
+      frontL1Mm: num("sag-front-l1"),
+      rearL1Mm: num("sag-rear-l1"),
+      frontSagMm: typeof _sagCache.frontSagMm === "number" ? _sagCache.frontSagMm : null,
+      rearSagMm: typeof _sagCache.rearSagMm === "number" ? _sagCache.rearSagMm : null,
     };
     return Object.values(constants).some((value) => value != null) ? constants : null;
   }
@@ -477,7 +557,8 @@
   function clearForm() {
     document.querySelectorAll('input[type="text"], textarea').forEach((el) => { el.value = ""; });
     document.querySelectorAll('input[type="checkbox"]').forEach((el) => { el.checked = false; });
-    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result", "geometry-result"].forEach((id) => {
+    _sagCache = {};
+    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result", "geometry-result", "sag-result"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.innerHTML = "";
     });
@@ -550,6 +631,14 @@
     setId("geo-design-rake", geometryConstants.designRakeDeg);
     setId("geo-front-radius", geometryConstants.frontRadiusMm);
     setId("geo-fork-offset", geometryConstants.forkOffsetMm);
+    setId("sag-front-l1", geometryConstants.frontL1Mm);
+    setId("sag-rear-l1", geometryConstants.rearL1Mm);
+    _sagCache = {
+      frontL1Mm: geometryConstants.frontL1Mm != null ? geometryConstants.frontL1Mm : null,
+      rearL1Mm: geometryConstants.rearL1Mm != null ? geometryConstants.rearL1Mm : null,
+      frontSagMm: geometryConstants.frontSagMm != null ? geometryConstants.frontSagMm : null,
+      rearSagMm: geometryConstants.rearSagMm != null ? geometryConstants.rearSagMm : null,
+    };
 
     const t = s.tires || {};
     setId("tire-brand", t.brand);
@@ -575,7 +664,7 @@
 
     setId("laps-input", s.laps && s.laps.raw);
 
-    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result", "geometry-result"].forEach((id) => {
+    ["tire-result", "suspension-result", "laps-result", "summary-result", "save-result", "geometry-result", "sag-result"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.innerHTML = "";
     });
@@ -791,6 +880,10 @@
     pushIf("Design rake", geometryConstants.designRakeDeg);
     pushIf("Front tire radius", geometryConstants.frontRadiusMm);
     pushIf("Fork offset", geometryConstants.forkOffsetMm);
+    pushIf("Front L1 (extended)", geometryConstants.frontL1Mm);
+    pushIf("Rear L1 (extended)", geometryConstants.rearL1Mm);
+    if (geometryConstants.frontSagMm != null) pushIf("Front rider sag", `${Number(geometryConstants.frontSagMm).toFixed(1)} mm`);
+    if (geometryConstants.rearSagMm != null) pushIf("Rear rider sag", `${Number(geometryConstants.rearSagMm).toFixed(1)} mm`);
     const t = s.tires || {};
     pushIf("Tire brand", t.brand);
     pushIf("Model / compound", t.model);
@@ -840,6 +933,10 @@
       ["Design rake", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.designRakeDeg],
       ["Front tire radius", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.frontRadiusMm],
       ["Fork offset", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.forkOffsetMm],
+      ["Front L1 (extended)", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.frontL1Mm],
+      ["Rear L1 (extended)", (s) => s.setup && s.setup.geometryConstants && s.setup.geometryConstants.rearL1Mm],
+      ["Front rider sag", (s) => { const v = s.setup && s.setup.geometryConstants && s.setup.geometryConstants.frontSagMm; return v != null ? `${Number(v).toFixed(1)} mm` : ""; }],
+      ["Rear rider sag", (s) => { const v = s.setup && s.setup.geometryConstants && s.setup.geometryConstants.rearSagMm; return v != null ? `${Number(v).toFixed(1)} mm` : ""; }],
       ["Tire brand", (s) => (s.tires && s.tires.brand) || ""],
       ["Model / compound", (s) => (s.tires && s.tires.model) || ""],
       ["Front pre-session", (s) => (s.tires && (s.tires.frontPre || s.tires.frontCold)) || ""],
