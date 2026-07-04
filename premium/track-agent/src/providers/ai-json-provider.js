@@ -54,6 +54,11 @@ function buildSystemPrompt() {
     "Only structure what the rider said.",
     "Set confirmed to false and source to ai_json.",
     "Use empty arrays for missing lap_times, tire_pressures, setup_changes, and notes.",
+    "Treat 'best lap 97.4', 'best 97.4', and 'lap 1:37.4' as lap_times rows with is_best true when the rider says best.",
+    "Treat 'front hot 31', 'rear hot 27.5', 'front cold 30', and 'rear cold 27' as tire_pressures with position front/rear, timing hot/cold, pressure_psi numeric.",
+    "Treat handling phrases such as 'felt loose on exit of Turn 7', 'pushing on entry', and 'running wide' as notes with note_type handling; put corner/area text such as 'Turn 7 exit' in area when present.",
+    "Treat setup phrases such as 'rear rebound softer one click', 'rear comp +2', and 'sprocket 45 -> 47' as setup_changes.",
+    "Do not convert handling notes into advice.",
   ].join(" ");
 }
 
@@ -62,6 +67,36 @@ function buildUserPrompt(rawNote, context) {
     raw_note: rawNote,
     context,
     canonical_schema_instruction: "Return exactly the canonical Track Agent reviewed payload. Unknown scalar fields must be null. Missing child rows must be empty arrays. Do not include any extra fields.",
+    examples: [
+      {
+        raw_note: "Road Atlanta session 2 on Ninja 400. Best lap 97.4. Front hot 31, rear hot 27.5.",
+        expected_fragments: {
+          lap_times: [{ lap_number: null, lap_time: "97.4", is_best: true, source: "rider_note" }],
+          tire_pressures: [
+            { position: "front", timing: "hot", pressure_psi: 31, source: "rider_note" },
+            { position: "rear", timing: "hot", pressure_psi: 27.5, source: "rider_note" },
+          ],
+        },
+      },
+      {
+        raw_note: "Bike felt loose on exit of Turn 7 and was running wide.",
+        expected_fragments: {
+          notes: [
+            { note_type: "handling", area: "Turn 7 exit", note: "Bike felt loose on exit of Turn 7 and was running wide.", source: "rider_note" },
+          ],
+        },
+      },
+      {
+        raw_note: "Changed rear rebound softer one click, rear comp +2, sprocket 45 -> 47.",
+        expected_fragments: {
+          setup_changes: [
+            { timing: null, component: "rear suspension", adjustment: "rebound", change: "softer one click", source: "rider_note" },
+            { timing: null, component: "rear suspension", adjustment: "compression", change: "+2", source: "rider_note" },
+            { timing: null, component: "gearing", adjustment: "rear sprocket", change: "45 -> 47", source: "rider_note" },
+          ],
+        },
+      },
+    ],
   });
 }
 

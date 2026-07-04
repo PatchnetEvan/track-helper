@@ -58,6 +58,7 @@ const nullableNumber = { type: ["number", "null"] };
 
 export const TRACK_AGENT_REVIEW_PAYLOAD_JSON_SCHEMA = {
   type: "object",
+  description: "Canonical Track Agent reviewed payload draft for motorcycle track-session logging extraction.",
   additionalProperties: false,
   required: [
     "confirmed",
@@ -110,9 +111,9 @@ export const TRACK_AGENT_REVIEW_PAYLOAD_JSON_SCHEMA = {
         additionalProperties: false,
         required: ["lap_number", "lap_time", "is_best", "source"],
         properties: {
-          lap_number: nullableNumber,
-          lap_time: nullableString,
-          is_best: { type: "boolean" },
+          lap_number: { ...nullableNumber, description: "Lap number when the rider gave a specific lap number; otherwise null." },
+          lap_time: { ...nullableString, description: "Lap time exactly as stated, such as '97.4', '1:37.4', or '00:01:37.400'. Capture phrases like 'best lap 97.4', 'best 97.4', and 'lap 1:37.4'." },
+          is_best: { type: "boolean", description: "True when the rider says this is the best lap or uses phrasing like 'best lap' or 'best 97.4'." },
           source: { type: "string" },
         },
       },
@@ -124,9 +125,9 @@ export const TRACK_AGENT_REVIEW_PAYLOAD_JSON_SCHEMA = {
         additionalProperties: false,
         required: ["position", "timing", "pressure_psi", "source"],
         properties: {
-          position: { type: "string", enum: TRACK_AGENT_TIRE_POSITIONS },
-          timing: { type: "string", enum: TRACK_AGENT_TIRE_TIMINGS },
-          pressure_psi: nullableNumber,
+          position: { type: "string", enum: TRACK_AGENT_TIRE_POSITIONS, description: "Use front for front tire pressure, rear for rear tire pressure, otherwise unknown." },
+          timing: { type: "string", enum: TRACK_AGENT_TIRE_TIMINGS, description: "Use hot for phrases like 'front hot 31', cold for 'rear cold 27', before/after only when stated." },
+          pressure_psi: { ...nullableNumber, description: "Numeric PSI value from pressure phrases, preserving decimals such as 27.5." },
           source: { type: "string" },
         },
       },
@@ -139,9 +140,9 @@ export const TRACK_AGENT_REVIEW_PAYLOAD_JSON_SCHEMA = {
         required: ["timing", "component", "adjustment", "change", "source"],
         properties: {
           timing: nullableString,
-          component: nullableString,
-          adjustment: nullableString,
-          change: nullableString,
+          component: { ...nullableString, description: "Bike area changed, such as rear suspension, front suspension, gearing, fork height, or sprocket." },
+          adjustment: { ...nullableString, description: "Specific adjustment such as rebound, compression, rear sprocket, front sprocket, fork height, or visible fork tube." },
+          change: { ...nullableString, description: "Change text exactly as stated, such as 'softer one click', '+2', or '45 -> 47'." },
           source: { type: "string" },
         },
       },
@@ -153,15 +154,16 @@ export const TRACK_AGENT_REVIEW_PAYLOAD_JSON_SCHEMA = {
         additionalProperties: false,
         required: ["note_type", "area", "note", "source"],
         properties: {
-          note_type: { type: "string" },
-          area: nullableString,
-          note: nullableString,
+          note_type: { type: "string", description: "Use handling for rider feel phrases like loose, pushing, running wide, chatter, vague, grip, spin, or stability." },
+          area: { ...nullableString, description: "Corner, phase, or track section if stated, such as 'Turn 7 exit', 'entry', 'mid-corner', or 'corner exit'." },
+          note: { ...nullableString, description: "Rider's observed symptom only, not advice. Capture phrases like 'felt loose on exit of Turn 7', 'pushing on entry', or 'running wide'." },
           source: { type: "string" },
         },
       },
     },
     warnings: {
       type: "array",
+      description: "Use warnings for missing or ambiguous log fields, not for coaching or safety advice.",
       items: { type: "string" },
     },
     confidence: {
