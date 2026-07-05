@@ -1,6 +1,6 @@
 import { requireTrackAgentAccess } from "./premium-access.js";
 import { TrackAgentProviderError } from "./providers/provider-errors.js";
-import { renderTrackAgentClientScript, renderTrackAgentHtml } from "./ui.js";
+import { renderTrackAgentClientScript, renderTrackAgentHtml, renderTrackAgentLandingHtml } from "./ui.js";
 import {
   getTrackAgentSession,
   getTrackAgentSessions,
@@ -98,7 +98,11 @@ function routeParams(pathname, prefix) {
 }
 
 function isTrackAgentUiPage(method, pathname) {
-  return method === "GET" && (pathname === "/" || pathname === "/track-agent");
+  return method === "GET" && pathname === "/track-agent";
+}
+
+function isPublicLandingPage(method, pathname) {
+  return method === "GET" && (pathname === "/" || pathname === "/request-invite");
 }
 
 function cleanAccessUrl(url) {
@@ -118,6 +122,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const { pathname } = url;
+
+    if (isPublicLandingPage(request.method, pathname)) {
+      return html(renderTrackAgentLandingHtml());
+    }
 
     if (isTrackAgentUiPage(request.method, pathname)) {
       const access = await requireTrackAgentAccess(request, env);
