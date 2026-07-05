@@ -14,12 +14,13 @@ Access is fail-closed:
 
 - If no env configuration is present, requests are denied.
 - `INVITE_ONLY` defaults to enabled.
-- `DEV_USER_ID` can allow one or more comma-separated dev users.
 - `TRACK_AGENT_ALLOWED_USER_IDS` can allow one or more comma-separated invited
   users.
 - `TRACK_AGENT_INVITE_TOKEN` can allow prototype access through
   `x-track-agent-invite-token`, `invite_token`, or the short-lived access cookie
   set after a valid invite request.
+- `DEV_USER_ID` is local/dev only and is ignored unless
+  `TRACK_AGENT_ENABLE_DEV_USER_ID=true` is also set.
 - `TRACK_AGENT_ALLOW_OPEN_ACCESS=true` only works when `INVITE_ONLY=false`.
 
 No real billing, account, or subscription system is wired yet.
@@ -41,15 +42,26 @@ Unauthorized API and JavaScript requests return `403` JSON. Unauthorized UI
 requests return a `403` access-pending HTML page and do not load the Track Agent
 client script.
 
-## Local prototype access
+## Recommended prototype access
 
-For local development, set an env user such as `DEV_USER_ID=dev-rider` and pass
-`x-user-id: dev-rider`, or set `TRACK_AGENT_INVITE_TOKEN` and pass
-`x-track-agent-invite-token`.
+For remote prototype access, use `TRACK_AGENT_INVITE_TOKEN`. Send the token in an
+invite link such as `/track-agent?invite_token=<token>` or in the
+`x-track-agent-invite-token` header. A valid token sets an HttpOnly same-origin
+cookie for subsequent UI and API requests. The UI redirects to a clean URL after
+query-token entry so the token is not left in the browser address bar.
 
-For browser testing, `/track-agent?user_id=dev-rider` or
-`/track-agent?invite_token=<token>` can set an HttpOnly same-origin cookie after
-the request is authorized. The token itself is not logged by the Worker.
+`TRACK_AGENT_ALLOWED_USER_IDS` is available for future account-backed access when
+the Worker receives a trusted user id from the app or identity layer.
+
+## Local development access
+
+For local development only, set `TRACK_AGENT_ENABLE_DEV_USER_ID=true` and an env
+user such as `DEV_USER_ID=dev-rider`, then pass `x-user-id: dev-rider`. Do not
+use `DEV_USER_ID` as the remote prototype access mechanism.
+
+For browser testing, `/track-agent?invite_token=<token>` can set an HttpOnly
+same-origin cookie after the request is authorized. The token itself is not
+logged by the Worker and must not be stored in D1.
 
 ## Separation guarantee
 

@@ -36,7 +36,18 @@ function readAccessIdentity(request, body = {}) {
     userId: headerUserId || body.user_id || body.userId || queryUserId || cookies.track_agent_user_id || "anonymous",
     inviteToken: headerInviteToken || body.invite_token || body.inviteToken || queryInviteToken || cookies.track_agent_invite_token || null,
     shouldSetCookie: Boolean(headerUserId || body.user_id || body.userId || queryUserId || headerInviteToken || body.invite_token || body.inviteToken || queryInviteToken),
+    isHttps: url.protocol === "https:",
   };
+}
+
+function cookieOptions(identity) {
+  return [
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=86400",
+    identity.isHttps ? "Secure" : null,
+  ].filter(Boolean).join("; ");
 }
 
 function accessResponse(message = "Track Agent is invitation-only right now.") {
@@ -56,11 +67,11 @@ export async function userHasPremiumAccess(userId, env = {}, accessContext = {})
   const inviteOnly = env.INVITE_ONLY == null ? true : truthy(env.INVITE_ONLY);
   if (!inviteOnly && truthy(env.TRACK_AGENT_ALLOW_OPEN_ACCESS)) return true;
 
-  const allowedUsers = new Set([
-    ...splitList(env.TRACK_AGENT_ALLOWED_USER_IDS),
-    ...splitList(env.DEV_USER_ID),
-  ]);
+  const allowedUsers = new Set(splitList(env.TRACK_AGENT_ALLOWED_USER_IDS));
   if (allowedUsers.has(userId)) return true;
+
+  const devUsers = new Set(splitList(env.DEV_USER_ID));
+  if (truthy(env.TRACK_AGENT_ENABLE_DEV_USER_ID) && devUsers.has(userId)) return true;
 
   const expectedToken = env.TRACK_AGENT_INVITE_TOKEN;
   if (expectedToken && accessContext.inviteToken && accessContext.inviteToken === expectedToken) return true;
@@ -76,10 +87,10 @@ export async function requireTrackAgentAccess(request, env = {}, body = {}) {
     console.log("track_agent_access_allowed", { user_id: identity.userId });
     const cookieHeaders = [];
     if (identity.shouldSetCookie && identity.userId && identity.userId !== "anonymous") {
-      cookieHeaders.push(`track_agent_user_id=${encodeURIComponent(identity.userId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+      cookieHeaders.push(`track_agent_user_id=${encodeURIComponent(identity.userId)}; ${cookieOptions(identity)}`);
     }
     if (identity.shouldSetCookie && identity.inviteToken) {
-      cookieHeaders.push(`track_agent_invite_token=${encodeURIComponent(identity.inviteToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+      cookieHeaders.push(`track_agent_invite_token=${encodeURIComponent(identity.inviteToken)}; ${cookieOptions(identity)}`);
     }
     return {
       allowed: true,

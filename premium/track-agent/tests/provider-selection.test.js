@@ -163,6 +163,7 @@ const authorizedAiParse = await worker.fetch(
   }),
   {
     INVITE_ONLY: "true",
+    TRACK_AGENT_ENABLE_DEV_USER_ID: "true",
     DEV_USER_ID: "dev-rider",
     TRACK_AGENT_AI_PROVIDER: "ai_json",
     ...envWithAi(async () => ({ response: validAiPayload })),

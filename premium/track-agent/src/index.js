@@ -35,6 +35,21 @@ function html(body, status = 200, extraHeaders = {}) {
   return new Response(body, { status, headers });
 }
 
+function redirect(location, status = 302, extraHeaders = {}) {
+  const headers = new Headers({
+    "location": location,
+    "cache-control": "no-store",
+  });
+  Object.entries(extraHeaders).forEach(([name, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => headers.append(name, item));
+    } else if (value != null) {
+      headers.set(name, value);
+    }
+  });
+  return new Response(null, { status, headers });
+}
+
 function accessPendingHtml() {
   return html(`<!doctype html>
 <html lang="en">
@@ -86,6 +101,19 @@ function isTrackAgentUiPage(method, pathname) {
   return method === "GET" && (pathname === "/" || pathname === "/track-agent");
 }
 
+function cleanAccessUrl(url) {
+  const clean = new URL(url);
+  const accessParams = ["invite_token", "inviteToken", "user_id", "userId"];
+  let changed = false;
+  accessParams.forEach((name) => {
+    if (clean.searchParams.has(name)) {
+      clean.searchParams.delete(name);
+      changed = true;
+    }
+  });
+  return changed ? `${clean.pathname}${clean.search}${clean.hash}` : null;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -94,6 +122,8 @@ export default {
     if (isTrackAgentUiPage(request.method, pathname)) {
       const access = await requireTrackAgentAccess(request, env);
       if (!access.allowed) return accessPendingHtml();
+      const cleanUrl = cleanAccessUrl(url);
+      if (cleanUrl) return redirect(cleanUrl, 302, { "set-cookie": access.cookieHeaders });
       return html(renderTrackAgentHtml(), 200, { "set-cookie": access.cookieHeaders });
     }
 
