@@ -8,65 +8,133 @@ export function renderTrackAgentLandingHtml() {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Track Agent Pro</title>
   <style>
-    :root { color-scheme: dark; --bg: #111; --panel: #1c1c1c; --panel-2: #242424; --text: #f3f3f3; --muted: #aaa; --accent: #ff6600; --border: #343434; --good: #00d084; }
+    :root { color-scheme: dark; --bg: #0f0f0f; --band: #181818; --panel: #202020; --text: #f5f5f5; --muted: #b9b9b9; --accent: #ff6600; --accent-2: #4fa3ff; --border: #333; --good: #00d084; }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
-    main { width: min(100%, 980px); margin: 0 auto; padding: 28px 16px 56px; }
-    header { padding: 24px 0 18px; border-bottom: 1px solid var(--border); }
-    h1 { margin: 0; font-size: clamp(2rem, 7vw, 4.5rem); line-height: 0.95; letter-spacing: 0; }
-    h2 { margin: 0 0 10px; font-size: 1rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.06em; }
-    p { color: var(--muted); margin: 8px 0 0; max-width: 720px; }
     a { color: inherit; }
-    .cta { display: inline-flex; align-items: center; min-height: 46px; margin-top: 18px; padding: 0 16px; border-radius: 6px; background: var(--accent); color: #180700; text-decoration: none; font-weight: 800; }
-    .grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 16px; margin-top: 18px; }
-    section, .mockup { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
-    ul { margin: 10px 0 0; padding-left: 20px; color: var(--muted); }
-    li { margin: 6px 0; }
-    .mockup { background: var(--panel-2); }
-    .note { margin: 0 0 12px; padding: 10px; border-left: 3px solid var(--accent); background: #171717; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    img { display: block; max-width: 100%; }
+    .hero { min-height: min(760px, 92vh); display: grid; align-items: end; position: relative; isolation: isolate; overflow: hidden; background: #111; }
+    .hero::before { content: ""; position: absolute; inset: 0; z-index: -2; background: url("https://mototrack.app/assets/track-agent/hero-paddock.webp") center / cover no-repeat; }
+    .hero::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(0,0,0,0.78), rgba(0,0,0,0.42) 44%, rgba(0,0,0,0.18)), linear-gradient(0deg, rgba(15,15,15,1), rgba(15,15,15,0.05) 34%); }
+    .hero-inner { width: min(100%, 1120px); margin: 0 auto; padding: 28px 16px 84px; }
+    .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: 0.82rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+    h1 { margin: 0; max-width: 720px; font-size: clamp(2.6rem, 8vw, 6.2rem); line-height: 0.94; letter-spacing: 0; }
+    h2 { margin: 0; font-size: clamp(1.55rem, 3vw, 2.45rem); line-height: 1.05; letter-spacing: 0; }
+    h3 { margin: 0; font-size: 1.05rem; letter-spacing: 0; }
+    p { color: var(--muted); margin: 10px 0 0; max-width: 720px; }
+    .lede { color: #e8e8e8; max-width: 620px; font-size: 1.08rem; }
+    .cta-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 22px; }
+    .cta { display: inline-flex; align-items: center; min-height: 48px; padding: 0 18px; border-radius: 6px; background: var(--accent); color: #180700; text-decoration: none; font-weight: 850; }
+    .secondary-note { color: #d6d6d6; font-size: 0.94rem; }
+    .section { padding: 54px 16px; }
+    .section:nth-of-type(even) { background: var(--band); }
+    .wrap { width: min(100%, 1120px); margin: 0 auto; }
+    .split { display: grid; grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr); gap: 28px; align-items: center; }
+    .split.reverse { grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr); }
+    .media { overflow: hidden; border-radius: 8px; border: 1px solid var(--border); background: #121212; box-shadow: 0 18px 54px rgba(0,0,0,0.34); }
+    .media img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+    .points { display: grid; gap: 10px; margin-top: 18px; }
+    .point { padding: 12px 0; border-top: 1px solid var(--border); color: var(--muted); }
+    .point strong { color: var(--text); }
+    .mockup { margin-top: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    .note { margin: 0 0 12px; padding: 10px; border-left: 3px solid var(--accent); background: #171717; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.92rem; }
     .fields { display: grid; gap: 8px; }
     .field { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; background: #181818; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); }
     .field strong { color: var(--text); font-weight: 700; text-align: right; }
     .safe { color: var(--good); font-weight: 700; }
-    footer { margin-top: 18px; color: var(--muted); font-size: 0.9rem; }
-    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    .final { padding: 42px 16px 58px; background: #101010; border-top: 1px solid var(--border); }
+    .final .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; align-items: center; }
+    footer { color: var(--muted); font-size: 0.92rem; }
+    @media (max-width: 820px) {
+      .hero { min-height: 680px; }
+      .hero::before { background-position: 62% center; }
+      .split, .split.reverse { grid-template-columns: 1fr; }
+      .split.reverse .copy { order: -1; }
+      .section { padding: 38px 14px; }
+      .hero-inner { padding-bottom: 64px; }
+    }
   </style>
 </head>
 <body>
   <main>
-    <header>
+    <section class="hero">
+      <div class="hero-inner">
+        <p class="eyebrow">Invite-only prototype</p>
       <h1>Track Agent Pro</h1>
-      <p>Invite-only AI-assisted session logging for riders who need their notes structured fast after a track session.</p>
-      <a class="cta" href="${TRACK_AGENT_INVITE_MAILTO}">Request Invite</a>
-    </header>
-
-    <div class="grid">
-      <section>
-        <h2>Coming Soon</h2>
-        <p>Track Agent Pro converts messy track-session notes into structured review fields for lap times, tire pressures, setup changes, and rider notes.</p>
-        <ul>
-          <li>Review-before-save workflow.</li>
-          <li>Invite-only prototype access.</li>
-          <li>Extraction-only: no coaching, setup recommendations, or safety-critical advice.</li>
-          <li>Mock parser remains the default until live AI is explicitly enabled for invited testers.</li>
-        </ul>
-      </section>
-
-      <div class="mockup" aria-label="Track Agent example extraction">
-        <p class="note">Road Atlanta session 2. Best 97.4. Front hot 31, rear hot 27.5. Rear rebound softer one click.</p>
-        <div class="fields">
-          <div class="field"><span>Best lap</span><strong>97.4</strong></div>
-          <div class="field"><span>Front hot</span><strong>31 psi</strong></div>
-          <div class="field"><span>Rear hot</span><strong>27.5 psi</strong></div>
-          <div class="field"><span>Setup change</span><strong>Rear rebound softer one click</strong></div>
-          <div class="field"><span>Save behavior</span><strong class="safe">Rider confirms first</strong></div>
+        <p class="lede">AI-assisted session logging for riders who need messy track notes structured quickly after a session.</p>
+        <div class="cta-row">
+          <a class="cta" href="${TRACK_AGENT_INVITE_MAILTO}">Request Invite</a>
+          <span class="secondary-note">Extraction only. Review before save. No coaching or setup advice.</span>
         </div>
       </div>
-    </div>
+    </section>
 
-    <footer>
-      AI output is never saved automatically. The rider reviews and confirms before anything is stored.
-    </footer>
+    <section class="section">
+      <div class="wrap split">
+        <div class="copy">
+          <p class="eyebrow">Built for the gap between sessions</p>
+          <h2>Turn paddock notes into review fields.</h2>
+          <p>Paste what you actually wrote after a session. Track Agent Pro structures lap times, tire pressures, setup changes, and rider observations so you can review them before anything is stored.</p>
+          <div class="mockup" aria-label="Track Agent example extraction">
+            <p class="note">Road Atlanta session 2. Best 97.4. Front hot 31, rear hot 27.5. Rear rebound softer one click.</p>
+            <div class="fields">
+              <div class="field"><span>Best lap</span><strong>97.4</strong></div>
+              <div class="field"><span>Front hot</span><strong>31 psi</strong></div>
+              <div class="field"><span>Rear hot</span><strong>27.5 psi</strong></div>
+              <div class="field"><span>Setup change</span><strong>Rear rebound softer one click</strong></div>
+              <div class="field"><span>Save behavior</span><strong class="safe">Rider confirms first</strong></div>
+            </div>
+          </div>
+        </div>
+        <figure class="media">
+          <img src="https://mototrack.app/assets/track-agent/phone-session-log.webp" width="1400" height="788" alt="Phone-based session review interface in a motorcycle paddock" loading="lazy" />
+        </figure>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap split reverse">
+        <figure class="media">
+          <img src="https://mototrack.app/assets/track-agent/tire-pressure-log.webp" width="1400" height="788" alt="Rider checking motorcycle tire pressure while logging notes on a phone" loading="lazy" />
+        </figure>
+        <div class="copy">
+          <p class="eyebrow">Track-day details, not distractions</p>
+          <h2>Log the things riders already care about.</h2>
+          <div class="points">
+            <div class="point"><strong>Lap times</strong><br />Best laps and simple session context.</div>
+            <div class="point"><strong>Tire pressures</strong><br />Cold and hot readings without digging through a spreadsheet.</div>
+            <div class="point"><strong>Setup changes</strong><br />Suspension clicks, gearing notes, and rider observations.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap split">
+        <div class="copy">
+          <p class="eyebrow">Controlled rollout</p>
+          <h2>Invite-only while the workflow gets proven.</h2>
+          <p>Track Agent Pro is a prototype. AI output is never saved automatically. The rider reviews and confirms first, and the feature remains extraction-only: no coaching, setup recommendations, or safety-critical advice.</p>
+          <div class="points">
+            <div class="point"><strong>Mock parser default</strong><br />Live AI only runs when explicitly enabled for invited testers.</div>
+            <div class="point"><strong>Private invite path</strong><br />Prototype access remains behind the Track Agent invite gate.</div>
+          </div>
+        </div>
+        <figure class="media">
+          <img src="https://mototrack.app/assets/track-agent/data-flow.webp" width="1400" height="788" alt="Motorcycle track data flowing into secure cloud review panels" loading="lazy" />
+        </figure>
+      </div>
+    </section>
+
+    <section class="final">
+      <div class="wrap">
+        <div>
+          <h3>Want to test it?</h3>
+          <p>Send an invite request and we will keep the first tester group small.</p>
+        </div>
+        <a class="cta" href="${TRACK_AGENT_INVITE_MAILTO}">Request Invite</a>
+      </div>
+    </section>
   </main>
 </body>
 </html>`;
