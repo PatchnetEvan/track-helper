@@ -36,6 +36,11 @@ export function renderTrackAgentLandingHtml() {
     .points { display: grid; gap: 10px; margin-top: 18px; }
     .point { padding: 12px 0; border-top: 1px solid var(--border); color: var(--muted); }
     .point strong { color: var(--text); }
+    .product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+    .product { min-height: 100%; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    .product h3 { margin-bottom: 8px; }
+    .product ul, .steps { margin: 10px 0 0; padding-left: 20px; color: var(--muted); }
+    .product li, .steps li { margin: 6px 0; }
     .mockup { margin-top: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
     .note { margin: 0 0 12px; padding: 10px; border-left: 3px solid var(--accent); background: #171717; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.92rem; }
     .fields { display: grid; gap: 8px; }
@@ -48,7 +53,7 @@ export function renderTrackAgentLandingHtml() {
     @media (max-width: 820px) {
       .hero { min-height: 680px; }
       .hero::before { background-position: 62% center; }
-      .split, .split.reverse { grid-template-columns: 1fr; }
+      .split, .split.reverse, .product-grid { grid-template-columns: 1fr; }
       .split.reverse .copy { order: -1; }
       .section { padding: 38px 14px; }
       .hero-inner { padding-bottom: 64px; }
@@ -60,11 +65,12 @@ export function renderTrackAgentLandingHtml() {
     <section class="hero">
       <div class="hero-inner">
         <p class="eyebrow">Invite-only prototype</p>
-      <h1>Track Agent Pro</h1>
-        <p class="lede">AI-assisted session logging for riders who need messy track notes structured quickly after a session.</p>
+        <h1>Track Agent Pro</h1>
+        <p class="lede">Every lap's got a story. Let's stop losing them.</p>
+        <p>Invite-only AI-assisted session logging for riders who want their track notes to become useful data.</p>
         <div class="cta-row">
           <a class="cta" href="${TRACK_AGENT_INVITE_MAILTO}">Request Invite</a>
-          <span class="secondary-note">Extraction only. Review before save. No coaching or setup advice.</span>
+          <span class="secondary-note">Fast logging first. AI-assisted structuring second.</span>
         </div>
       </div>
     </section>
@@ -72,9 +78,10 @@ export function renderTrackAgentLandingHtml() {
     <section class="section">
       <div class="wrap split">
         <div class="copy">
-          <p class="eyebrow">Built for the gap between sessions</p>
-          <h2>Turn paddock notes into review fields.</h2>
-          <p>Paste what you actually wrote after a session. Track Agent Pro structures lap times, tire pressures, setup changes, and rider observations so you can review them before anything is stored.</p>
+          <p class="eyebrow">The paddock problem</p>
+          <h2>Your best data lives in your head.</h2>
+          <p>Lap times, tire pressures, setup changes, and handling notes are created every session, but most of them disappear before they become useful.</p>
+          <p>They live in memory, notebooks, tire-pressure notes, texts to crew, and forgotten setup changes. Track Agent Pro is built to help turn that rough paddock record into reviewable fields.</p>
           <div class="mockup" aria-label="Track Agent example extraction">
             <p class="note">Road Atlanta session 2. Best 97.4. Front hot 31, rear hot 27.5. Rear rebound softer one click.</p>
             <div class="fields">
@@ -98,12 +105,27 @@ export function renderTrackAgentLandingHtml() {
           <img src="https://mototrack.app/assets/track-agent/tire-pressure-log.webp" width="1400" height="788" alt="Rider checking motorcycle tire pressure while logging notes on a phone" loading="lazy" />
         </figure>
         <div class="copy">
-          <p class="eyebrow">Track-day details, not distractions</p>
-          <h2>Log the things riders already care about.</h2>
-          <div class="points">
-            <div class="point"><strong>Lap times</strong><br />Best laps and simple session context.</div>
-            <div class="point"><strong>Tire pressures</strong><br />Cold and hot readings without digging through a spreadsheet.</div>
-            <div class="point"><strong>Setup changes</strong><br />Suspension clicks, gearing notes, and rider observations.</div>
+          <p class="eyebrow">Product split</p>
+          <h2>Two layers, one paddock notebook.</h2>
+          <div class="product-grid">
+            <div class="product">
+              <h3>MotoTrack Log - Free</h3>
+              <ul>
+                <li>Local-first</li>
+                <li>Fast session logging</li>
+                <li>No account required</li>
+                <li>No cloud dependency</li>
+              </ul>
+            </div>
+            <div class="product">
+              <h3>Track Agent Pro - Invite Only</h3>
+              <ul>
+                <li>Messy note to structured review</li>
+                <li>Lap times and tire pressures</li>
+                <li>Setup changes and rider notes</li>
+                <li>Review-before-save</li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -112,12 +134,18 @@ export function renderTrackAgentLandingHtml() {
     <section class="section">
       <div class="wrap split">
         <div class="copy">
-          <p class="eyebrow">Controlled rollout</p>
-          <h2>Invite-only while the workflow gets proven.</h2>
-          <p>Track Agent Pro is a prototype. AI output is never saved automatically. The rider reviews and confirms first, and the feature remains extraction-only: no coaching, setup recommendations, or safety-critical advice.</p>
+          <p class="eyebrow">How it works</p>
+          <h2>AI drafts, it never decides.</h2>
+          <ol class="steps">
+            <li>Capture a messy session note.</li>
+            <li>Track Agent Pro drafts structured fields.</li>
+            <li>The rider reviews and edits.</li>
+            <li>The rider confirms save.</li>
+          </ol>
+          <p>Track Agent Pro drafts the structured fields. The rider reviews, edits, or rejects them before anything is saved.</p>
           <div class="points">
-            <div class="point"><strong>Mock parser default</strong><br />Live AI only runs when explicitly enabled for invited testers.</div>
-            <div class="point"><strong>Private invite path</strong><br />Prototype access remains behind the Track Agent invite gate.</div>
+            <div class="point"><strong>Trust boundary</strong><br />No coaching recommendations, setup advice, or safety-critical decisions. Extraction-only for now.</div>
+            <div class="point"><strong>Rollout discipline</strong><br />Invite-only on purpose. Small trusted tester group first, feedback before wider rollout, and controlled AI enablement.</div>
           </div>
         </div>
         <figure class="media">
@@ -130,7 +158,7 @@ export function renderTrackAgentLandingHtml() {
       <div class="wrap">
         <div>
           <h3>Want to test it?</h3>
-          <p>Send an invite request and we will keep the first tester group small.</p>
+          <p>Future opportunities include rider history, coach workflows, track-day organization tools, and provider integrations, but the notebook and trust come first.</p>
         </div>
         <a class="cta" href="${TRACK_AGENT_INVITE_MAILTO}">Request Invite</a>
       </div>
