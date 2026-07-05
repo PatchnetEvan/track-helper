@@ -39,6 +39,14 @@ const denied = await requireTrackAgentAccess(new Request("https://agent.mototrac
 assert.equal(denied.allowed, false);
 assert.equal(denied.response.status, 403);
 
+const publicLanding = await worker.fetch(new Request("https://agent.mototrack.app/"), denyEnv);
+assert.equal(publicLanding.status, 200);
+assert.equal((await publicLanding.text()).includes("Track Agent Pro"), true);
+
+const publicInvite = await worker.fetch(new Request("https://agent.mototrack.app/request-invite"), denyEnv);
+assert.equal(publicInvite.status, 200);
+assert.equal((await publicInvite.text()).includes("Request Invite"), true);
+
 const invalidInvite = await requireTrackAgentAccess(
   new Request("https://agent.mototrack.app/track-agent?invite_token=wrong-token"),
   inviteEnv,

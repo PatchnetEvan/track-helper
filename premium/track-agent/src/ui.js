@@ -1,3 +1,77 @@
+const TRACK_AGENT_INVITE_MAILTO = "mailto:evan.martinez@gmail.com?subject=Track%20Agent%20Pro%20Invite%20Request";
+
+export function renderTrackAgentLandingHtml() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Track Agent Pro</title>
+  <style>
+    :root { color-scheme: dark; --bg: #111; --panel: #1c1c1c; --panel-2: #242424; --text: #f3f3f3; --muted: #aaa; --accent: #ff6600; --border: #343434; --good: #00d084; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+    main { width: min(100%, 980px); margin: 0 auto; padding: 28px 16px 56px; }
+    header { padding: 24px 0 18px; border-bottom: 1px solid var(--border); }
+    h1 { margin: 0; font-size: clamp(2rem, 7vw, 4.5rem); line-height: 0.95; letter-spacing: 0; }
+    h2 { margin: 0 0 10px; font-size: 1rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.06em; }
+    p { color: var(--muted); margin: 8px 0 0; max-width: 720px; }
+    a { color: inherit; }
+    .cta { display: inline-flex; align-items: center; min-height: 46px; margin-top: 18px; padding: 0 16px; border-radius: 6px; background: var(--accent); color: #180700; text-decoration: none; font-weight: 800; }
+    .grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 16px; margin-top: 18px; }
+    section, .mockup { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    ul { margin: 10px 0 0; padding-left: 20px; color: var(--muted); }
+    li { margin: 6px 0; }
+    .mockup { background: var(--panel-2); }
+    .note { margin: 0 0 12px; padding: 10px; border-left: 3px solid var(--accent); background: #171717; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .fields { display: grid; gap: 8px; }
+    .field { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; background: #181818; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); }
+    .field strong { color: var(--text); font-weight: 700; text-align: right; }
+    .safe { color: var(--good); font-weight: 700; }
+    footer { margin-top: 18px; color: var(--muted); font-size: 0.9rem; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Track Agent Pro</h1>
+      <p>Invite-only AI-assisted session logging for riders who need their notes structured fast after a track session.</p>
+      <a class="cta" href="${TRACK_AGENT_INVITE_MAILTO}">Request Invite</a>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Coming Soon</h2>
+        <p>Track Agent Pro converts messy track-session notes into structured review fields for lap times, tire pressures, setup changes, and rider notes.</p>
+        <ul>
+          <li>Review-before-save workflow.</li>
+          <li>Invite-only prototype access.</li>
+          <li>Extraction-only: no coaching, setup recommendations, or safety-critical advice.</li>
+          <li>Mock parser remains the default until live AI is explicitly enabled for invited testers.</li>
+        </ul>
+      </section>
+
+      <div class="mockup" aria-label="Track Agent example extraction">
+        <p class="note">Road Atlanta session 2. Best 97.4. Front hot 31, rear hot 27.5. Rear rebound softer one click.</p>
+        <div class="fields">
+          <div class="field"><span>Best lap</span><strong>97.4</strong></div>
+          <div class="field"><span>Front hot</span><strong>31 psi</strong></div>
+          <div class="field"><span>Rear hot</span><strong>27.5 psi</strong></div>
+          <div class="field"><span>Setup change</span><strong>Rear rebound softer one click</strong></div>
+          <div class="field"><span>Save behavior</span><strong class="safe">Rider confirms first</strong></div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      AI output is never saved automatically. The rider reviews and confirms before anything is stored.
+    </footer>
+  </main>
+</body>
+</html>`;
+}
+
 export function renderTrackAgentHtml() {
   return `<!doctype html>
 <html lang="en">
