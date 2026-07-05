@@ -1,12 +1,17 @@
 .git
 .github
 .gitattributes
+.claude
+.wrangler
+premium
+docs
 .assetsignore
 wrangler.jsonc
 wrangler.toml
 package.json
 package-lock.json
 node_modules
+CLAUDE.md
 README.md
 LICENSE
 SECURITY.md
