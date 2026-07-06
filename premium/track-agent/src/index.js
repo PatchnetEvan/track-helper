@@ -1,5 +1,6 @@
 import { requireTrackAgentAccess } from "./premium-access.js";
 import { TrackAgentProviderError } from "./providers/provider-errors.js";
+import { TrackAgentScopeError } from "./track-agent-scope-policy.js";
 import { renderTrackAgentClientScript, renderTrackAgentHtml, renderTrackAgentLandingHtml } from "./ui.js";
 import {
   getTrackAgentSession,
@@ -167,6 +168,20 @@ export default {
             provider: error.provider,
             message: error.message,
           }, error.status);
+        }
+        if (error instanceof TrackAgentScopeError) {
+          return json({
+            error: error.code,
+            message: error.message,
+            details: error.details,
+          }, error.status);
+        }
+        if (error instanceof TrackAgentValidationError) {
+          return json({
+            error: "validation_failed",
+            message: error.message,
+            details: error.details,
+          }, 400);
         }
         throw error;
       }
