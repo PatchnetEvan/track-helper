@@ -4,6 +4,10 @@ import {
   TRACK_AGENT_TIRE_TIMINGS,
   validateTrackAgentReviewPayload,
 } from "./schemas/track-agent-review.schema.js";
+import {
+  evaluateTrackAgentInputScope,
+  validateTrackAgentOutputScope,
+} from "./track-agent-scope-policy.js";
 
 const PRESSURE_POSITIONS = new Set(TRACK_AGENT_TIRE_POSITIONS);
 const PRESSURE_TIMINGS = new Set(TRACK_AGENT_TIRE_TIMINGS);
@@ -190,8 +194,11 @@ function dedupeSetupChanges(changes) {
 }
 
 export async function parseTrackSessionNote(rawNote, context = {}, env = {}) {
+  const scope = evaluateTrackAgentInputScope(rawNote, env);
   const provider = getTrackAgentParserProvider(env);
   const providerPayload = await provider.parseRawTrackNote(rawNote, context, env);
+  validateTrackAgentOutputScope(providerPayload);
+  providerPayload.warnings = [...asArray(providerPayload.warnings), ...scope.warnings];
   const providerValidation = validateTrackAgentReviewPayload(providerPayload);
   if (!providerValidation.ok) {
     throw new TrackAgentValidationError("Track Agent provider returned invalid payload.", providerValidation.errors);
