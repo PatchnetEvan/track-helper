@@ -2,7 +2,7 @@
 
 Tire Pressure Advisor is a future Track Agent Pro feature. It is intentionally separate from the current Session Extractor.
 
-This document is planning only. It does not enable live AI, add UI, change Worker configuration, add D1 tables, or change the free MotoTrack Log app.
+This document describes the Tire Pressure Advisor contract and deterministic rule bounds. It does not enable live AI, add UI, change Worker configuration, add D1 tables, or change the free MotoTrack Log app.
 
 ## Product Boundary
 
@@ -33,16 +33,20 @@ The advisor should require or strongly prefer these structured inputs:
 
 - `bike`
 - `track`
-- `session`
-- `tire_brand_model_compound`
+- `session_label` or `session_number`
+- `tire_brand`
+- `tire_model`
+- `tire_compound`
 - `front_cold_psi`
 - `rear_cold_psi`
 - `front_hot_psi`
 - `rear_hot_psi`
-- `target_hot_psi`
-- `ambient_temperature`
-- `track_temperature`
+- `front_target_hot_psi` or `front_target_hot_range`
+- `rear_target_hot_psi` or `rear_target_hot_range`
+- `ambient_temp_f`
+- `track_temp_f`
 - `warmer_use`
+- `rider_pace`
 - `handling_symptom`
 - `rider_note`
 
@@ -133,6 +137,20 @@ The advisor must:
 - Use structured JSON output with server-side validation.
 - Keep human review before any saved record or applied plan.
 
+## Deterministic Rule Bounds
+
+The first implementation layer is rule-bound and does not call a model.
+
+- Missing pressure data returns `needs_more_info`.
+- Missing front or rear target hot PSI/range returns `needs_more_info`.
+- Missing tire brand/model/compound lowers confidence and adds a warning.
+- Hot pressure inside the supplied target range defaults to `hold`.
+- Hot pressure below the supplied target range suggests a bounded `increase`.
+- Hot pressure above the supplied target range suggests a bounded `decrease`.
+- Suggested changes are capped to 1 PSI per session by default.
+- Conflicting handling symptom and pressure data lowers confidence and adds a warning.
+- Output validation rejects unsupported fields, unbounded adjustments, and coaching language.
+
 ## Supported And Unsupported Requests
 
 Supported:
@@ -192,13 +210,14 @@ AI must not be the sole decision-maker.
 
 ## Recommended Implementation Phases
 
-1. Define the Tire Pressure Advisor schema and validation tests.
-2. Add deterministic rule bounds for required fields and maximum adjustment size.
-3. Add a mock advisor provider for local UI/API testing.
+1. Define the Tire Pressure Advisor schema and validation tests. Done in the schema/rule-bounds branch.
+2. Add deterministic rule bounds for required fields and maximum adjustment size. Done in the schema/rule-bounds branch.
+3. Add a mock advisor provider for local API testing.
 4. Add an advisor endpoint behind the existing invite gate.
-5. Add D1 usage counters only after the schema is approved.
-6. Wire Cloudflare Workers AI behind explicit configuration.
-7. Test with one trusted invited rider group.
+5. Add UI only after endpoint and mock flow are approved.
+6. Add D1 usage counters only after the schema is approved.
+7. Wire Cloudflare Workers AI behind explicit configuration.
+8. Test with one trusted invited rider group.
 
 ## Not In This Phase
 
