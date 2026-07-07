@@ -54,6 +54,17 @@ function tireInfoWarnings(input) {
   return [`Tire-specific guidance is limited because ${missing.join(", ")} is missing.`];
 }
 
+function contextWarnings(input) {
+  const warnings = [];
+  if (!input.warmer_use || String(input.warmer_use).toLowerCase() === "unknown") {
+    warnings.push("Warmer use is missing or unknown; pressure interpretation is limited.");
+  }
+  if (input.track_temp_f == null) {
+    warnings.push("Track temperature is missing; pressure interpretation is limited.");
+  }
+  return warnings;
+}
+
 function observedConditions(input) {
   return {
     bike: input.bike || null,
@@ -142,6 +153,21 @@ function conflictWarnings(input, adjustments) {
   if (hasInstabilitySymptom && allHold) {
     warnings.push("Handling symptom conflicts with pressure data inside the supplied target range; review tire condition, track conditions, and setup context.");
   }
+  const hasColdGripSymptom = /\b(cold|no grip|lack of grip|not gripping)\b/.test(symptom);
+  const hasDecrease = adjustments.some((adjustment) => adjustment.direction === "decrease");
+  if (hasColdGripSymptom && hasDecrease) {
+    warnings.push("Handling symptom conflicts with pressure data above the supplied target range; review gauge accuracy, tire temperature, tire condition, and setup context.");
+  }
+  return warnings;
+}
+
+function farOutsideTargetWarnings(input) {
+  const warnings = [];
+  const frontDelta = Math.abs(targetDelta(input.front_hot_psi, targetRangeFromInput(input, "front")) ?? 0);
+  const rearDelta = Math.abs(targetDelta(input.rear_hot_psi, targetRangeFromInput(input, "rear")) ?? 0);
+  if (frontDelta > 3 || rearDelta > 3) {
+    warnings.push("Hot pressure is far outside the supplied target range; verify gauge accuracy, tire temperature, tire condition, and session context before making changes.");
+  }
   return warnings;
 }
 
@@ -178,7 +204,7 @@ export function evaluateTirePressureAdvisor(inputPayload = {}, options = {}) {
 
   const missingPressure = pressureDataMissing(input);
   const missingTargets = targetMissing(input);
-  const warnings = tireInfoWarnings(input);
+  const warnings = [...tireInfoWarnings(input), ...contextWarnings(input)];
 
   if (missingPressure.length || missingTargets.length) {
     const output = baseOutput(input, "needs_more_info", [...missingPressure, ...missingTargets], warnings);
@@ -192,7 +218,7 @@ export function evaluateTirePressureAdvisor(inputPayload = {}, options = {}) {
     adjustmentFor("rear", input.rear_hot_psi, targetRangeFromInput(input, "rear"), cap),
   ].filter(Boolean);
 
-  const outputWarnings = [...warnings, ...conflictWarnings(input, adjustments)];
+  const outputWarnings = [...warnings, ...conflictWarnings(input, adjustments), ...farOutsideTargetWarnings(input)];
   const output = {
     recommendation_status: "ready",
     missing_fields: [],
