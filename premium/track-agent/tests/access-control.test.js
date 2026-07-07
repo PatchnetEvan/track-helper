@@ -7,6 +7,8 @@ import {
 
 const denyEnv = {};
 const inviteEnv = { INVITE_ONLY: "true", TRACK_AGENT_INVITE_TOKEN: "local-token" };
+const encodedInviteToken = "local/token+with=symbols";
+const encodedInviteEnv = { INVITE_ONLY: "true", TRACK_AGENT_INVITE_TOKEN: encodedInviteToken };
 const devEnv = { INVITE_ONLY: "true", TRACK_AGENT_ENABLE_DEV_USER_ID: "true", DEV_USER_ID: "dev-rider" };
 const allowedUserEnv = { INVITE_ONLY: "true", TRACK_AGENT_ALLOWED_USER_IDS: "rider-1,rider-2" };
 
@@ -31,6 +33,7 @@ assert.equal(await userHasPremiumAccess("dev-rider", devEnv), true);
 assert.equal(await userHasPremiumAccess("rider-1", allowedUserEnv), true);
 assert.equal(await userHasPremiumAccess("rider-3", allowedUserEnv), false);
 assert.equal(await userHasPremiumAccess("someone", inviteEnv, { inviteToken: "local-token" }), true);
+assert.equal(await userHasPremiumAccess("someone", { INVITE_ONLY: "true", TRACK_AGENT_INVITE_TOKEN: " local-token " }, { inviteToken: " local-token " }), true);
 assert.equal(await userHasPremiumAccess("someone", inviteEnv, { inviteToken: "wrong-token" }), false);
 assert.equal(await userHasPremiumAccess("anonymous", { INVITE_ONLY: "false" }), false);
 assert.equal(await userHasPremiumAccess("anonymous", { INVITE_ONLY: "false", TRACK_AGENT_ALLOW_OPEN_ACCESS: "true" }), true);
@@ -116,6 +119,49 @@ assert.equal(authorizedParse.status, 200);
 const parsed = await authorizedParse.json();
 assert.equal(parsed.parsed.source, "mock_parser");
 assert.equal(parsed.parsed.entry.track_name, "Road Atlanta");
+
+const encodedInviteUi = await worker.fetch(
+  new Request(`https://agent.mototrack.app/track-agent?invite_token=${encodeURIComponent(encodedInviteToken)}`),
+  encodedInviteEnv,
+);
+assert.equal(encodedInviteUi.status, 302);
+assert.equal(encodedInviteUi.headers.get("location"), "/track-agent");
+assert.equal(encodedInviteUi.headers.get("location").includes("invite_token"), false);
+assertSetCookieHasSecurity(encodedInviteUi, "track_agent_invite_token");
+assert.equal((await encodedInviteUi.text()).includes(encodedInviteToken), false);
+const encodedInviteCookie = cookieValue(encodedInviteUi, "track_agent_invite_token");
+assert.equal(encodedInviteCookie != null, true);
+
+const encodedUiByCookie = await worker.fetch(
+  new Request("https://agent.mototrack.app/track-agent", {
+    headers: { cookie: encodedInviteCookie },
+  }),
+  encodedInviteEnv,
+);
+assert.equal(encodedUiByCookie.status, 200);
+
+const encodedScriptByCookie = await worker.fetch(
+  new Request("https://agent.mototrack.app/track-agent/ui.js", {
+    headers: { cookie: encodedInviteCookie },
+  }),
+  encodedInviteEnv,
+);
+assert.equal(encodedScriptByCookie.status, 200);
+
+const encodedParseByCookie = await worker.fetch(
+  new Request("https://agent.mototrack.app/track-agent/parse", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: encodedInviteCookie,
+    },
+    body: JSON.stringify({
+      raw_note: "Road Atlanta session 2 best 97.4 front hot 31 rear hot 27",
+    }),
+  }),
+  encodedInviteEnv,
+);
+assert.equal(encodedParseByCookie.status, 200);
 
 const unauthorizedParse = await worker.fetch(
   new Request("https://agent.mototrack.app/track-agent/parse", {

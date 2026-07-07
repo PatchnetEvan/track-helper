@@ -9,6 +9,10 @@ function splitList(value) {
     .filter(Boolean);
 }
 
+function normalizeToken(value) {
+  return String(value || "").trim();
+}
+
 function parseCookies(cookieHeader) {
   const cookies = {};
   String(cookieHeader || "")
@@ -34,7 +38,7 @@ function readAccessIdentity(request, body = {}) {
   const headerInviteToken = request.headers.get("x-track-agent-invite-token");
   return {
     userId: headerUserId || body.user_id || body.userId || queryUserId || cookies.track_agent_user_id || "anonymous",
-    inviteToken: headerInviteToken || body.invite_token || body.inviteToken || queryInviteToken || cookies.track_agent_invite_token || null,
+    inviteToken: normalizeToken(headerInviteToken || body.invite_token || body.inviteToken || queryInviteToken || cookies.track_agent_invite_token),
     shouldSetCookie: Boolean(headerUserId || body.user_id || body.userId || queryUserId || headerInviteToken || body.invite_token || body.inviteToken || queryInviteToken),
     isHttps: url.protocol === "https:",
   };
@@ -73,8 +77,9 @@ export async function userHasPremiumAccess(userId, env = {}, accessContext = {})
   const devUsers = new Set(splitList(env.DEV_USER_ID));
   if (truthy(env.TRACK_AGENT_ENABLE_DEV_USER_ID) && devUsers.has(userId)) return true;
 
-  const expectedToken = env.TRACK_AGENT_INVITE_TOKEN;
-  if (expectedToken && accessContext.inviteToken && accessContext.inviteToken === expectedToken) return true;
+  const expectedToken = normalizeToken(env.TRACK_AGENT_INVITE_TOKEN);
+  const providedToken = normalizeToken(accessContext.inviteToken);
+  if (expectedToken && providedToken && providedToken === expectedToken) return true;
 
   return false;
 }
