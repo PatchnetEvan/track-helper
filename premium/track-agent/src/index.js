@@ -1,6 +1,8 @@
 import { requireTrackAgentAccess } from "./premium-access.js";
 import { TrackAgentProviderError } from "./providers/provider-errors.js";
 import { TrackAgentScopeError } from "./track-agent-scope-policy.js";
+import { evaluateTirePressureAdvisor } from "./tire-pressure-advisor-rules.js";
+import { validateTirePressureAdvisorInput } from "./tire-pressure-advisor.schema.js";
 import { renderTrackAgentClientScript, renderTrackAgentHtml, renderTrackAgentLandingHtml } from "./ui.js";
 import {
   getTrackAgentSession,
@@ -215,6 +217,24 @@ export default {
         }
         throw error;
       }
+    }
+
+    if (request.method === "POST" && pathname === "/track-agent/tire-pressure-advisor") {
+      const body = await readJson(request);
+      const access = await requireTrackAgentAccess(request, env, body);
+      if (!access.allowed) return access.response;
+
+      const validation = validateTirePressureAdvisorInput(body);
+      if (!validation.ok) {
+        return json({
+          error: "validation_failed",
+          message: "Tire Pressure Advisor input is invalid.",
+          details: validation.errors,
+        }, 400);
+      }
+
+      const advisor = evaluateTirePressureAdvisor(body);
+      return json(advisor);
     }
 
     if (request.method === "GET" && pathname === "/track-agent/sessions") {
