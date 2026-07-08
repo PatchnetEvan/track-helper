@@ -3,7 +3,13 @@ import { TrackAgentProviderError } from "./providers/provider-errors.js";
 import { TrackAgentScopeError } from "./track-agent-scope-policy.js";
 import { evaluateTirePressureAdvisor } from "./tire-pressure-advisor-rules.js";
 import { validateTirePressureAdvisorInput } from "./tire-pressure-advisor.schema.js";
-import { renderTrackAgentClientScript, renderTrackAgentHtml, renderTrackAgentLandingHtml } from "./ui.js";
+import {
+  renderTirePressureAdvisorClientScript,
+  renderTirePressureAdvisorHtml,
+  renderTrackAgentClientScript,
+  renderTrackAgentHtml,
+  renderTrackAgentLandingHtml,
+} from "./ui.js";
 import {
   getTrackAgentSession,
   getTrackAgentSessions,
@@ -142,6 +148,20 @@ export default {
       const access = await requireTrackAgentAccess(request, env);
       if (!access.allowed) return access.response;
       return javascript(renderTrackAgentClientScript());
+    }
+
+    if (request.method === "GET" && pathname === "/track-agent/tire-pressure-advisor") {
+      const access = await requireTrackAgentAccess(request, env);
+      if (!access.allowed) return accessPendingHtml();
+      const cleanUrl = cleanAccessUrl(url);
+      if (cleanUrl) return redirect(cleanUrl, 302, { "set-cookie": access.cookieHeaders });
+      return html(renderTirePressureAdvisorHtml(), 200, { "set-cookie": access.cookieHeaders });
+    }
+
+    if (request.method === "GET" && pathname === "/track-agent/tire-pressure-advisor/ui.js") {
+      const access = await requireTrackAgentAccess(request, env);
+      if (!access.allowed) return access.response;
+      return javascript(renderTirePressureAdvisorClientScript());
     }
 
     if (request.method === "GET" && pathname === "/health") {

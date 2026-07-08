@@ -248,6 +248,11 @@ export function renderTrackAgentHtml() {
       <div id="saved-summary"></div>
       <pre id="saved-json">{}</pre>
     </section>
+
+    <section>
+      <h2>Internal Tools</h2>
+      <p><a href="/track-agent/tire-pressure-advisor">Tire Pressure Advisor — Internal Rule-Only Preview</a></p>
+    </section>
   </main>
   <script src="/track-agent/ui.js" defer></script>
 </body>
@@ -435,6 +440,215 @@ document.addEventListener("DOMContentLoaded", () => {
   ["track-name", "bike-name", "session-number", "session-label", "best-lap", "confidence-overall", "front-hot", "rear-hot", "setup-change", "rider-note", "warnings"].forEach((id) => {
     $(id).addEventListener("input", updatePreview);
   });
+});
+`;
+}
+
+export function renderTirePressureAdvisorHtml() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tire Pressure Advisor Internal Preview</title>
+  <style>
+    :root { color-scheme: dark; --bg: #121212; --panel: #1d1d1d; --text: #f4f4f4; --muted: #a8a8a8; --accent: #ff6600; --good: #00ff88; --bad: #ff5b5b; --border: #343434; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 20px 14px 60px; }
+    h1 { margin: 0 0 4px; font-size: 1.45rem; }
+    h2 { margin: 0 0 12px; font-size: 1.05rem; color: var(--text); }
+    p { color: var(--muted); }
+    a { color: var(--text); }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin: 14px 0; }
+    label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; color: var(--muted); font-size: 0.92rem; }
+    input, textarea { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 6px; background: #252525; color: var(--text); padding: 9px 10px; font: inherit; }
+    textarea { min-height: 96px; resize: vertical; }
+    button { min-height: 44px; border: 0; border-radius: 6px; padding: 10px 14px; background: var(--accent); color: #160700; font-weight: 750; cursor: pointer; }
+    pre { overflow: auto; background: #0b0b0b; border: 1px solid var(--border); border-radius: 6px; padding: 10px; color: var(--good); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .notice { border-left: 4px solid var(--accent); padding-left: 10px; }
+    .status-pill { display: inline-flex; align-items: center; min-height: 30px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; color: var(--text); background: #151515; font-weight: 700; }
+    .result-list { display: grid; gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
+    .result-list li { border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; background: #181818; color: var(--muted); }
+    .error { color: var(--bad); }
+    .good { color: var(--good); }
+    .hidden { display: none; }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="/track-agent">Back to Track Agent</a></p>
+    <h1>Tire Pressure Advisor &mdash; Internal Rule-Only Preview</h1>
+    <p class="notice">This is decision-support only. Verify tire vendor guidance, track conditions, tire condition, warmer use, rider pace, and coach/mechanic input before making changes.</p>
+
+    <section>
+      <h2>Advisor Inputs</h2>
+      <div class="grid">
+        <label>Bike <input id="advisor-bike" value="Yamaha R3" /></label>
+        <label>Track <input id="advisor-track" value="Road Atlanta" /></label>
+        <label>Session label <input id="advisor-session-label" value="Session 3" /></label>
+        <label>Tire brand <input id="advisor-tire-brand" value="Dunlop" /></label>
+        <label>Tire model <input id="advisor-tire-model" value="Q5S" /></label>
+        <label>Tire compound <input id="advisor-tire-compound" value="track-day" /></label>
+        <label>Front cold PSI <input id="advisor-front-cold" inputmode="decimal" value="30" /></label>
+        <label>Rear cold PSI <input id="advisor-rear-cold" inputmode="decimal" value="27" /></label>
+        <label>Front hot PSI <input id="advisor-front-hot" inputmode="decimal" value="32" /></label>
+        <label>Rear hot PSI <input id="advisor-rear-hot" inputmode="decimal" value="29" /></label>
+        <label>Front target hot PSI <input id="advisor-front-target" inputmode="decimal" /></label>
+        <label>Rear target hot PSI <input id="advisor-rear-target" inputmode="decimal" /></label>
+        <label>Front target min <input id="advisor-front-target-min" inputmode="decimal" value="31" /></label>
+        <label>Front target max <input id="advisor-front-target-max" inputmode="decimal" value="33" /></label>
+        <label>Rear target min <input id="advisor-rear-target-min" inputmode="decimal" value="28" /></label>
+        <label>Rear target max <input id="advisor-rear-target-max" inputmode="decimal" value="29" /></label>
+        <label>Ambient temp F <input id="advisor-ambient-temp" inputmode="decimal" value="82" /></label>
+        <label>Track temp F <input id="advisor-track-temp" inputmode="decimal" value="104" /></label>
+        <label>Warmer use <input id="advisor-warmer-use" value="used" /></label>
+        <label>Rider pace <input id="advisor-rider-pace" value="intermediate" /></label>
+      </div>
+      <label>Handling symptom <input id="advisor-handling-symptom" value="planted" /></label>
+      <label>Rider note <textarea id="advisor-rider-note">Bike felt predictable.</textarea></label>
+      <div class="actions">
+        <button id="advisor-button" type="button">Run Rule Check</button>
+        <span id="advisor-status"></span>
+      </div>
+    </section>
+
+    <section id="advisor-result" class="hidden">
+      <h2>Advisor Result</h2>
+      <p>Status: <span id="advisor-recommendation-status" class="status-pill"></span></p>
+      <p>Confidence: <span id="advisor-confidence"></span></p>
+      <h2>Suggested Adjustments</h2>
+      <ul id="advisor-adjustments" class="result-list"></ul>
+      <h2>Missing Fields</h2>
+      <ul id="advisor-missing-fields" class="result-list"></ul>
+      <h2>Warnings</h2>
+      <ul id="advisor-warnings" class="result-list"></ul>
+      <pre id="advisor-json">{}</pre>
+    </section>
+  </main>
+  <script src="/track-agent/tire-pressure-advisor/ui.js" defer></script>
+</body>
+</html>`;
+}
+
+export function renderTirePressureAdvisorClientScript() {
+  return `"use strict";
+
+const $ = (id) => document.getElementById(id);
+
+function setText(id, value, className) {
+  const el = $(id);
+  el.textContent = value || "";
+  el.className = className || "";
+}
+
+function fieldValue(id) {
+  const value = $(id).value.trim();
+  return value === "" ? null : value;
+}
+
+function fieldNumber(id) {
+  const value = fieldValue(id);
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : value;
+}
+
+function applyOptional(payload, field, value) {
+  if (value != null) payload[field] = value;
+}
+
+function targetRange(minId, maxId) {
+  const min = fieldNumber(minId);
+  const max = fieldNumber(maxId);
+  if (min == null && max == null) return null;
+  return { min, max };
+}
+
+function buildAdvisorPayload() {
+  const payload = {};
+  [
+    ["bike", "advisor-bike"],
+    ["track", "advisor-track"],
+    ["session_label", "advisor-session-label"],
+    ["tire_brand", "advisor-tire-brand"],
+    ["tire_model", "advisor-tire-model"],
+    ["tire_compound", "advisor-tire-compound"],
+    ["warmer_use", "advisor-warmer-use"],
+    ["rider_pace", "advisor-rider-pace"],
+    ["handling_symptom", "advisor-handling-symptom"],
+    ["rider_note", "advisor-rider-note"],
+  ].forEach(([field, id]) => applyOptional(payload, field, fieldValue(id)));
+
+  [
+    ["front_cold_psi", "advisor-front-cold"],
+    ["rear_cold_psi", "advisor-rear-cold"],
+    ["front_hot_psi", "advisor-front-hot"],
+    ["rear_hot_psi", "advisor-rear-hot"],
+    ["front_target_hot_psi", "advisor-front-target"],
+    ["rear_target_hot_psi", "advisor-rear-target"],
+    ["ambient_temp_f", "advisor-ambient-temp"],
+    ["track_temp_f", "advisor-track-temp"],
+  ].forEach(([field, id]) => applyOptional(payload, field, fieldNumber(id)));
+
+  const frontRange = targetRange("advisor-front-target-min", "advisor-front-target-max");
+  const rearRange = targetRange("advisor-rear-target-min", "advisor-rear-target-max");
+  if (frontRange) payload.front_target_hot_range = frontRange;
+  if (rearRange) payload.rear_target_hot_range = rearRange;
+
+  return payload;
+}
+
+function renderList(id, items, emptyText, renderItem) {
+  const list = $(id);
+  list.textContent = "";
+  const values = Array.isArray(items) && items.length ? items : [emptyText];
+  values.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = renderItem ? renderItem(item) : String(item);
+    list.appendChild(li);
+  });
+}
+
+function renderAdvisorResult(data) {
+  $("advisor-result").classList.remove("hidden");
+  $("advisor-recommendation-status").textContent = data.recommendation_status || "";
+  $("advisor-confidence").textContent = data.confidence || "";
+  renderList("advisor-adjustments", data.suggested_adjustments, "No suggested adjustments.", (item) => {
+    if (typeof item === "string") return item;
+    const amount = item.amount_psi == null ? "no PSI change" : item.amount_psi + " psi";
+    return item.tire + ": " + item.direction + " (" + amount + ") - " + item.reason;
+  });
+  renderList("advisor-missing-fields", data.missing_fields, "No missing fields.");
+  renderList("advisor-warnings", data.warnings, "No warnings.");
+  $("advisor-json").textContent = JSON.stringify(data, null, 2);
+}
+
+async function runAdvisor() {
+  setText("advisor-status", "Running deterministic rules...");
+  const response = await fetch("/track-agent/tire-pressure-advisor", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildAdvisorPayload()),
+  });
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (error) {
+    data = { error: "unparseable_response", message: "Advisor response could not be parsed." };
+  }
+  $("advisor-result").classList.remove("hidden");
+  $("advisor-json").textContent = JSON.stringify(data, null, 2);
+  if (!response.ok) throw new Error(data.message || data.error || "Advisor request failed");
+  renderAdvisorResult(data);
+  setText("advisor-status", "Rule-only advisor response received.", "good");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  $("advisor-button").addEventListener("click", () => runAdvisor().catch((err) => setText("advisor-status", err.message, "error")));
 });
 `;
 }
