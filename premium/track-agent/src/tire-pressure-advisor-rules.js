@@ -65,6 +65,14 @@ function contextWarnings(input) {
   return warnings;
 }
 
+function symptomContextWarnings(input) {
+  const symptom = `${input.handling_symptom || ""} ${input.rider_note || ""}`.toLowerCase();
+  if (!symptom) return [];
+  const hasInstabilityContext = /\b(chatter|instability|unstable|vague|loose|greasy|slid|slide|sliding|spin|spinning)\b/.test(symptom);
+  if (!hasInstabilityContext) return [];
+  return ["Handling symptom is present but pressure or target data is incomplete; review tire condition, track conditions, and setup context before making changes."];
+}
+
 function observedConditions(input) {
   return {
     bike: input.bike || null,
@@ -207,7 +215,7 @@ export function evaluateTirePressureAdvisor(inputPayload = {}, options = {}) {
   const warnings = [...tireInfoWarnings(input), ...contextWarnings(input)];
 
   if (missingPressure.length || missingTargets.length) {
-    const output = baseOutput(input, "needs_more_info", [...missingPressure, ...missingTargets], warnings);
+    const output = baseOutput(input, "needs_more_info", [...missingPressure, ...missingTargets], [...warnings, ...symptomContextWarnings(input)]);
     validateOrThrow(output);
     return output;
   }
