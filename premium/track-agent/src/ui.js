@@ -452,64 +452,119 @@ export function renderTirePressureAdvisorHtml() {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tire Pressure Advisor Internal Preview</title>
   <style>
-    :root { color-scheme: dark; --bg: #121212; --panel: #1d1d1d; --text: #f4f4f4; --muted: #a8a8a8; --accent: #ff6600; --good: #00ff88; --bad: #ff5b5b; --border: #343434; }
+    :root { color-scheme: dark; --bg: #121212; --panel: #1d1d1d; --subpanel: #181818; --text: #f4f4f4; --muted: #a8a8a8; --accent: #ff6600; --good: #00ff88; --warn: #ffd166; --bad: #ff5b5b; --border: #343434; }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
-    main { max-width: 980px; margin: 0 auto; padding: 20px 14px 60px; }
-    h1 { margin: 0 0 4px; font-size: 1.45rem; }
-    h2 { margin: 0 0 12px; font-size: 1.05rem; color: var(--text); }
-    p { color: var(--muted); }
+    main { max-width: 1040px; margin: 0 auto; padding: 20px 14px 60px; }
+    h1 { margin: 0 0 6px; font-size: 1.55rem; line-height: 1.15; }
+    h2 { margin: 0 0 12px; font-size: 1.08rem; color: var(--text); }
+    p { color: var(--muted); margin: 8px 0; }
     a { color: var(--text); }
     section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin: 14px 0; }
+    fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 0 0 12px; background: var(--subpanel); }
+    legend { padding: 0 6px; color: var(--text); font-weight: 800; }
     label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; color: var(--muted); font-size: 0.92rem; }
     input, textarea { width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: 6px; background: #252525; color: var(--text); padding: 9px 10px; font: inherit; }
+    input::placeholder, textarea::placeholder { color: #767676; }
     textarea { min-height: 96px; resize: vertical; }
     button { min-height: 44px; border: 0; border-radius: 6px; padding: 10px 14px; background: var(--accent); color: #160700; font-weight: 750; cursor: pointer; }
     pre { overflow: auto; background: #0b0b0b; border: 1px solid var(--border); border-radius: 6px; padding: 10px; color: var(--good); }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .notice { border-left: 4px solid var(--accent); padding-left: 10px; }
-    .status-pill { display: inline-flex; align-items: center; min-height: 30px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; color: var(--text); background: #151515; font-weight: 700; }
+    .notice { border-left: 4px solid var(--accent); padding: 10px 0 10px 10px; background: #171717; }
+    .subhead { max-width: 760px; }
+    .field-note { color: var(--muted); font-size: 0.82rem; }
+    .required { color: var(--warn); font-size: 0.78rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+    .input-row { display: grid; gap: 4px; }
+    .status-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 12px; }
+    .status-pill { display: inline-flex; align-items: center; min-height: 32px; border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px; color: var(--text); background: #151515; font-weight: 800; }
+    .status-ready { border-color: rgba(0,255,136,0.45); color: var(--good); }
+    .status-needs-more-info { border-color: rgba(255,209,102,0.55); color: var(--warn); }
+    .status-not-supported { border-color: rgba(255,91,91,0.55); color: var(--bad); }
+    .result-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+    .result-panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--subpanel); }
+    .result-panel h2 { margin-bottom: 8px; }
     .result-list { display: grid; gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
     .result-list li { border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; background: #181818; color: var(--muted); }
+    .result-list.warning-list li { border-color: rgba(255,209,102,0.45); color: #f5d88a; }
+    .adjustment strong { color: var(--text); }
+    .error-panel { border-color: rgba(255,91,91,0.45); background: #241717; }
     .error { color: var(--bad); }
     .good { color: var(--good); }
     .hidden { display: none; }
-    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 780px) { .grid, .result-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <main>
     <p><a href="/track-agent">Back to Track Agent</a></p>
     <h1>Tire Pressure Advisor &mdash; Internal Rule-Only Preview</h1>
+    <p class="subhead">Rule-only internal test surface for checking tire pressure data against known target hot pressures. Nothing here is saved.</p>
     <p class="notice">This is decision-support only. Verify tire vendor guidance, track conditions, tire condition, warmer use, rider pace, and coach/mechanic input before making changes.</p>
 
     <section>
       <h2>Advisor Inputs</h2>
-      <div class="grid">
-        <label>Bike <input id="advisor-bike" value="Yamaha R3" /></label>
-        <label>Track <input id="advisor-track" value="Road Atlanta" /></label>
-        <label>Session label <input id="advisor-session-label" value="Session 3" /></label>
-        <label>Tire brand <input id="advisor-tire-brand" value="Dunlop" /></label>
-        <label>Tire model <input id="advisor-tire-model" value="Q5S" /></label>
-        <label>Tire compound <input id="advisor-tire-compound" value="track-day" /></label>
-        <label>Front cold PSI <input id="advisor-front-cold" inputmode="decimal" value="30" /></label>
-        <label>Rear cold PSI <input id="advisor-rear-cold" inputmode="decimal" value="27" /></label>
-        <label>Front hot PSI <input id="advisor-front-hot" inputmode="decimal" value="32" /></label>
-        <label>Rear hot PSI <input id="advisor-rear-hot" inputmode="decimal" value="29" /></label>
-        <label>Front target hot PSI <input id="advisor-front-target" inputmode="decimal" /></label>
-        <label>Rear target hot PSI <input id="advisor-rear-target" inputmode="decimal" /></label>
-        <label>Front target min <input id="advisor-front-target-min" inputmode="decimal" value="31" /></label>
-        <label>Front target max <input id="advisor-front-target-max" inputmode="decimal" value="33" /></label>
-        <label>Rear target min <input id="advisor-rear-target-min" inputmode="decimal" value="28" /></label>
-        <label>Rear target max <input id="advisor-rear-target-max" inputmode="decimal" value="29" /></label>
-        <label>Ambient temp F <input id="advisor-ambient-temp" inputmode="decimal" value="82" /></label>
-        <label>Track temp F <input id="advisor-track-temp" inputmode="decimal" value="104" /></label>
-        <label>Warmer use <input id="advisor-warmer-use" value="used" /></label>
-        <label>Rider pace <input id="advisor-rider-pace" value="intermediate" /></label>
-      </div>
-      <label>Handling symptom <input id="advisor-handling-symptom" value="planted" /></label>
-      <label>Rider note <textarea id="advisor-rider-note">Bike felt predictable.</textarea></label>
+      <p>Enter the numbers you want the deterministic rules to check. Target hot pressure or a target range is required before the advisor suggests a pressure change.</p>
+
+      <fieldset>
+        <legend>Bike / Track</legend>
+        <div class="grid">
+          <label><span>Bike <span class="required">Required</span></span><input id="advisor-bike" value="Yamaha R3" placeholder="Example: Yamaha R3" /></label>
+          <label><span>Track <span class="required">Required</span></span><input id="advisor-track" value="Road Atlanta" placeholder="Example: Road Atlanta" /></label>
+          <label>Session label <input id="advisor-session-label" value="Session 3" placeholder="Example: Session 3" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Tire Identity</legend>
+        <p class="field-note">More tire detail improves confidence. The advisor will not invent tire-vendor targets.</p>
+        <div class="grid">
+          <label>Tire brand <input id="advisor-tire-brand" value="Dunlop" placeholder="Example: Dunlop" /></label>
+          <label>Tire model <input id="advisor-tire-model" value="Q5S" placeholder="Example: Q5S" /></label>
+          <label>Tire compound <input id="advisor-tire-compound" value="track-day" placeholder="Example: medium, SC1, TD" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Pressures</legend>
+        <p class="field-note">Cold and hot PSI help the rule check understand the session. Hot PSI is required for pressure-vs-target analysis.</p>
+        <div class="grid">
+          <label>Front cold PSI <input id="advisor-front-cold" inputmode="decimal" value="30" placeholder="Example: 30" /></label>
+          <label>Rear cold PSI <input id="advisor-rear-cold" inputmode="decimal" value="27" placeholder="Example: 27" /></label>
+          <label><span>Front hot PSI <span class="required">Required</span></span><input id="advisor-front-hot" inputmode="decimal" value="32" placeholder="Example: 32" /></label>
+          <label><span>Rear hot PSI <span class="required">Required</span></span><input id="advisor-rear-hot" inputmode="decimal" value="29" placeholder="Example: 29" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Targets</legend>
+        <p class="field-note">Use a single target or a min/max range. Without target hot pressure, the advisor returns needs_more_info.</p>
+        <div class="grid">
+          <label>Front target hot PSI <input id="advisor-front-target" inputmode="decimal" placeholder="Optional single target" /></label>
+          <label>Rear target hot PSI <input id="advisor-rear-target" inputmode="decimal" placeholder="Optional single target" /></label>
+          <label>Front target min <input id="advisor-front-target-min" inputmode="decimal" value="31" placeholder="Example: 31" /></label>
+          <label>Front target max <input id="advisor-front-target-max" inputmode="decimal" value="33" placeholder="Example: 33" /></label>
+          <label>Rear target min <input id="advisor-rear-target-min" inputmode="decimal" value="28" placeholder="Example: 28" /></label>
+          <label>Rear target max <input id="advisor-rear-target-max" inputmode="decimal" value="29" placeholder="Example: 29" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Conditions</legend>
+        <div class="grid">
+          <label>Ambient temp F <input id="advisor-ambient-temp" inputmode="decimal" value="82" placeholder="Example: 82" /></label>
+          <label>Track temp F <input id="advisor-track-temp" inputmode="decimal" value="104" placeholder="Example: 104" /></label>
+          <label>Warmer use <input id="advisor-warmer-use" value="used" placeholder="used, not used, unknown" /></label>
+          <label>Rider pace <input id="advisor-rider-pace" value="intermediate" placeholder="novice, intermediate, advanced, race" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Rider Notes</legend>
+        <label>Handling symptom <input id="advisor-handling-symptom" value="planted" placeholder="Example: rear greasy on exit" /></label>
+        <label>Rider note <textarea id="advisor-rider-note" placeholder="Short session note. No medical, payment, account, or unrelated personal information.">Bike felt predictable.</textarea></label>
+      </fieldset>
+
       <div class="actions">
         <button id="advisor-button" type="button">Run Rule Check</button>
         <span id="advisor-status"></span>
@@ -518,15 +573,32 @@ export function renderTirePressureAdvisorHtml() {
 
     <section id="advisor-result" class="hidden">
       <h2>Advisor Result</h2>
-      <p>Status: <span id="advisor-recommendation-status" class="status-pill"></span></p>
-      <p>Confidence: <span id="advisor-confidence"></span></p>
-      <h2>Suggested Adjustments</h2>
-      <ul id="advisor-adjustments" class="result-list"></ul>
-      <h2>Missing Fields</h2>
-      <ul id="advisor-missing-fields" class="result-list"></ul>
-      <h2>Warnings</h2>
-      <ul id="advisor-warnings" class="result-list"></ul>
-      <pre id="advisor-json">{}</pre>
+      <div class="status-row">
+        <span>Status <span id="advisor-recommendation-status" class="status-pill"></span></span>
+        <span>Confidence <span id="advisor-confidence" class="status-pill"></span></span>
+      </div>
+      <div id="advisor-error-panel" class="result-panel error-panel hidden">
+        <h2>Request Error</h2>
+        <p id="advisor-error-message" class="error"></p>
+      </div>
+      <div class="result-grid">
+        <div class="result-panel">
+          <h2>Suggested Adjustments</h2>
+          <ul id="advisor-adjustments" class="result-list"></ul>
+        </div>
+        <div class="result-panel">
+          <h2>Missing Fields</h2>
+          <ul id="advisor-missing-fields" class="result-list"></ul>
+        </div>
+        <div class="result-panel">
+          <h2>Warnings</h2>
+          <ul id="advisor-warnings" class="result-list warning-list"></ul>
+        </div>
+        <div class="result-panel">
+          <h2>Raw Rule Output</h2>
+          <pre id="advisor-json">{}</pre>
+        </div>
+      </div>
     </section>
   </main>
   <script src="/track-agent/tire-pressure-advisor/ui.js" defer></script>
@@ -566,6 +638,19 @@ function targetRange(minId, maxId) {
   const max = fieldNumber(maxId);
   if (min == null && max == null) return null;
   return { min, max };
+}
+
+function formatFieldName(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\\b\\w/g, (letter) => letter.toUpperCase());
+}
+
+function statusClass(status) {
+  if (status === "ready") return "status-pill status-ready";
+  if (status === "needs_more_info") return "status-pill status-needs-more-info";
+  if (status === "not_supported") return "status-pill status-not-supported";
+  return "status-pill";
 }
 
 function buildAdvisorPayload() {
@@ -613,16 +698,36 @@ function renderList(id, items, emptyText, renderItem) {
   });
 }
 
+function renderErrorResult(status, data) {
+  $("advisor-result").classList.remove("hidden");
+  $("advisor-error-panel").classList.remove("hidden");
+  $("advisor-error-message").textContent = "HTTP " + status + ": " + (data.message || data.error || "Advisor request failed");
+  $("advisor-recommendation-status").textContent = "error";
+  $("advisor-recommendation-status").className = "status-pill status-not-supported";
+  $("advisor-confidence").textContent = "";
+  $("advisor-confidence").className = "status-pill";
+  renderList("advisor-adjustments", [], "No suggested adjustments.");
+  renderList("advisor-missing-fields", data.details || [], "No parsed validation details.", (item) => {
+    if (typeof item === "string") return item;
+    return (item.path ? formatFieldName(item.path) + ": " : "") + (item.message || JSON.stringify(item));
+  });
+  renderList("advisor-warnings", [], "Fix the fields above and run the rule check again.");
+  $("advisor-json").textContent = JSON.stringify(data, null, 2);
+}
+
 function renderAdvisorResult(data) {
   $("advisor-result").classList.remove("hidden");
+  $("advisor-error-panel").classList.add("hidden");
   $("advisor-recommendation-status").textContent = data.recommendation_status || "";
+  $("advisor-recommendation-status").className = statusClass(data.recommendation_status);
   $("advisor-confidence").textContent = data.confidence || "";
+  $("advisor-confidence").className = "status-pill";
   renderList("advisor-adjustments", data.suggested_adjustments, "No suggested adjustments.", (item) => {
     if (typeof item === "string") return item;
     const amount = item.amount_psi == null ? "no PSI change" : item.amount_psi + " psi";
-    return item.tire + ": " + item.direction + " (" + amount + ") - " + item.reason;
+    return formatFieldName(item.tire) + " tire: " + item.direction + " (" + amount + ") - " + item.reason + " Confidence: " + item.confidence + ".";
   });
-  renderList("advisor-missing-fields", data.missing_fields, "No missing fields.");
+  renderList("advisor-missing-fields", data.missing_fields, "No missing fields.", formatFieldName);
   renderList("advisor-warnings", data.warnings, "No warnings.");
   $("advisor-json").textContent = JSON.stringify(data, null, 2);
 }
@@ -640,9 +745,10 @@ async function runAdvisor() {
   } catch (error) {
     data = { error: "unparseable_response", message: "Advisor response could not be parsed." };
   }
-  $("advisor-result").classList.remove("hidden");
-  $("advisor-json").textContent = JSON.stringify(data, null, 2);
-  if (!response.ok) throw new Error(data.message || data.error || "Advisor request failed");
+  if (!response.ok) {
+    renderErrorResult(response.status, data);
+    throw new Error(data.message || data.error || "Advisor request failed");
+  }
   renderAdvisorResult(data);
   setText("advisor-status", "Rule-only advisor response received.", "good");
 }
