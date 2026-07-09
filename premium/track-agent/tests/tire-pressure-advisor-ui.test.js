@@ -34,6 +34,13 @@ assert.equal(authorizedAdvisorUiClean.status, 200);
 const advisorHtml = await authorizedAdvisorUiClean.text();
 assert.equal(advisorHtml.includes("Tire Pressure Advisor &mdash; Internal Rule-Only Preview"), true);
 assert.equal(advisorHtml.includes("decision-support only"), true);
+assert.equal(advisorHtml.includes("Bike / Track"), true);
+assert.equal(advisorHtml.includes("Tire Identity"), true);
+assert.equal(advisorHtml.includes("Pressures"), true);
+assert.equal(advisorHtml.includes("Targets"), true);
+assert.equal(advisorHtml.includes("Conditions"), true);
+assert.equal(advisorHtml.includes("Rider Notes"), true);
+assert.equal(advisorHtml.includes("advisor-error-panel"), true);
 assert.equal(advisorHtml.includes('/track-agent/tire-pressure-advisor/ui.js'), true);
 
 const publicLanding = await worker.fetch(new Request("https://agent.mototrack.app/"), denyEnv);
