@@ -8,6 +8,8 @@ docs
 .assetsignore
 wrangler.jsonc
 wrangler.toml
+src
+tests
 package.json
 package-lock.json
 node_modules

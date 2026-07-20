@@ -1,7 +1,19 @@
 {
   "name": "mototrack",
+  "main": "./src/public-worker.mjs",
   "compatibility_date": "2026-04-01",
   "assets": {
-    "directory": "./"
-  }
+    "directory": "./",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash"
+  },
+  "send_email": [
+    {
+      "name": "BETA_REQUEST_EMAIL",
+      "destination_address": "evan.martinez@gmail.com",
+      "allowed_sender_addresses": [
+        "beta@mototrack.app"
+      ]
+    }
+  ]
 }
