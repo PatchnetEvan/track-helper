@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; img-src 'self'; connect-src 'self'; frame-src https://challenges.cloudflare.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none';" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="theme-color" content="#101010" />
+  <meta name="description" content="Eligible PanAmSBK racers can request free private-beta access to MotoTrack through the end of the 2026 racing season." />
+  <link rel="canonical" href="https://mototrack.app/panamsbk" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="MotoTrack for PanAmSBK Racers" />
+  <meta property="og:description" content="A better way to keep track of the track: organize pressures, setup changes, lap information, tire observations, and rider feedback throughout the race weekend." />
+  <meta property="og:url" content="https://mototrack.app/panamsbk" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="MotoTrack for PanAmSBK Racers" />
+  <meta name="twitter:description" content="A better way to keep track of the track throughout the race weekend." />
+  <title>MotoTrack Private Beta for PanAmSBK Racers</title>
+  <link rel="icon" href="/assets/track-agent/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="/assets/track-agent/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/panamsbk/panamsbk.css" />
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="MotoTrack home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>MotoTrack</span>
+    </a>
+    <a class="header-cta" href="#request-access">Request beta access</a>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="hero-heading">
+      <div class="shell hero-content">
+        <p class="eyebrow">PanAmSBK Rider Private Beta</p>
+        <h1 id="hero-heading">MotoTrack for PanAmSBK Racers</h1>
+        <p class="hero-statement">A Better Way to Keep Track of the Track</p>
+        <p class="hero-copy">Keep the details of your race weekend organized, from pre-session pressures and planned setup changes to post-session hot pressures, lap information, tire observations, and rider feedback.</p>
+        <p class="hero-offer">Free private-beta access for approved PanAmSBK racers through the end of the 2026 season.</p>
+        <div class="actions">
+          <a class="button primary" href="#request-access">Request PanAm Beta Access</a>
+          <a class="button secondary" href="#how-it-works">See How It Works</a>
+        </div>
+        <p class="microcopy">Invitation-only. Limited availability. No payment information required during the beta.</p>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="intro-heading">
+      <div class="shell split-layout">
+        <div>
+          <p class="eyebrow">Built Around Real Track Weekends</p>
+          <h2 id="intro-heading">A Better Way to Keep Track of the Track</h2>
+          <p>A race weekend moves quickly. Pressures change, setup decisions accumulate, sessions run together, and important details can end up scattered across paper notes, screenshots, text messages, and memory.</p>
+          <p>MotoTrack is being built by racers who understand that challenge. It is designed to organize what happened before and after each session in a clearer, more consistent record.</p>
+          <p>Enter information that stays consistent once. Record what changes between sessions. Debrief while the details are still fresh.</p>
+        </div>
+        <figure class="photo-frame">
+          <img src="/assets/track-agent/tire-pressure-log.webp" width="1400" height="788" alt="Motorcycle racer checking tire pressure beside a track-prepared bike in the paddock." loading="lazy" />
+        </figure>
+      </div>
+    </section>
+
+    <section class="section band" aria-labelledby="organized-heading">
+      <div class="shell">
+        <p class="eyebrow">Paddock Workflow</p>
+        <h2 id="organized-heading">Your Race Weekend, Organized</h2>
+        <div class="three-up">
+          <article class="info-card">
+            <p class="number">01</p>
+            <h3>Event Setup</h3>
+            <p>Information that generally stays consistent throughout the event.</p>
+            <ul>
+              <li>Track and event</li>
+              <li>Motorcycle and race number</li>
+              <li>Tire and warmer context</li>
+              <li>Pressure references and conditions</li>
+            </ul>
+          </article>
+          <article class="info-card">
+            <p class="number">02</p>
+            <h3>Before Each Session</h3>
+            <p>Record the plan before heading onto the track.</p>
+            <ul>
+              <li>Pre-session pressures and basis</li>
+              <li>Planned setup changes</li>
+              <li>Session type or number</li>
+              <li>Session goal and expected pace</li>
+            </ul>
+          </article>
+          <article class="info-card">
+            <p class="number">03</p>
+            <h3>After Each Session</h3>
+            <p>Capture what happened while it is still fresh.</p>
+            <ul>
+              <li>Post-session hot pressures and tire temperatures</li>
+              <li>Lap information and rider feel</li>
+              <li>Tire wear and setup-change results</li>
+              <li>Fork-travel observations</li>
+            </ul>
+          </article>
+        </div>
+        <p class="section-note">MotoTrack is being designed to organize information such as these race-weekend details. Beta features may change during testing.</p>
+      </div>
+    </section>
+
+    <section class="section" id="how-it-works" aria-labelledby="workflow-heading">
+      <div class="shell">
+        <p class="eyebrow">How It Works</p>
+        <h2 id="workflow-heading">Designed Around the Rhythm of a Race Weekend</h2>
+        <ol class="workflow">
+          <li><span>1</span><div><h3>Set Up the Event</h3><p>Enter the track, motorcycle, tires, race number, and baseline information once.</p></div></li>
+          <li><span>2</span><div><h3>Plan the Session</h3><p>Record current pressures, intended changes, and the purpose of the next outing.</p></div></li>
+          <li><span>3</span><div><h3>Debrief After Riding</h3><p>Add measured results, rider feel, tire observations, and the outcome of any changes.</p></div></li>
+          <li><span>4</span><div><h3>Build a Consistent Record</h3><p>Keep sessions connected to the event instead of maintaining disconnected notes.</p></div></li>
+        </ol>
+        <p class="section-lead">Less repeated data entry. More useful context from one session to the next.</p>
+      </div>
+    </section>
+
+    <section class="section band" aria-labelledby="value-heading">
+      <div class="shell">
+        <h2 id="value-heading">Remember More Than the Lap Time</h2>
+        <div class="four-up">
+          <article><h3>Keep the Context</h3><p>A lap time means more when it stays connected to the pressures, tires, setup, conditions, and rider feedback from that session.</p></article>
+          <article><h3>Track What Changed</h3><p>Record changes and outcomes instead of depending on memory at the next session or event.</p></article>
+          <article><h3>Reduce Repeated Entry</h3><p>Keep event-level information separate from values that change before and after each outing.</p></article>
+          <article><h3>Help Shape the Product</h3><p>Beta participants can provide private feedback about what works, what slows them down, and what the workflow is missing.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="beta-heading">
+      <div class="shell narrow">
+        <p class="eyebrow">Limited Testing</p>
+        <h2 id="beta-heading">A Private Beta Built Around Real Paddock Use</h2>
+        <p>This is an early, invitation-only product being tested with a limited group of eligible PanAmSBK racers. The purpose is to validate the race-weekend workflow under real track conditions.</p>
+        <ul class="check-list">
+          <li>Free during the PanAmSBK private beta through the end of the 2026 season</li>
+          <li>No payment card required during the beta</li>
+          <li>Limited number of approved participants</li>
+          <li>Features and layouts may change during testing</li>
+          <li>Private access links must not be shared publicly</li>
+          <li>Future pricing will be explained before any payment is required</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section band" aria-labelledby="boundaries-heading">
+      <div class="shell">
+        <h2 id="boundaries-heading">A Race-Weekend Record, Not a Replacement for Your Team</h2>
+        <div class="comparison">
+          <article><h3>What MotoTrack Is Intended to Be</h3><ul><li>A structured race-weekend notebook</li><li>A rider-controlled session history</li><li>A way to connect pressures, tires, setup changes, lap information, and rider feedback</li><li>A product shaped by racer feedback</li></ul></article>
+          <article><h3>What MotoTrack Is Not</h3><ul><li>Official race timing or scoring</li><li>Race control</li><li>A replacement for a coach, mechanic, crew chief, suspension specialist, or tire vendor</li><li>Automatic suspension tuning or ideal-pressure selection</li><li>A crash-risk prediction or safety-critical system</li><li>A public rider-tracking platform</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="privacy-heading">
+      <div class="shell split-layout reverse">
+        <figure class="photo-frame">
+          <img src="/assets/track-agent/phone-session-log.webp" width="1400" height="788" alt="A rider holding a phone with a generic session log in the paddock." loading="lazy" />
+        </figure>
+        <div>
+          <p class="eyebrow">Private By Default</p>
+          <h2 id="privacy-heading">Your Race Data Stays Private by Default</h2>
+          <p>Session notes, setup information, pressures, tire observations, lap data, race number, and rider feedback remain private by default.</p>
+          <p>MotoTrack does not automatically share information with other riders, coaches, teams, vendors, tire manufacturers, or the public. Any future sharing will require the rider to choose what is shared and who receives access.</p>
+          <ul class="check-list compact"><li>No automatic public profile</li><li>No automatic coach, vendor, or manufacturer access</li><li>No public GPS trace</li><li>No sale of individual rider session data</li></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section form-section" id="request-access" aria-labelledby="form-heading">
+      <div class="shell narrow">
+        <p class="eyebrow">Private Request</p>
+        <h2 id="form-heading">Request PanAm Beta Access</h2>
+        <p>Tell us a little about your PanAmSBK racing program. Requests are reviewed manually before private-beta access is issued.</p>
+        <p class="form-note">Requests are protected by Turnstile and reviewed manually. No account or access link is issued automatically.</p>
+        <form id="beta-request" novalidate>
+          <input type="hidden" name="source" value="panamsbk_landing_page" />
+          <input type="hidden" name="campaign" value="panamsbk_2026_private_beta" />
+          <div class="form-grid">
+            <label>First name<input name="first_name" autocomplete="given-name" required /></label>
+            <label>Last name<input name="last_name" autocomplete="family-name" required /></label>
+            <label class="full">Email address<input name="email" type="email" autocomplete="email" required /></label>
+            <label>PanAmSBK race number<input name="race_number" maxlength="20" required /></label>
+            <label>Primary motorcycle<input name="primary_motorcycle" maxlength="100" required /></label>
+            <label class="full">Primary class or classes<input name="primary_classes" maxlength="150" required /></label>
+            <label>Mobile number <span>(optional)</span><input name="mobile" type="tel" autocomplete="tel" /></label>
+            <label>Next PanAmSBK event <span>(optional)</span><input name="next_event" maxlength="150" /></label>
+            <label class="full">How do you currently record session information? <span>(optional)</span><textarea name="current_process" rows="4" maxlength="1000"></textarea></label>
+            <label class="full">What would you most like MotoTrack to help you organize? <span>(optional)</span><textarea name="desired_help" rows="4" maxlength="1000"></textarea></label>
+          </div>
+          <fieldset class="consent"><legend>Beta acknowledgments</legend>
+            <label><input name="eligibility_confirmed" type="checkbox" required /> <span>I currently race with PanAmSBK or have been invited to participate in the PanAmSBK private beta.</span></label>
+            <label><input name="beta_acknowledged" type="checkbox" required /> <span>I understand that MotoTrack is an early private beta and is not official timing, race control, coaching, setup advice, or a safety system.</span></label>
+            <label><input name="privacy_acknowledged" type="checkbox" required /> <span>I understand that the information in my email will be used to review and manage my beta-access request.</span></label>
+          </fieldset>
+          <div class="turnstile-wrap">
+            <div class="cf-turnstile" data-sitekey="0x4AAAAAAD5Ff_XZ-fFIk7vy" data-action="panamsbk-beta-request"></div>
+          </div>
+          <button class="button primary full-button" type="submit">Submit Beta Request</button>
+          <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
+        </form>
+        <noscript><p class="form-note">JavaScript is required to submit a beta request.</p></noscript>
+      </div>
+    </section>
+
+    <section class="section faq" aria-labelledby="faq-heading">
+      <div class="shell narrow">
+        <p class="eyebrow">Questions</p>
+        <h2 id="faq-heading">Frequently Asked Questions</h2>
+        <details><summary>Who can participate?</summary><p>The beta is intended for eligible PanAmSBK amateur racers. Access is limited and each request is reviewed before an invitation is issued.</p></details>
+        <details><summary>Is the beta free?</summary><p>Approved participants receive free access through the end of the 2026 PanAmSBK season. No payment information is required during the beta.</p></details>
+        <details><summary>Will I be charged automatically after the season?</summary><p>No. Any future paid option will be explained before a purchase or subscription is required.</p></details>
+        <details><summary>Does MotoTrack provide setup recommendations?</summary><p>The beta focuses on recording and organizing rider-confirmed information. It does not replace a coach, mechanic, crew chief, suspension specialist, or tire vendor.</p></details>
+        <details><summary>Is MotoTrack official race timing?</summary><p>No. Official results, grids, scoring, and timing remain with PanAmSBK and its designated timing providers.</p></details>
+        <details><summary>Is my information public?</summary><p>No. Race-weekend and session information is private by default. Nothing is automatically published or shared.</p></details>
+        <details><summary>Can I share my beta access link?</summary><p>No. Private access links are intended only for the approved participant and should not be posted publicly or forwarded.</p></details>
+      </div>
+    </section>
+
+    <section class="final-cta" aria-labelledby="final-heading">
+      <div class="shell narrow">
+        <p class="eyebrow">Private Beta</p>
+        <h2 id="final-heading">Build a Better Record of Your Race Weekend</h2>
+        <p>Stop depending on memory, scattered notes, and disconnected screenshots. Help shape a better way to keep track of the track.</p>
+        <a class="button primary" href="#request-access">Request PanAm Beta Access</a>
+        <p class="microcopy">Free for approved PanAmSBK racers through the end of the 2026 season.</p>
+      </div>
+    </section>
+  </main>
+  <script src="/panamsbk/panamsbk.js" defer></script>
+</body>
+</html>
