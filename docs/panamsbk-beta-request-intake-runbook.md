@@ -43,6 +43,8 @@ https://mototrack.app/panamsbk
 
 The QR code is public and must never contain an invite token, a private access URL, or rider-specific information.
 
+The printable public PNG is available at `/assets/panamsbk/panamsbk-beta-request-qr.png` after deployment.
+
 ## Stop conditions
 
 Stop accepting requests and remove public distribution materials if any of these occur:
