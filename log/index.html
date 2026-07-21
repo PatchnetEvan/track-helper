@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none';" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="theme-color" content="#121212" />
+  <meta name="description" content="MotoTrack — a privacy-first, session-only trackside notebook for club racers and track-day riders." />
+  <title>MotoTrack</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">MotoTrack</span>
+    </div>
+    <p class="tagline">Local-first session notes. Your history stays in this browser.</p>
+    <a class="pro-cta" href="https://agent.mototrack.app/">
+      <strong>Track Agent Pro is invite-only and in development.</strong>
+      Explore the rider-controlled paddock workflow &rarr;
+    </a>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" data-tab="setup" aria-selected="true">Setup</button>
+    <button class="tab" role="tab" data-tab="tires" aria-selected="false">Tires</button>
+    <button class="tab" role="tab" data-tab="calculators" aria-selected="false">Calculators</button>
+    <button class="tab" role="tab" data-tab="suspension" aria-selected="false">Suspension</button>
+    <button class="tab" role="tab" data-tab="laps" aria-selected="false">Laps</button>
+    <button class="tab" role="tab" data-tab="review" aria-selected="false">Review</button>
+    <button class="tab" role="tab" data-tab="history" aria-selected="false">History</button>
+    <button class="tab" role="tab" data-tab="about" aria-selected="false">About</button>
+  </nav>
+
+  <main>
+    <!-- Session Setup -->
+    <section class="panel" id="panel-setup" role="tabpanel" aria-labelledby="setup">
+      <h2>Session Setup</h2>
+
+      <label class="field">
+        <span>Bike name / model</span>
+        <input type="text" id="bike" placeholder="e.g. Yamaha R6 track bike" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Track</span>
+        <input type="text" id="track" placeholder="e.g. Thunderhill West" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Session number or label</span>
+        <input type="text" id="session-label" placeholder="e.g. Session 3 / B group" autocomplete="off" />
+      </label>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Ambient temp</span>
+          <input type="text" id="amb-temp" inputmode="decimal" placeholder="°F or °C" />
+        </label>
+        <label class="field">
+          <span>Track temp</span>
+          <input type="text" id="track-temp" inputmode="decimal" placeholder="°F or °C" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Humidity</span>
+        <input type="text" id="humidity" inputmode="decimal" placeholder="%" />
+      </label>
+
+      <label class="field">
+        <span>General notes</span>
+        <textarea id="general-notes" rows="3" placeholder="Wind, grip feel, clouds, track changes…"></textarea>
+      </label>
+    </section>
+
+    <!-- Tires -->
+    <section class="panel" id="panel-tires" role="tabpanel" hidden>
+      <h2>Tires</h2>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Tire brand</span>
+          <input type="text" id="tire-brand" autocomplete="off" placeholder="e.g. Pirelli" />
+        </label>
+        <label class="field">
+          <span>Model / compound</span>
+          <input type="text" id="tire-model" autocomplete="off" placeholder="e.g. Supercorsa SC1" />
+        </label>
+      </div>
+
+      <p class="hint">Pre-session is the pressure your tire is at right before you roll out — hot off the warmer if you use warmers, cold from the pit if you don't. Post-session is the reading the moment you're back in.</p>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Front pre-session PSI</span>
+          <input type="text" id="front-pre" inputmode="decimal" placeholder="e.g. 30" />
+        </label>
+        <label class="field">
+          <span>Rear pre-session PSI</span>
+          <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 28" />
+        </label>
+        <label class="field">
+          <span>Front post-session PSI</span>
+          <input type="text" id="front-post" inputmode="decimal" placeholder="e.g. 33" />
+        </label>
+        <label class="field">
+          <span>Rear post-session PSI</span>
+          <input type="text" id="rear-post" inputmode="decimal" placeholder="e.g. 31" />
+        </label>
+      </div>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="warmer-on" />
+        <span>Tire warmers used</span>
+      </label>
+
+      <label class="field">
+        <span>Warmer time (minutes)</span>
+        <input type="text" id="warmer-time" inputmode="numeric" placeholder="e.g. 45" />
+      </label>
+
+      <button type="button" class="btn-primary" id="calc-tires">Calculate deltas &amp; suggestions</button>
+
+      <div class="result" id="tire-result" aria-live="polite"></div>
+    </section>
+
+    <!-- Calculators -->
+    <section class="panel" id="panel-calculators" role="tabpanel" hidden>
+      <h2>Calculators</h2>
+      <p class="hint">Workflow: check sag at the start of the weekend to validate your spring rates and ride-height balance, then use Geometry Deltas between sessions to track direction and magnitude of changes from that baseline.</p>
+
+      <section class="calc-tool" aria-labelledby="rolling-circ-heading">
+        <h3 id="rolling-circ-heading">Rolling Circumference</h3>
+        <p class="hint">Rolling circumference is the stored setup value. Diameter is derived from it.</p>
+
+        <label class="field">
+          <span>Fill method</span>
+          <select id="tire-core-method">
+            <option value="measured">Measured rollout</option>
+            <option value="lookup">Lookup tire</option>
+            <option value="estimated">Calculate from size</option>
+          </select>
+        </label>
+
+        <div id="tire-core-measured-fields">
+          <div class="grid-2">
+            <label class="field">
+              <span>Measured rollout</span>
+              <input type="text" id="tire-core-measured" inputmode="decimal" placeholder="e.g. 1905" />
+            </label>
+            <label class="field">
+              <span>Unit</span>
+              <select id="tire-core-measured-unit">
+                <option value="mm">mm</option>
+                <option value="cm">cm</option>
+                <option value="in">in</option>
+                <option value="ft">ft</option>
+                <option value="m">m</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div id="tire-core-lookup-fields" hidden>
+          <label class="field">
+            <span>Lookup tire</span>
+            <select id="tire-core-lookup"></select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Size string <em>optional for measured, required for calculated</em></span>
+          <input type="text" id="tire-core-size" inputmode="text" placeholder="e.g. 180/55-17" autocomplete="off" />
+        </label>
+
+        <button type="button" class="btn-primary" id="calc-tire-core">Calculate tire value</button>
+
+        <div class="result" id="tire-core-result" aria-live="polite"></div>
+      </section>
+
+      <section class="calc-tool" aria-labelledby="sag-heading">
+        <h3 id="sag-heading">Suspension Sag</h3>
+        <p class="hint">Measure from the same reference point each time: rear axle to a fixed subframe point (rear), or axle to a fixed fork point (front). All values in mm.</p>
+
+        <label class="field">
+          <span>Method</span>
+          <select id="sag-method">
+            <option value="simple">Simple — L1 − L3</option>
+            <option value="racetech">Race Tech — L1 − (L2 + L3) ÷ 2 (corrects for stiction)</option>
+          </select>
+        </label>
+
+        <div class="grid-2">
+          <div>
+            <h4>Front</h4>
+            <label class="field">
+              <span>L1 — fully extended <em>wheel off ground</em></span>
+              <input type="text" id="sag-front-l1" inputmode="decimal" placeholder="mm" />
+            </label>
+            <div id="sag-front-l2-field" hidden>
+              <label class="field">
+                <span>L2 — static <em>bike weight only</em></span>
+                <input type="text" id="sag-front-l2" inputmode="decimal" placeholder="mm" />
+              </label>
+            </div>
+            <label class="field">
+              <span>L3 — rider <em>in gear, neutral position</em></span>
+              <input type="text" id="sag-front-l3" inputmode="decimal" placeholder="mm" />
+            </label>
+          </div>
+          <div>
+            <h4>Rear</h4>
+            <label class="field">
+              <span>L1 — fully extended</span>
+              <input type="text" id="sag-rear-l1" inputmode="decimal" placeholder="mm" />
+            </label>
+            <div id="sag-rear-l2-field" hidden>
+              <label class="field">
+                <span>L2 — static</span>
+                <input type="text" id="sag-rear-l2" inputmode="decimal" placeholder="mm" />
+              </label>
+            </div>
+            <label class="field">
+              <span>L3 — rider</span>
+              <input type="text" id="sag-rear-l3" inputmode="decimal" placeholder="mm" />
+            </label>
+          </div>
+        </div>
+
+        <button type="button" class="btn-primary" id="calc-sag">Calculate sag</button>
+        <div class="result" id="sag-result" aria-live="polite"></div>
+      </section>
+
+      <section class="calc-tool" aria-labelledby="geometry-deltas-heading">
+        <h3 id="geometry-deltas-heading">Geometry Deltas</h3>
+        <p class="hint">Direction is the important output. Magnitudes are estimates unless all precise constants are supplied. Use after sag is set — these track changes from that baseline.</p>
+
+        <h3>Front End</h3>
+        <div class="grid-2">
+          <label class="field">
+            <span>Slide forks up through clamps <em>front end drops</em></span>
+            <input type="text" id="geo-fork-up" inputmode="decimal" placeholder="mm" />
+          </label>
+          <label class="field">
+            <span>Slide forks down through clamps <em>front end rises</em></span>
+            <input type="text" id="geo-fork-down" inputmode="decimal" placeholder="mm" />
+          </label>
+        </div>
+
+        <h3>Rear End</h3>
+        <div class="grid-2">
+          <label class="field">
+            <span>Raise rear ride height <em>longer shock / link</em></span>
+            <input type="text" id="geo-rear-raise" inputmode="decimal" placeholder="mm" />
+          </label>
+          <label class="field">
+            <span>Lower rear ride height</span>
+            <input type="text" id="geo-rear-lower" inputmode="decimal" placeholder="mm" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Rear tire diameter change <em>larger tire is +, smaller is -</em></span>
+          <input type="text" id="geo-rear-tire-diameter" inputmode="decimal" placeholder="mm" />
+        </label>
+
+        <details class="advanced">
+          <summary>Optional bike constants for precise trail</summary>
+          <div class="grid-2">
+            <label class="field">
+              <span>Wheelbase</span>
+              <input type="text" id="geo-wheelbase" inputmode="decimal" placeholder="mm" />
+            </label>
+            <label class="field">
+              <span>Design rake <em>from vertical</em></span>
+              <input type="text" id="geo-design-rake" inputmode="decimal" placeholder="degrees" />
+            </label>
+            <label class="field">
+              <span>Front tire radius</span>
+              <input type="text" id="geo-front-radius" inputmode="decimal" placeholder="mm" />
+            </label>
+            <label class="field">
+              <span>Triple-clamp offset</span>
+              <input type="text" id="geo-fork-offset" inputmode="decimal" placeholder="mm" />
+            </label>
+          </div>
+        </details>
+
+        <button type="button" class="btn-primary" id="calc-geometry">Calculate geometry delta</button>
+
+        <div class="result" id="geometry-result" aria-live="polite"></div>
+      </section>
+    </section>
+
+    <!-- Suspension -->
+    <section class="panel" id="panel-suspension" role="tabpanel" hidden>
+      <h2>Suspension</h2>
+
+      <h3>Fork</h3>
+      <div class="grid-3">
+        <label class="field">
+          <span>Preload</span>
+          <input type="text" id="fork-preload" autocomplete="off" placeholder="turns / lines" />
+        </label>
+        <label class="field">
+          <span>Compression</span>
+          <input type="text" id="fork-comp" autocomplete="off" placeholder="clicks" />
+        </label>
+        <label class="field">
+          <span>Rebound</span>
+          <input type="text" id="fork-reb" autocomplete="off" placeholder="clicks" />
+        </label>
+      </div>
+
+      <h3>Shock</h3>
+      <div class="grid-3">
+        <label class="field">
+          <span>Preload</span>
+          <input type="text" id="shock-preload" autocomplete="off" placeholder="turns" />
+        </label>
+        <label class="field">
+          <span>Compression</span>
+          <input type="text" id="shock-comp" autocomplete="off" placeholder="clicks" />
+        </label>
+        <label class="field">
+          <span>Rebound</span>
+          <input type="text" id="shock-reb" autocomplete="off" placeholder="clicks" />
+        </label>
+      </div>
+
+      <h3>Symptoms</h3>
+      <div class="symptoms" id="symptoms">
+        <label class="chip"><input type="checkbox" value="midcorner-push" /> <span>Mid-corner push</span></label>
+        <label class="chip"><input type="checkbox" value="harsh-bumps" /> <span>Harsh on bumps</span></label>
+        <label class="chip"><input type="checkbox" value="rear-spin" /> <span>Rear spin on exit</span></label>
+        <label class="chip"><input type="checkbox" value="chatter" /> <span>Chatter</span></label>
+        <label class="chip"><input type="checkbox" value="brake-dive" /> <span>Brake dive</span></label>
+        <label class="chip"><input type="checkbox" value="wallow" /> <span>Wallow</span></label>
+      </div>
+
+      <button type="button" class="btn-primary" id="calc-suspension">Show recommendations</button>
+
+      <div class="result" id="suspension-result" aria-live="polite"></div>
+    </section>
+
+    <!-- Laps -->
+    <section class="panel" id="panel-laps" role="tabpanel" hidden>
+      <h2>Lap Times</h2>
+      <p class="hint">Paste one lap per line. Accepts <code>mm:ss.sss</code>, <code>m:ss.s</code>, or plain seconds.</p>
+
+      <label class="field">
+        <span>Laps</span>
+        <textarea id="laps-input" rows="8" placeholder="1:42.318&#10;1:41.872&#10;101.605&#10;1:41.2"></textarea>
+      </label>
+
+      <button type="button" class="btn-primary" id="calc-laps">Analyze laps</button>
+
+      <div class="result" id="laps-result" aria-live="polite"></div>
+    </section>
+
+    <!-- Review -->
+    <section class="panel" id="panel-review" role="tabpanel" hidden>
+      <h2>Review</h2>
+      <p class="hint">A snapshot of the current session.</p>
+
+      <button type="button" class="btn-secondary" id="build-summary">Build summary</button>
+
+      <div class="result" id="summary-result" aria-live="polite"></div>
+
+      <div class="save-zone">
+        <p><strong>Keep this session?</strong> Saving stores it only on this device, in your browser. Nothing leaves your phone.</p>
+        <div class="save-actions">
+          <button type="button" class="btn-primary" id="save-session">Save this session</button>
+          <button type="button" class="btn-secondary" id="save-and-next">Save &amp; next</button>
+        </div>
+        <p class="hint"><strong>Save &amp; next</strong> saves this session and primes the form for the next one &mdash; bike, track, tire brand, and suspension settings stay; PSIs, symptoms, lap times, and notes clear. Session label auto-bumps its trailing number.</p>
+        <div class="result" id="save-result" aria-live="polite"></div>
+      </div>
+
+      <div class="danger-zone">
+        <p><strong>Reset</strong> clears every field on every tab. Saved history is not touched.</p>
+        <button type="button" class="btn-danger" id="reset-all">Reset session</button>
+      </div>
+    </section>
+
+    <!-- History -->
+    <section class="panel" id="panel-history" role="tabpanel" hidden>
+      <h2>History</h2>
+      <p class="hint">Saved sessions stay on this device only. Export a backup any time — it's a plain JSON file on your phone or computer.</p>
+
+      <div id="storage-warning" class="result" hidden>
+        <p class="warn">This browser has storage disabled (private mode?). Saving, loading, and importing are unavailable here.</p>
+      </div>
+
+      <div class="history-actions">
+        <button type="button" class="btn-secondary" id="export-history">Export backup</button>
+        <label class="btn-secondary file-btn">
+          <span>Import backup</span>
+          <input type="file" id="import-history" accept="application/json,.json" hidden />
+        </label>
+        <button type="button" class="btn-danger" id="clear-history">Clear all history</button>
+      </div>
+
+      <div id="history-empty" class="result">
+        <p>No saved sessions yet. Fill in a session and tap <strong>Save this session</strong> on the Review tab.</p>
+      </div>
+
+      <div id="history-trends"></div>
+
+      <h3>Compare two sessions</h3>
+      <div class="grid-2">
+        <label class="field"><span>Session A</span><select id="compare-a"></select></label>
+        <label class="field"><span>Session B</span><select id="compare-b"></select></label>
+      </div>
+      <button type="button" class="btn-secondary" id="run-compare">Compare</button>
+      <div class="result" id="compare-result" aria-live="polite"></div>
+
+      <h3>All saved sessions</h3>
+      <div id="history-list"></div>
+    </section>
+
+    <!-- About -->
+    <section class="panel prose" id="panel-about" role="tabpanel" hidden>
+      <h2>About MotoTrack</h2>
+
+      <h3>What this is</h3>
+      <p>A digital notebook for the pits. Log tire pressures, suspension clicks, and lap times in the moment, so your setup decisions between sessions are based on what you recorded, not what you remember.</p>
+
+      <h3>Privacy, plainly</h3>
+      <ul>
+        <li><strong>No accounts.</strong> No passwords to forget.</li>
+        <li><strong>No tracking.</strong> No cookies, no analytics, no pixels. We don&rsquo;t know you&rsquo;re here.</li>
+        <li><strong>No noise.</strong> No notifications, no popups. It stays out of your way.</li>
+        <li><strong>No cloud.</strong> Nothing you type leaves your phone.</li>
+      </ul>
+
+      <h3>How your data works</h3>
+      <p>Everything lives in your browser. If you just type and close the tab, it&rsquo;s gone &mdash; like wiping a whiteboard.</p>
+      <p>If you want to keep a log, tap <strong>Save this session</strong> on the Review tab. That stores it in your phone&rsquo;s internal storage. We don&rsquo;t have a server, so we can&rsquo;t see it even if we wanted to.</p>
+      <p><strong>Export backup</strong> saves a file to your device &mdash; move it to a laptop or tablet any time. <strong>Clear all history</strong> deletes everything instantly.</p>
+
+      <h3>How to use it in a session</h3>
+      <ol>
+        <li><strong>Setup</strong> &mdash; before you roll out: bike, track, session label, ambient and track temp.</li>
+        <li><strong>Tires</strong> &mdash; brand and model/compound; pre-session PSI right before you roll out (hot off the warmer or cold from the pit); post-session PSI the moment you&rsquo;re back in. Tap <strong>Calculate</strong> for deltas and conservative suggestions.</li>
+        <li><strong>Suspension</strong> &mdash; log your clicks, tick the symptoms you felt (push, chatter, brake dive). Fixes appear for common ones.</li>
+        <li><strong>Laps</strong> &mdash; paste laps one per line (<code>1:42.318</code> or <code>102.4</code>). Get best, average, and delta-from-best.</li>
+        <li><strong>Review</strong> &mdash; <strong>Build summary</strong> for a one-screen recap. <strong>Save this session</strong> to compare later.</li>
+        <li><strong>History</strong> &mdash; compare two sessions, see per-track trends, back up or restore.</li>
+      </ol>
+
+      <h3>Before you ride</h3>
+      <p>Every suggestion here is a conservative starting point, not professional tuning advice. Track rules and your tire and suspension manufacturer specs always take priority. Full <a href="terms.html">terms</a>.</p>
+
+      <h3>Feedback</h3>
+      <p>MotoTrack is a solo side project. Replies come when I&rsquo;m not at the track &mdash; please be patient.</p>
+      <ul>
+        <li><strong>Bugs and feature ideas:</strong> <a href="https://github.com/PatchnetEvan/track-helper/issues/new/choose" rel="noopener noreferrer">open an issue on GitHub</a>. Public, trackable, best for anything that needs a real back-and-forth.</li>
+        <li><strong>Everything else:</strong> <a href="mailto:evan.martinez@gmail.com?subject=MotoTrack%20feedback">email evan.martinez@gmail.com</a>. Private, no account needed.</li>
+      </ul>
+      <p>Source is on GitHub: <a href="https://github.com/PatchnetEvan/track-helper" rel="noopener noreferrer">PatchnetEvan/track-helper</a>. The &ldquo;no tracking&rdquo; promise is literally verifiable &mdash; read <code>app.js</code> and see for yourself.</p>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>No accounts. No server. Refresh wipes the current session. Saved history lives only on this device.</p>
+    <p><a href="../privacy.html">Privacy</a> · <a href="../terms.html">Terms</a></p>
+  </footer>
+
+  <script src="../storage.js" defer></script>
+  <script src="../tire-core.js" defer></script>
+  <script src="../app.js" defer></script>
+</body>
+</html>
