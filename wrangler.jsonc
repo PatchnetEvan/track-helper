@@ -10,7 +10,7 @@
     "directory": "./",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/waitlist/*"]
-  }
+  },
   // [DEPLOYMENT BLOCKER - do not deploy until owner-authorized]
   // 1. Create the D1 database (name proposed: mototrack_waitlist), apply
   //    migrations/0001_waitlist.sql, then add:
@@ -19,4 +19,23 @@
   //    "send_email": [{ "name": "WAITLIST_EMAIL" }] and "vars": { "WAITLIST_EMAIL_FROM": "MotoTrack <waitlist@mototrack.app>" }
   // Without both bindings every wait-list endpoint fails closed with 503
   // and writes nothing.
+  "env": {
+    "staging": {
+      "name": "mototrack-waitlist-staging",
+      "workers_dev": true,
+      "assets": { "directory": "./", "binding": "ASSETS", "run_worker_first": ["/api/*", "/waitlist/*"] },
+      "triggers": { "crons": ["17 4 * * *"] },
+      "vars": { "WAITLIST_ENVIRONMENT": "staging", "WAITLIST_EMAIL_FROM": "MotoTrack Waitlist <waitlist@mototrack.app>" },
+      "d1_databases": [
+        { "binding": "WAITLIST_DB", "database_name": "mototrack_waitlist", "database_id": "c1ce20d5-aea7-45a0-99e7-1eaa055bf8ee" }
+      ],
+      "send_email": [
+        {
+          "name": "WAITLIST_EMAIL",
+          "allowed_sender_addresses": ["waitlist@mototrack.app"],
+          "allowed_destination_addresses": ["evan.martinez+demo@gmail.com", "emartinez@patchnet.net"]
+        }
+      ]
+    }
+  }
 }
