@@ -273,8 +273,9 @@ const linkFrom = (text, path) => {
   assert.ok((await stagingPage.text()).includes("STAGING TEST ENVIRONMENT"), "staging banner only on the isolated deployment");
   const productionPage = await worker.fetch(new Request(`${ORIGIN}/waitlist/confirmed`), env);
   assert.ok(!(await productionPage.text()).includes("STAGING TEST ENVIRONMENT"), "no banner outside staging");
-  const notice = "You received this message because this email address was submitted to the MotoTrack early-access waitlist";
-  assert.ok(sent.filter((m) => m.subject.startsWith("Confirm")).every((m) => m.text.includes(notice)), "confirmation emails carry the required notice");
+  const notice = "You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list. You can unsubscribe at any time.";
+  assert.ok(sent.every((m) => m.text.includes(notice)),
+    "EVERY email - confirmation and welcome, both tracks - carries the identical combined received-because notice");
   assert.ok(sent.filter((m) => m.subject.startsWith("You're on")).every((m) => m.text.includes(notice) && !m.text.includes("waitlist-profile")), "welcome emails carry the notice and no profile CTA");
 }
 
