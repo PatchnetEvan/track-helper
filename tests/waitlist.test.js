@@ -243,6 +243,13 @@ const linkFrom = (text, path) => {
     ["emartinez@patchnet.net", "evan.martinez+demo@gmail.com"],
     "staging delivery restricted to exactly the two authorized test addresses");
   assert.ok(Array.isArray(staging.triggers?.crons) && staging.triggers.crons.length === 1, "retention cron enabled on staging");
+  for (const path of ["/waitlist.html", "/privacy.html"]) {
+    assert.ok(staging.assets.run_worker_first.includes(path),
+      "staging routes " + path + " through the Worker so the noindex guard applies to static pages too");
+  }
+  const { assets: productionAssets } = config;
+  assert.ok(!(productionAssets.run_worker_first || []).includes("/privacy.html"),
+    "production serves static pages directly - no staging-only routing or noindex");
   const { env: environments, ...production } = config;
   const productionText = JSON.stringify(production);
   assert.ok(!productionText.includes(staging.d1_databases[0].database_id), "production config carries no staging database id");
