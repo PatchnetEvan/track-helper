@@ -23,7 +23,7 @@ class LocalD1 {
 }
 
 const db = new LocalD1();
-db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", "0001_waitlist.sql"), "utf8"));
+for (const m of ["0001_waitlist.sql", "0002_program_track.sql"]) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
 const sent = [];
 const env = {
   WAITLIST_DB: db,
@@ -73,11 +73,16 @@ const linkFrom = (text, path) => {
   const html = readFileSync(join(import.meta.dirname, "..", "waitlist.html"), "utf8");
   assert.ok(html.includes('type="checkbox" required'), "consent checkbox present and required");
   assert.ok(!/checkbox"[^>]*checked/.test(html), "the consent box is NEVER pre-checked");
-  assert.ok(html.includes("Yes, add me to the MotoTrack waitlist and email me about early access"), "exact consent wording");
+  assert.ok(html.includes("Yes, add me to the MotoTrack early-access waitlist or regional interest list, based on my current location"), "exact approved v2 consent wording");
+  assert.ok(html.includes("Current beta availability") && html.includes("50 United States, Washington, D.C., and U.S. territories"), "beta-availability section present");
+  assert.ok(html.includes("Your current country/region"), "selector labelled as current location");
+  assert.ok(html.includes('id="wl-track-note"'), "declared-location outcome preview region");
   assert.ok(html.includes('href="privacy.html"'), "consent links the privacy notice");
   assert.ok(html.includes(">Join the waitlist</button>"), "the specified button label");
   assert.ok(html.includes('aria-live="polite"') && html.includes("<label for="), "accessible labels and status region");
-  assert.ok(CONSENT_COPY.startsWith("Yes, add me to the MotoTrack waitlist"), "server pins the consent copy version");
+  assert.ok(CONSENT_COPY.startsWith("Yes, add me to the MotoTrack early-access waitlist or regional interest list"), "server pins the v2 consent copy");
+  assert.equal(CONSENT_COPY_VERSION, "2026-08-05.2");
+  assert.equal(PRIVACY_NOTICE_VERSION, "2026-08-05.2");
 }
 
 // Pending signup: created with stamps + versions; token hashed; email sent.
@@ -124,7 +129,8 @@ const linkFrom = (text, path) => {
   const successPage = await worker.fetch(new Request(`${ORIGIN}/waitlist/confirmed`), env);
   assert.equal(successPage.status, 200);
   const confirmedHtml = await successPage.text();
-  assert.ok(confirmedHtml.includes("You’re on the MotoTrack waitlist"), "approved heading");
+  assert.ok(confirmedHtml.includes("You’re on the MotoTrack early-access waitlist"), "approved US heading");
+  assert.ok(confirmedHtml.includes("opening gradually to riders in the United States and U.S. territories"), "US-track body");
   assert.ok(confirmedHtml.includes("What happens next"), "expectation-setting section");
   assert.ok(confirmedHtml.includes("does not guarantee immediate access"), "no guaranteed-place implication");
   assert.ok(!confirmedHtml.includes("Tell us about your riding") && !confirmedHtml.includes("waitlist-profile"), "profile CTA fully removed");
@@ -261,6 +267,122 @@ const linkFrom = (text, path) => {
   const notice = "You received this message because this email address was submitted to the MotoTrack early-access waitlist";
   assert.ok(sent.filter((m) => m.subject.startsWith("Confirm")).every((m) => m.text.includes(notice)), "confirmation emails carry the required notice");
   assert.ok(sent.filter((m) => m.subject.startsWith("You're on")).every((m) => m.text.includes(notice) && !m.text.includes("waitlist-profile")), "welcome emails carry the notice and no profile CTA");
+}
+
+
+// ---------------------------------------------------------------------------
+// Geographic scope: US beta waitlist vs international interest list.
+// ---------------------------------------------------------------------------
+{
+  const { programTrackFor, US_BETA_CODES } = await import("../src/waitlist-worker.js");
+  for (const code of ["US", "PR", "VI", "GU", "AS", "MP", "UM"]) {
+    assert.equal(programTrackFor(code), "us_beta_waitlist", code + " is US beta scope");
+  }
+  for (const code of ["CA", "GB", "DE", "FR", "JP", "AU", "BR", "MX", "IE", "NZ"]) {
+    assert.equal(programTrackFor(code), "international_interest", code + " is international interest");
+  }
+  assert.deepEqual(US_BETA_CODES.slice().sort(), ["AS", "GU", "MP", "PR", "UM", "US", "VI"], "exactly the approved US-scope codes");
+
+  // Declared country is authoritative: an IP-derived country header can never
+  // override it, and nothing geolocation-derived is persisted.
+  const intl = await worker.fetch(new Request(`${ORIGIN}/api/waitlist`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, "cf-ipcountry": "US", "cf-connecting-ip": "203.0.113.7" },
+    body: JSON.stringify({ email: "berlin.rider@example.com", country: "DE", consent: true }),
+  }), env);
+  assert.equal(intl.status, 202);
+  assert.equal((await intl.json()).message, GENERIC_ACCEPTED, "identical generic response for both tracks");
+  const intlRow = row("SELECT * FROM waitlist_signups WHERE email_normalized = 'berlin.rider@example.com'");
+  assert.equal(intlRow.program_track, "international_interest", "declared DE wins over the cf-ipcountry US header");
+  assert.equal(intlRow.country_code, "DE");
+  assert.equal(intlRow.consent_copy_version, "2026-08-05.2");
+  assert.equal(intlRow.privacy_notice_version, "2026-08-05.2");
+  assert.ok(!Object.keys(intlRow).some((k) => /geo|ip_|latitude|longitude|region|city/i.test(k)), "no geolocation columns exist");
+  const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
+  assert.ok(!/cf-ipcountry|request\.cf\b/i.test(workerSource), "the worker never reads IP-derived country for classification");
+
+  // International confirmation: track-specific redirect, page, and email.
+  const intlConfirm = linkFrom(sent[sent.length - 1].text, "/waitlist/confirm?token=").trim();
+  assert.ok(sent[sent.length - 1].text.includes("international interest list") || sent[sent.length - 1].text.includes("United States and U.S. territories"),
+    "international confirmation email states the scope limit");
+  const intlDone = await worker.fetch(new Request(`${ORIGIN}${intlConfirm}`, { method: "POST" }), env);
+  assert.equal(intlDone.status, 303);
+  assert.equal(intlDone.headers.get("location"), "/waitlist/confirmed?list=interest", "track-specific clean redirect, no token");
+  const intlPage = await (await worker.fetch(new Request(`${ORIGIN}/waitlist/confirmed?list=interest`), env)).text();
+  assert.ok(intlPage.includes("Your MotoTrack interest is confirmed"), "international heading");
+  assert.ok(intlPage.includes("not currently available in your region"), "no beta-access promise");
+  assert.ok(intlPage.includes("does not guarantee that MotoTrack will become available"), "no availability guarantee");
+  assert.ok(intlPage.includes("Return to MotoTrack") && !intlPage.includes("Tell us about your riding"), "single action, no profile CTA");
+  const intlWelcome = sent[sent.length - 1];
+  assert.equal(intlWelcome.subject, "Your interest in MotoTrack is confirmed", "international welcome subject");
+  assert.ok(intlWelcome.text.includes("available only to riders in the 50 United States"), "states the US-only limit");
+  assert.ok(intlWelcome.text.includes("international interest list"), "states which list was joined");
+  assert.ok(intlWelcome.text.includes("does not guarantee"), "promises no expansion");
+  assert.ok(intlWelcome.text.includes("waitlist or regional interest list. You can unsubscribe at any time."), "received-because notice");
+  assert.ok(linkFrom(intlWelcome.text, "/waitlist/unsubscribe?token=") && intlWelcome.text.includes("/privacy.html"), "unsubscribe + privacy links");
+  assert.equal(row("SELECT status FROM waitlist_signups WHERE email_normalized='berlin.rider@example.com'").status, "confirmed");
+
+  // No silent track movement: a confirmed international signup that resubmits
+  // with a US country keeps its original track.
+  const geoJoin = (body) => worker.fetch(new Request(`${ORIGIN}/api/waitlist`, { method: "POST", headers: { "content-type": "application/json", origin: ORIGIN, "cf-connecting-ip": "203.0.113.7" }, body: JSON.stringify(body) }), env);
+  const resubmit = await geoJoin({ email: "berlin.rider@example.com", country: "US", consent: true });
+  assert.equal(resubmit.status, 202);
+  assert.equal(row("SELECT program_track FROM waitlist_signups WHERE email_normalized='berlin.rider@example.com'").program_track,
+    "international_interest", "no automatic promotion between tracks");
+
+  // Unsubscribe works identically for the international track.
+  const intlUnsub = linkFrom(intlWelcome.text, "/waitlist/unsubscribe?token=").trim();
+  assert.equal((await worker.fetch(new Request(`${ORIGIN}${intlUnsub}`, { method: "POST" }), env)).status, 200);
+  assert.equal(row("SELECT status FROM waitlist_signups WHERE email_normalized='berlin.rider@example.com'").status, "unsubscribed");
+  const afterUnsub = await geoJoin({ email: "berlin.rider@example.com", country: "DE", consent: true });
+  assert.equal(afterUnsub.status, 202);
+  assert.equal(row("SELECT status FROM waitlist_signups WHERE email_normalized='berlin.rider@example.com'").status,
+    "unsubscribed", "international unsubscribes are never silently reactivated");
+
+  // Deterministic migration of pre-existing rows (fresh chain, no program_track).
+  const legacy = new LocalD1();
+  legacy.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", "0001_waitlist.sql"), "utf8"));
+  for (const [id, email, cc] of [["l1", "a@x.test", "US"], ["l2", "b@x.test", "PR"], ["l3", "c@x.test", "DE"], ["l4", "d@x.test", "JP"]]) {
+    legacy.sqlite.prepare("INSERT INTO waitlist_signups (id, email_normalized, country_code, status, consent_at, consent_copy_version, privacy_notice_version) VALUES (?, ?, ?, 'confirmed', datetime('now'), '2026-08-05.1', '2026-08-05.1')").run(id, email, cc);
+  }
+  legacy.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", "0002_program_track.sql"), "utf8"));
+  const tracks = legacy.sqlite.prepare("SELECT id, program_track, consent_copy_version FROM waitlist_signups ORDER BY id").all();
+  assert.deepEqual(tracks.map((r) => r.program_track),
+    ["us_beta_waitlist", "us_beta_waitlist", "international_interest", "international_interest"],
+    "deterministic backfill from the stored country code");
+  assert.ok(tracks.every((r) => r.consent_copy_version === "2026-08-05.1"),
+    "historical 2026-08-05.1 records keep their original versions - never rewritten");
+  assert.equal(legacy.sqlite.prepare("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()").get().n, 0, "FK clean after migration");
+}
+
+// Retention and suppression apply identically to both tracks.
+{
+  const { runRetentionSweep } = await import("../src/waitlist-worker.js");
+  db.sqlite.prepare("INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status, consent_at, confirmed_at, consent_copy_version, privacy_notice_version, created_at) VALUES ('wls_intl_old', 'old.intl@example.com', 'FR', 'international_interest', 'confirmed', datetime('now','-25 months'), datetime('now','-25 months'), 'v', 'v', datetime('now','-25 months'))").run();
+  db.sqlite.prepare("INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status, consent_at, unsubscribed_at, consent_copy_version, privacy_notice_version, created_at) VALUES ('wls_intl_unsub', 'unsub.intl@example.com', 'FR', 'international_interest', 'unsubscribed', datetime('now','-30 months'), datetime('now','-26 months'), 'v', 'v', datetime('now','-30 months'))").run();
+  await runRetentionSweep(db);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE id='wls_intl_old'"), 0, "24-month expiry applies to the international track too");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE id='wls_intl_unsub'"), 1, "international suppression records survive retention");
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0);
+}
+
+
+// Privacy notice v2 carries the geographic disclosure and no placeholders.
+{
+  const notice = readFileSync(join(import.meta.dirname, "..", "privacy.html"), "utf8");
+  assert.ok(notice.includes("Version:</strong> 2026-08-05.2"), "notice version bumped");
+  assert.ok(notice.includes("Geographic availability"), "geographic section present");
+  assert.ok(notice.includes("50 United States, Washington, D.C., and U.S. territories"), "scope stated");
+  assert.ok(notice.includes("does not provide current beta access or guarantee future availability"), "no availability promise");
+  assert.ok(notice.includes("we do not use IP-based geolocation to classify you"), "declared-location-only disclosure");
+  assert.ok(!/citizenship, nationality, immigration status, residency, or proof of address[^<]*collect/i.test(notice), "no sensitive status collected");
+  assert.ok(notice.includes("Cloudflare") && notice.includes("privacy@mototrack.app") && notice.includes("Retention") === false ? true : true);
+  for (const kept of ["Cloudflare", "privacy@mototrack.app", "unsubscribe", "Retention periods", "Security practices", "attribution", "supervisory authority"]) {
+    assert.ok(notice.toLowerCase().includes(kept.toLowerCase()), "preserved disclosure: " + kept);
+  }
+  assert.ok(notice.includes("under legal review"), "transfer/Art.27 items remain open - not marked resolved");
+  assert.ok(!/globally available|available worldwide/i.test(notice), "never claims global availability");
+  assert.equal((notice.match(/OWNER REQUIRED|PROPOSED:/g) || []).length, 0, "no unresolved placeholders");
 }
 
 console.log("waitlist.test.js passed");

@@ -500,3 +500,7 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 .wl-badge { border: 1px solid #ff6600; color: #ff6600; border-radius: 999px; padding: 2px 10px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
 .wl-staging { background: #ff6600; color: #111; font-weight: 700; text-align: center; padding: 6px 10px; border-radius: 6px; }
 .wl-footer { margin-top: 28px; padding-top: 14px; border-top: 1px solid #383838; font-size: .9rem; display: flex; gap: 18px; }
+
+.wl-availability { border: 1px solid #383838; border-radius: 8px; padding: 14px 16px; margin: 18px 0; }
+.wl-availability h2 { margin: 0 0 6px; font-size: 1.05rem; }
+#wl-track-note:not(:empty) { border-left: 3px solid #ff6600; padding-left: 12px; }

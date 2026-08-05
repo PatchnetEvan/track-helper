@@ -14,21 +14,27 @@
     <h1>Join the MotoTrack waitlist</h1>
     <p><span class="wl-badge">Early Access Beta</span></p>
     <p>Two fields. No account, no tracking, nothing else asked.</p>
+    <section class="wl-availability">
+      <h2>Current beta availability</h2>
+      <p>MotoTrack’s initial early-access beta is available to riders in the 50 United States, Washington, D.C., and U.S. territories. Riders outside these areas may register their interest and be notified if MotoTrack expands to their region.</p>
+    </section>
     <p>We use the information you provide to operate the waitlist, send confirmation and early-access messages, understand regional availability, and manage your communication preferences. See the <a href="privacy.html">Privacy Policy</a> for details.</p>
     <form id="waitlist-form" novalidate>
       <label for="wl-email">Email address</label>
       <input id="wl-email" name="email" type="email" autocomplete="email" inputmode="email" required />
-      <label for="wl-country">Country/Region</label>
+      <label for="wl-country">Your current country/region</label>
       <select id="wl-country" name="country" required>
         <option value="">Select your country/region…</option>
       </select>
       <div class="consent-block">
         <label for="wl-consent">
           <input id="wl-consent" name="consent" type="checkbox" required />
-          Yes, add me to the MotoTrack waitlist and email me about early access and MotoTrack product updates.
-          I can unsubscribe at any time. See the <a href="privacy.html">Privacy Policy</a>.
+          Yes, add me to the MotoTrack early-access waitlist or regional interest list, based on my current location,
+          and email me about early access and MotoTrack product updates. I can unsubscribe at any time.
+          See the <a href="privacy.html">Privacy Policy</a>.
         </label>
       </div>
+      <p id="wl-track-note" role="status" aria-live="polite"></p>
       <button id="wl-submit" type="submit">Join the waitlist</button>
     </form>
     <p id="wl-status" role="status" aria-live="polite"></p>
