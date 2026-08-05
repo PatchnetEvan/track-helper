@@ -1,7 +1,22 @@
 {
   "name": "mototrack",
+  // Wait-list Worker fronts ONLY the dynamic routes; every other path is
+  // served from static assets exactly as before.
+  "main": "src/waitlist-worker.js",
   "compatibility_date": "2026-04-01",
+  // Daily retention sweep matching the published privacy-notice schedule.
+  "triggers": { "crons": ["17 4 * * *"] },
   "assets": {
-    "directory": "./"
+    "directory": "./",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/waitlist/*"]
   }
+  // [DEPLOYMENT BLOCKER - do not deploy until owner-authorized]
+  // 1. Create the D1 database (name proposed: mototrack_waitlist), apply
+  //    migrations/0001_waitlist.sql, then add:
+  //    "d1_databases": [{ "binding": "WAITLIST_DB", "database_name": "mototrack_waitlist", "database_id": "<created id>" }]
+  // 2. Verify the sending address/domain, then add the email binding:
+  //    "send_email": [{ "name": "WAITLIST_EMAIL" }] and "vars": { "WAITLIST_EMAIL_FROM": "MotoTrack <waitlist@mototrack.app>" }
+  // Without both bindings every wait-list endpoint fails closed with 503
+  // and writes nothing.
 }
