@@ -168,7 +168,7 @@ async function sendConfirmationEmail(env, db, provider, origin, signup) {
         : "The link is single-use and expires in 24 hours. Confirming your email adds you to the waitlist. It does not create a MotoTrack account or give immediate access to the beta.",
       "If you didn't request this, you can ignore this email and nothing will be added.",
       "",
-      "You received this message because this email address was submitted to the MotoTrack early-access waitlist. You can unsubscribe at any time.",
+      "You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list. You can unsubscribe at any time.",
       `Unsubscribe: ${origin}/waitlist/unsubscribe?token=${unsubToken}`,
       `Privacy Policy: ${origin}/privacy.html`,
     ].join("\n"),
