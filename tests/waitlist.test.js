@@ -190,4 +190,27 @@ const linkFrom = (text, path) => {
   assert.equal(await passthrough.text(), "static", "non-waitlist paths still serve static assets");
 }
 
+
+// Automated retention sweep matches the published schedule.
+{
+  const { runRetentionSweep } = await import("../src/waitlist-worker.js");
+  const seed = (id, email, status, created, confirmed) => db.sqlite.prepare(
+    "INSERT INTO waitlist_signups (id, email_normalized, country_code, status, consent_at, confirmed_at, consent_copy_version, privacy_notice_version, created_at, attribution) VALUES (?, ?, 'US', ?, ?, ?, 'v', 'v', ?, '{\"utm_source\":\"old\"}')"
+  ).run(id, email, status, created, confirmed, created);
+  seed("wls_old_pending", "oldpending@example.com", "pending", "2026-06-01 00:00:00", null);
+  db.sqlite.prepare("INSERT INTO waitlist_tokens (id, signup_id, token_digest, purpose, expires_at) VALUES ('wlt_old', 'wls_old_pending', ?, 'confirm', '2026-06-02 00:00:00')").run("e".repeat(64));
+  seed("wls_old_confirmed", "oldconfirmed@example.com", "confirmed", "2024-05-01 00:00:00", "2024-05-01 00:00:00");
+  seed("wls_unsub_kept", "oldunsub@example.com", "unsubscribed", "2024-05-01 00:00:00", "2024-05-01 00:00:00");
+  db.sqlite.prepare("INSERT INTO waitlist_email_deliveries (id, signup_id, purpose, provider_status, requested_at) VALUES ('wld_old', 'wls_unsub_kept', 'confirm', 'sent', '2026-01-01 00:00:00')").run();
+  const swept = await runRetentionSweep(db);
+  assert.equal(swept.pending_purged >= 1, true, "30-day pending purge");
+  assert.equal(swept.confirmed_expired >= 1, true, "24-month confirmed expiry");
+  assert.ok(swept.delivery_logs_purged >= 1, "90-day delivery-log purge");
+  assert.ok(swept.attribution_cleared >= 1, "12-month attribution clearing");
+  assert.equal(row("SELECT COUNT(*) AS n FROM waitlist_signups WHERE id IN ('wls_old_pending','wls_old_confirmed')").n, 0);
+  assert.equal(row("SELECT status FROM waitlist_signups WHERE id = 'wls_unsub_kept'").status, "unsubscribed",
+    "suppression records are NEVER auto-swept - honoring unsubscribe outlives every retention timer");
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0);
+}
+
 console.log("waitlist.test.js passed");

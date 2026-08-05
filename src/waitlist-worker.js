@@ -280,6 +280,43 @@ async function handleUnsubscribe(request, env, url) {
     <p><a class="back" href="/">Back to MotoTrack</a></p>`);
 }
 
+// Automated retention (published schedule, privacy notice v2026-08-05.1):
+// pending signups purge 30 days after their last confirmation token expired
+// unused; confirmed signups purge 24 months after confirmation (continued
+// marketing past that requires a renewed confirmation - i.e. a fresh signup);
+// delivery/security logs keep 90 days; attribution keeps 12 months; rate
+// buckets keep 2 days. Unsubscribed suppression records are deliberately NOT
+// swept here: they persist while MotoTrack sends marketing email, and their
+// deletion (within 12 months of the marketing program permanently ending) is
+// an explicit operator decision that no timer can infer.
+export async function runRetentionSweep(db) {
+  const purgeSignups = async (where) => {
+    const doomed = await db.prepare(`SELECT id FROM waitlist_signups WHERE ${where}`).bind().all();
+    for (const { id: signupId } of doomed.results ?? []) {
+      await db.prepare("DELETE FROM waitlist_email_deliveries WHERE signup_id = ?").bind(signupId).run();
+      await db.prepare("DELETE FROM waitlist_tokens WHERE signup_id = ?").bind(signupId).run();
+      await db.prepare("DELETE FROM waitlist_signups WHERE id = ?").bind(signupId).run();
+    }
+    return (doomed.results ?? []).length;
+  };
+  const pending = await purgeSignups(`status = 'pending' AND NOT EXISTS (
+      SELECT 1 FROM waitlist_tokens t WHERE t.signup_id = waitlist_signups.id
+        AND t.purpose = 'confirm' AND t.expires_at > datetime('now', '-30 days'))
+    AND created_at <= datetime('now', '-30 days')`);
+  const confirmed = await purgeSignups(`status = 'confirmed' AND confirmed_at <= datetime('now', '-24 months')`);
+  const logs = await db.prepare("DELETE FROM waitlist_email_deliveries WHERE requested_at <= datetime('now', '-90 days')").bind().run();
+  const attribution = await db.prepare(`UPDATE waitlist_signups SET attribution = NULL, updated_at = datetime('now')
+    WHERE attribution IS NOT NULL AND created_at <= datetime('now', '-12 months')`).bind().run();
+  const buckets = await db.prepare("DELETE FROM waitlist_rate_buckets WHERE window_start <= datetime('now', '-2 days')").bind().run();
+  return {
+    pending_purged: pending,
+    confirmed_expired: confirmed,
+    delivery_logs_purged: Number(logs?.meta?.changes ?? 0),
+    attribution_cleared: Number(attribution?.meta?.changes ?? 0),
+    rate_buckets_purged: Number(buckets?.meta?.changes ?? 0),
+  };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -288,5 +325,11 @@ export default {
     if (url.pathname === "/waitlist/unsubscribe" && ["GET", "POST"].includes(request.method)) return handleUnsubscribe(request, env, url);
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/waitlist/")) return json({ error: "not_found" }, 404);
     return env.ASSETS.fetch(request);
+  },
+  // Daily retention job (wrangler triggers.crons). Skips silently when the
+  // database binding is absent - nothing to retain, nothing to delete.
+  async scheduled(event, env) {
+    const db = database(env);
+    if (db) await runRetentionSweep(db);
   },
 };

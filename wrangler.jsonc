@@ -4,6 +4,8 @@
   // served from static assets exactly as before.
   "main": "src/waitlist-worker.js",
   "compatibility_date": "2026-04-01",
+  // Daily retention sweep matching the published privacy-notice schedule.
+  "triggers": { "crons": ["17 4 * * *"] },
   "assets": {
     "directory": "./",
     "binding": "ASSETS",
