@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="theme-color" content="#0b0d10" />
+  <title>Join the waitlist — MotoTrack</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="waitlist-form.js" defer></script>
+</head>
+<body>
+  <main class="doc">
+    <h1>Join the MotoTrack waitlist</h1>
+    <p>Two fields. No account, no tracking, nothing else asked.</p>
+    <form id="waitlist-form" novalidate>
+      <label for="wl-email">Email address</label>
+      <input id="wl-email" name="email" type="email" autocomplete="email" inputmode="email" required />
+      <label for="wl-country">Country/Region</label>
+      <select id="wl-country" name="country" required>
+        <option value="">Select your country/region…</option>
+      </select>
+      <div class="consent-block">
+        <label for="wl-consent">
+          <input id="wl-consent" name="consent" type="checkbox" required />
+          Yes, add me to the MotoTrack waitlist and email me about early access and MotoTrack product updates.
+          I can unsubscribe at any time. See the <a href="privacy.html">Privacy Policy</a>.
+        </label>
+      </div>
+      <button id="wl-submit" type="submit">Join the waitlist</button>
+    </form>
+    <p id="wl-status" role="status" aria-live="polite"></p>
+    <p><a class="back" href="index.html">← Back to MotoTrack</a></p>
+  </main>
+</body>
+</html>
