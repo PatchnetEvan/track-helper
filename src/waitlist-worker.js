@@ -8,11 +8,22 @@
 // generic 202 whether the address is new, pending, confirmed, unsubscribed,
 // or rate limited.
 
-export const CONSENT_COPY_VERSION = "2026-08-05.1";
-export const PRIVACY_NOTICE_VERSION = "2026-08-05.1";
+export const CONSENT_COPY_VERSION = "2026-08-05.2";
+export const PRIVACY_NOTICE_VERSION = "2026-08-05.2";
 export const CONSENT_COPY =
-  "Yes, add me to the MotoTrack waitlist and email me about early access and MotoTrack product updates. "
-  + "I can unsubscribe at any time. See the Privacy Policy.";
+  "Yes, add me to the MotoTrack early-access waitlist or regional interest list, based on my current location, "
+  + "and email me about early access and MotoTrack product updates. I can unsubscribe at any time. "
+  + "See the Privacy Policy.";
+
+// Geographic scope: the current beta is limited to the 50 U.S. states,
+// Washington, D.C. (both 'US'), and U.S. territories. Everyone else may
+// register interest. Classification uses ONLY the rider's DECLARED
+// country/region - never Cloudflare IP geolocation, which is neither read
+// nor stored for this purpose, and can never override a declaration.
+export const US_BETA_CODES = Object.freeze(["US", "PR", "VI", "GU", "AS", "MP", "UM"]);
+export function programTrackFor(countryCode) {
+  return US_BETA_CODES.includes(countryCode) ? "us_beta_waitlist" : "international_interest";
+}
 export const GENERIC_ACCEPTED = "Check your email to confirm your place on the MotoTrack waitlist.";
 export const CONFIRM_TOKEN_TTL_MINUTES = 24 * 60;
 export const EMAIL_SEND_LIMIT_PER_DAY = 3;
@@ -138,6 +149,10 @@ async function activeUnsubscribeToken(db, signupId) {
   return mintAndStoreToken(db, signupId, "unsubscribe", 0);
 }
 
+function trackOf(signup) {
+  return signup?.program_track === "international_interest" ? "international_interest" : "us_beta_waitlist";
+}
+
 async function sendConfirmationEmail(env, db, provider, origin, signup) {
   const confirmToken = await mintAndStoreToken(db, signup.id, "confirm", CONFIRM_TOKEN_TTL_MINUTES);
   const unsubToken = await activeUnsubscribeToken(db, signup.id);
@@ -148,7 +163,9 @@ async function sendConfirmationEmail(env, db, provider, origin, signup) {
       "Confirm your email address to join the MotoTrack early-access waitlist:",
       `${origin}/waitlist/confirm?token=${confirmToken}`,
       "",
-      "The link is single-use and expires in 24 hours. Confirming your email adds you to the waitlist. It does not create a MotoTrack account or give immediate access to the beta.",
+      trackOf(signup) === "international_interest"
+        ? "The link is single-use and expires in 24 hours. MotoTrack's current early-access beta is available only in the United States and U.S. territories; confirming adds you to the international interest list. It does not create a MotoTrack account, provide beta access, or guarantee future availability in your region."
+        : "The link is single-use and expires in 24 hours. Confirming your email adds you to the waitlist. It does not create a MotoTrack account or give immediate access to the beta.",
       "If you didn't request this, you can ignore this email and nothing will be added.",
       "",
       "You received this message because this email address was submitted to the MotoTrack early-access waitlist. You can unsubscribe at any time.",
@@ -164,19 +181,30 @@ async function sendWelcomeEmail(env, db, provider, origin, signup) {
   const unsubToken = await activeUnsubscribeToken(db, signup.id);
   const result = await provider.send({
     to: signup.email_normalized,
-    subject: "You're on the MotoTrack early-access waitlist",
-    text: [
+    subject: trackOf(signup) === "international_interest"
+      ? "Your interest in MotoTrack is confirmed"
+      : "You're on the MotoTrack early-access waitlist",
+    text: (trackOf(signup) === "international_interest" ? [
+      "Your interest in MotoTrack is confirmed.",
+      "",
+      "MotoTrack is being built for track-day riders and racers to preserve session data, setup notes, tire information, and rider observations.",
+      "",
+      "MotoTrack's current early-access beta is available only to riders in the 50 United States, Washington, D.C., and U.S. territories. You have joined the international interest list.",
+      "Registering interest does not guarantee that MotoTrack will become available in your location or by a particular date. We may email you if MotoTrack expands to your region.",
+    ] : [
       "You're on the MotoTrack early-access waitlist.",
       "",
       "MotoTrack is being built for track-day riders and racers to preserve session data, setup notes, tire information, and rider observations.",
       "",
       "What happens next: MotoTrack is being tested with real track-day data and limited invited users. Access will open gradually based on beta capacity and supported use cases, and you will receive an email when access becomes available.",
       "Joining the waitlist does not guarantee immediate access or a specific invitation date. Beta features may change as testing continues.",
+    ]).concat([
       "",
-      "You received this message because this email address was submitted to the MotoTrack early-access waitlist. You can unsubscribe at any time.",
+      "",
+      "You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list. You can unsubscribe at any time.",
       `Unsubscribe: ${origin}/waitlist/unsubscribe?token=${unsubToken}`,
       `Privacy Policy: ${origin}/privacy.html`,
-    ].join("\n"),
+    ]).join("\n"),
   });
   await db.prepare(`INSERT INTO waitlist_email_deliveries (id, signup_id, purpose, provider_status) VALUES (?, ?, 'welcome', ?)`)
     .bind(id("wld"), signup.id, String(result?.status ?? "unknown")).run();
@@ -209,20 +237,23 @@ async function handleJoin(request, env) {
   const emailKey = await sha256Hex(`email:${email}`);
   if (!(await underLimit(db, emailKey, today, EMAIL_SEND_LIMIT_PER_DAY))) return json({ ok: true, message: GENERIC_ACCEPTED }, 202);
 
-  const existing = await db.prepare(`SELECT id, email_normalized, status FROM waitlist_signups WHERE email_normalized = ?`).bind(email).first();
+  const existing = await db.prepare(`SELECT id, email_normalized, status, program_track FROM waitlist_signups WHERE email_normalized = ?`).bind(email).first();
   if (!existing) {
     const signupId = id("wls");
     await db.prepare(`INSERT INTO waitlist_signups
-      (id, email_normalized, country_code, status, consent_at, consent_copy_version, privacy_notice_version, signup_source, attribution)
-      VALUES (?, ?, ?, 'pending', datetime('now'), ?, ?, ?, ?)`)
-      .bind(signupId, email, country, CONSENT_COPY_VERSION, PRIVACY_NOTICE_VERSION,
+      (id, email_normalized, country_code, program_track, status, consent_at, consent_copy_version, privacy_notice_version, signup_source, attribution)
+      VALUES (?, ?, ?, ?, 'pending', datetime('now'), ?, ?, ?, ?)`)
+      .bind(signupId, email, country, programTrackFor(country), CONSENT_COPY_VERSION, PRIVACY_NOTICE_VERSION,
         typeof body?.source === "string" ? body.source.slice(0, 120) : "waitlist.html",
         attributionFrom(body?.page_query)).run();
-    await sendConfirmationEmail(env, db, provider, origin, { id: signupId, email_normalized: email });
+    await sendConfirmationEmail(env, db, provider, origin, { id: signupId, email_normalized: email, program_track: programTrackFor(country) });
   } else if (existing.status === "pending" || existing.status === "unsubscribed") {
     // Refresh consent stamps on an AFFIRMATIVE re-submission; status only ever
     // becomes confirmed through the emailed confirmation link, so a previous
     // unsubscribe is never silently reversed by a form post.
+    // program_track is deliberately NOT updated: an existing pending or
+    // confirmed signup keeps its track. Moving between tracks requires an
+    // explicit future workflow, never an inferred or automatic promotion.
     await db.prepare(`UPDATE waitlist_signups SET consent_at = datetime('now'), consent_copy_version = ?,
       privacy_notice_version = ?, updated_at = datetime('now') WHERE id = ?`)
       .bind(CONSENT_COPY_VERSION, PRIVACY_NOTICE_VERSION, existing.id).run();
@@ -258,18 +289,27 @@ async function handleConfirm(request, env, url) {
   if (Number(claimed?.meta?.changes ?? 0) !== 1) return EXPIRED_PAGE(env);
   await db.prepare(`UPDATE waitlist_signups SET status = 'confirmed', confirmed_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ? AND status != 'confirmed'`).bind(row.signup_id).run();
-  const signup = await db.prepare(`SELECT id, email_normalized FROM waitlist_signups WHERE id = ?`).bind(row.signup_id).first();
+  const signup = await db.prepare(`SELECT id, email_normalized, program_track FROM waitlist_signups WHERE id = ?`).bind(row.signup_id).first();
   const provider = emailProviderOrNull(env);
   if (provider && signup) await sendWelcomeEmail(env, db, provider, url.origin, signup);
   // Clean-path redirect: the consumed token never appears in the success
   // page's address, history entry, markup, or referrer output.
-  return new Response(null, { status: 303, headers: { location: "/waitlist/confirmed", "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+  const confirmedPath = trackOf(signup) === "international_interest"
+    ? "/waitlist/confirmed?list=interest" : "/waitlist/confirmed";
+  return new Response(null, { status: 303, headers: { location: confirmedPath, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
 }
 
-function confirmedPage(env) {
-  return page(env, "You’re on the MotoTrack waitlist", `
-    <h1>You’re on the MotoTrack waitlist</h1>
-    <p>Your email address is verified, and a welcome email is on its way to your inbox.</p>
+function confirmedPage(env, track) {
+  if (track === "international_interest") {
+    return page(env, "Your MotoTrack interest is confirmed", `
+      <h1>Your MotoTrack interest is confirmed</h1>
+      <p>MotoTrack beta access is not currently available in your region. We’ve recorded your interest and may email you if MotoTrack expands to your region.</p>
+      <p>Registering interest does not guarantee that MotoTrack will become available in your location or by a particular date.</p>
+      <p><a class="back" href="https://mototrack.app/">Return to MotoTrack</a></p>`);
+  }
+  return page(env, "You’re on the MotoTrack early-access waitlist", `
+    <h1>You’re on the MotoTrack early-access waitlist</h1>
+    <p>Your email has been confirmed. MotoTrack’s initial beta is opening gradually to riders in the United States and U.S. territories. We’ll email you when an appropriate early-access opportunity becomes available.</p>
     <h2>What happens next</h2>
     <ol>
       <li>MotoTrack is being tested with real track-day data and limited invited users.</li>
@@ -358,7 +398,10 @@ export default {
     if (url.pathname === "/api/waitlist" && request.method === "POST") return handleJoin(request, env);
     if (url.pathname === "/waitlist/confirm" && ["GET", "POST"].includes(request.method)) return handleConfirm(request, env, url);
     if (url.pathname === "/waitlist/unsubscribe" && ["GET", "POST"].includes(request.method)) return handleUnsubscribe(request, env, url);
-    if (url.pathname === "/waitlist/confirmed" && request.method === "GET") return stagingGuard(env, confirmedPage(env));
+    if (url.pathname === "/waitlist/confirmed" && request.method === "GET") {
+      const track = url.searchParams.get("list") === "interest" ? "international_interest" : "us_beta_waitlist";
+      return stagingGuard(env, confirmedPage(env, track));
+    }
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/waitlist/")) return json({ error: "not_found" }, 404);
     return stagingGuard(env, await env.ASSETS.fetch(request));
   },

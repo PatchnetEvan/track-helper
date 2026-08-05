@@ -16,6 +16,18 @@
     select.appendChild(option);
   }
 
+  // Declared-location outcome preview. Classification mirrors the server's
+  // US_BETA_CODES; the server is authoritative and never consults IP data.
+  const US_BETA_CODES = ["US", "PR", "VI", "GU", "AS", "MP", "UM"];
+  const trackNote = document.getElementById("wl-track-note");
+  const describeTrack = () => {
+    if (!select.value) { trackNote.textContent = ""; return; }
+    trackNote.textContent = US_BETA_CODES.includes(select.value)
+      ? "You’ll be joining the MotoTrack early-access beta waitlist. Invitations will be released gradually as testing capacity expands."
+      : "MotoTrack beta access is not currently available in your region. You may join the international interest list and receive an email if availability expands.";
+  };
+  select.addEventListener("change", describeTrack);
+
   const form = document.getElementById("waitlist-form");
   const email = document.getElementById("wl-email");
   const consent = document.getElementById("wl-consent");
