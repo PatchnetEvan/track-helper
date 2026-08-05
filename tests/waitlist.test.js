@@ -23,7 +23,7 @@ class LocalD1 {
 }
 
 const db = new LocalD1();
-for (const m of ["0001_waitlist.sql", "0002_program_track.sql"]) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql"]) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
 const sent = [];
 const env = {
   WAITLIST_DB: db,
@@ -93,6 +93,8 @@ const linkFrom = (text, path) => {
   const signup = row("SELECT * FROM waitlist_signups WHERE email_normalized = 'rider@example.com'");
   assert.equal(signup.status, "pending");
   assert.equal(signup.country_code, "US");
+  assert.equal(signup.program_track, "us_beta_waitlist", "clean first-time US signup classifies to the beta waitlist");
+  assert.equal(signup.resubscribed_at, null, "a first-time signup is not a re-subscription");
   assert.ok(signup.consent_at && !signup.confirmed_at);
   assert.equal(signup.consent_copy_version, CONSENT_COPY_VERSION);
   assert.equal(signup.privacy_notice_version, PRIVACY_NOTICE_VERSION);
@@ -390,6 +392,49 @@ const linkFrom = (text, path) => {
   assert.ok(notice.includes("under legal review"), "transfer/Art.27 items remain open - not marked resolved");
   assert.ok(!/globally available|available worldwide/i.test(notice), "never claims global availability");
   assert.equal((notice.match(/OWNER REQUIRED|PROPOSED:/g) || []).length, 0, "no unresolved placeholders");
+}
+
+
+// ---------------------------------------------------------------------------
+// Explicit re-subscription only (owner policy): an unsubscribed address
+// returns ONLY via fresh submission + fresh consent + new single-use link +
+// explicit POST, and the prior unsubscribe evidence is never overwritten.
+// ---------------------------------------------------------------------------
+{
+  const CLIENT = { "content-type": "application/json", origin: ORIGIN, "cf-connecting-ip": "198.51.100.9" };
+  const send = (body) => worker.fetch(new Request(`${ORIGIN}/api/waitlist`, { method: "POST", headers: CLIENT, body: JSON.stringify(body) }), env);
+  await send({ email: "returning@example.com", country: "US", consent: true });
+  const firstConfirm = linkFrom(sent[sent.length - 1].text, "/waitlist/confirm?token=").trim();
+  await worker.fetch(new Request(`${ORIGIN}${firstConfirm}`, { method: "POST" }), env);
+  const welcomeUnsub = linkFrom(sent[sent.length - 1].text, "/waitlist/unsubscribe?token=").trim();
+  await worker.fetch(new Request(`${ORIGIN}${welcomeUnsub}`, { method: "POST" }), env);
+  const gone = row("SELECT status, unsubscribed_at, resubscribed_at FROM waitlist_signups WHERE email_normalized='returning@example.com'");
+  assert.equal(gone.status, "unsubscribed");
+  assert.ok(gone.unsubscribed_at, "unsubscribe evidence recorded");
+  assert.equal(gone.resubscribed_at, null);
+
+  // Every NON-confirmation path leaves the record unsubscribed.
+  await send({ email: "returning@example.com", country: "US", consent: true });      // duplicate submission alone
+  await send({ email: "returning@example.com", country: "DE", consent: true });      // program-track change attempt
+  const stillGone = row("SELECT status, program_track FROM waitlist_signups WHERE email_normalized='returning@example.com'");
+  assert.equal(stillGone.status, "unsubscribed", "submission and resend alone never reactivate");
+  assert.equal(stillGone.program_track, "us_beta_waitlist", "a declared-country change never moves an existing track");
+  const interstitialOnly = await worker.fetch(new Request(`${ORIGIN}${linkFrom(sent[sent.length - 1].text, "/waitlist/confirm?token=").trim()}`), env);
+  assert.equal(interstitialOnly.status, 200);
+  assert.equal(row("SELECT status FROM waitlist_signups WHERE email_normalized='returning@example.com'").status,
+    "unsubscribed", "the scanner-safe GET never reactivates");
+
+  // The explicit POST on the freshly issued link completes the return.
+  const freshLink = linkFrom(sent[sent.length - 1].text, "/waitlist/confirm?token=").trim();
+  const returned = await worker.fetch(new Request(`${ORIGIN}${freshLink}`, { method: "POST" }), env);
+  assert.equal(returned.status, 303);
+  const back = row("SELECT status, unsubscribed_at, resubscribed_at, confirmed_at, consent_copy_version, privacy_notice_version FROM waitlist_signups WHERE email_normalized='returning@example.com'");
+  assert.equal(back.status, "confirmed", "explicit confirmation completes the re-subscription");
+  assert.ok(back.resubscribed_at, "a distinct re-subscription event is recorded");
+  assert.ok(back.unsubscribed_at, "the prior unsubscribe evidence is PRESERVED, never overwritten");
+  assert.equal(back.consent_copy_version, "2026-08-05.2", "fresh acceptance of the current consent copy is recorded");
+  assert.equal(back.privacy_notice_version, "2026-08-05.2");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE email_normalized='returning@example.com'"), 1, "no duplicate signup row");
 }
 
 console.log("waitlist.test.js passed");

@@ -287,8 +287,16 @@ async function handleConfirm(request, env, url) {
   const claimed = await db.prepare(`UPDATE waitlist_tokens SET used_at = datetime('now')
     WHERE id = ? AND used_at IS NULL AND superseded_at IS NULL AND expires_at > datetime('now')`).bind(row.id).run();
   if (Number(claimed?.meta?.changes ?? 0) !== 1) return EXPIRED_PAGE(env);
-  await db.prepare(`UPDATE waitlist_signups SET status = 'confirmed', confirmed_at = datetime('now'), updated_at = datetime('now')
-    WHERE id = ? AND status != 'confirmed'`).bind(row.signup_id).run();
+  // A confirmation arriving on a previously UNSUBSCRIBED record is an
+  // explicit re-subscription: it required a fresh submission, fresh consent
+  // acceptance at the current version, a newly issued single-use link, and
+  // this POST. Record it as its own event and NEVER clear unsubscribed_at -
+  // the history must read unsubscribed-then-resubscribed.
+  const priorStatus = (await db.prepare("SELECT status FROM waitlist_signups WHERE id = ?").bind(row.signup_id).first())?.status ?? null;
+  await db.prepare(`UPDATE waitlist_signups SET status = 'confirmed', confirmed_at = datetime('now'),
+      resubscribed_at = CASE WHEN ? = 'unsubscribed' THEN datetime('now') ELSE resubscribed_at END,
+      updated_at = datetime('now')
+    WHERE id = ? AND status != 'confirmed'`).bind(priorStatus, row.signup_id).run();
   const signup = await db.prepare(`SELECT id, email_normalized, program_track FROM waitlist_signups WHERE id = ?`).bind(row.signup_id).first();
   const provider = emailProviderOrNull(env);
   if (provider && signup) await sendWelcomeEmail(env, db, provider, url.origin, signup);

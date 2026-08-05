@@ -1,0 +1,12 @@
+-- Explicit re-subscription evidence (owner policy 2026-08-05).
+--
+-- An unsubscribed person may return ONLY through a fresh form submission,
+-- fresh acceptance of the current consent copy, a newly issued single-use
+-- confirmation link, and an explicit confirmation POST. The record stays
+-- unsubscribed until that POST succeeds.
+--
+-- The prior unsubscribe evidence is never overwritten: unsubscribed_at
+-- remains in place, and the return is recorded as its OWN timestamp so the
+-- history reads unsubscribed-then-resubscribed rather than replacing one
+-- state with the other.
+ALTER TABLE waitlist_signups ADD COLUMN resubscribed_at TEXT;
