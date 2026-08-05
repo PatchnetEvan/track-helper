@@ -317,6 +317,15 @@ export async function runRetentionSweep(db) {
   };
 }
 
+// Staging isolation: every response from the staging hostname is marked
+// non-indexable so the isolated test target never enters search engines.
+function stagingGuard(env, response) {
+  if (String(env?.WAITLIST_ENVIRONMENT ?? "") !== "staging") return response;
+  const marked = new Response(response.body, response);
+  marked.headers.set("x-robots-tag", "noindex, nofollow");
+  return marked;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -324,7 +333,7 @@ export default {
     if (url.pathname === "/waitlist/confirm" && ["GET", "POST"].includes(request.method)) return handleConfirm(request, env, url);
     if (url.pathname === "/waitlist/unsubscribe" && ["GET", "POST"].includes(request.method)) return handleUnsubscribe(request, env, url);
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/waitlist/")) return json({ error: "not_found" }, 404);
-    return env.ASSETS.fetch(request);
+    return stagingGuard(env, await env.ASSETS.fetch(request));
   },
   // Daily retention job (wrangler triggers.crons). Skips silently when the
   // database binding is absent - nothing to retain, nothing to delete.

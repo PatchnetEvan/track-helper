@@ -213,4 +213,37 @@ const linkFrom = (text, path) => {
   assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0);
 }
 
+
+// Staging activation configuration contract (config PR): staging carries the
+// bindings; the production (top-level) slice stays binding-free and fail-closed.
+{
+  const raw = readFileSync(join(import.meta.dirname, "..", "wrangler.jsonc"), "utf8");
+  const config = JSON.parse(raw.split(/\r?\n/).map((line) => line.replace(/^\s*\/\/.*$/, "")).join("\n"));
+  const staging = config.env.staging;
+  assert.equal(staging.name, "mototrack-waitlist-staging", "isolated staging worker name");
+  assert.equal(staging.d1_databases[0].binding, "WAITLIST_DB");
+  assert.equal(staging.d1_databases[0].database_name, "mototrack_waitlist");
+  assert.deepEqual(staging.send_email[0].allowed_destination_addresses.slice().sort(),
+    ["emartinez@patchnet.net", "evan.martinez+demo@gmail.com"],
+    "staging delivery restricted to exactly the two authorized test addresses");
+  assert.ok(Array.isArray(staging.triggers?.crons) && staging.triggers.crons.length === 1, "retention cron enabled on staging");
+  const { env: environments, ...production } = config;
+  const productionText = JSON.stringify(production);
+  assert.ok(!productionText.includes(staging.d1_databases[0].database_id), "production config carries no staging database id");
+  assert.ok(!productionText.includes("allowed_destination_addresses"), "production config carries no staging recipient restrictions");
+  assert.ok(!productionText.includes("WAITLIST_DB") && !productionText.includes("WAITLIST_EMAIL"), "production has no wait-list bindings - endpoints stay 503 fail-closed");
+  assert.ok(!raw.includes("WAITLIST_RATE_PEPPER"), "the rate pepper is referenced only as a Worker secret, never in configuration");
+  const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
+  assert.ok(workerSource.includes("env.WAITLIST_RATE_PEPPER"), "the pepper is consumed from the secret binding in code");
+}
+
+// Staging responses are non-indexable; production responses are untouched.
+{
+  const stagingEnv = { ...env, WAITLIST_ENVIRONMENT: "staging" };
+  const marked = await worker.fetch(new Request(`${ORIGIN}/index.html`), stagingEnv);
+  assert.equal(marked.headers.get("x-robots-tag"), "noindex, nofollow", "staging pages carry noindex");
+  const unmarked = await worker.fetch(new Request(`${ORIGIN}/index.html`), env);
+  assert.equal(unmarked.headers.get("x-robots-tag"), null, "production responses are untouched");
+}
+
 console.log("waitlist.test.js passed");
