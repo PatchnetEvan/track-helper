@@ -45,12 +45,19 @@ function json(body, status = 200) {
   });
 }
 
-function page(title, bodyHtml, status = 200) {
+function page(env, title, bodyHtml, status = 200) {
+  const stagingBanner = String(env?.WAITLIST_ENVIRONMENT ?? "") === "staging"
+    ? '<p class="wl-staging">STAGING TEST ENVIRONMENT — not the public MotoTrack site</p>' : "";
   return new Response(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" /><meta name="referrer" content="no-referrer" /><title>${title} — MotoTrack</title>
 <link rel="stylesheet" href="/styles.css" /></head>
-<body><main class="doc">${bodyHtml}</main></body></html>`, {
+<body><div class="wl-shell">
+<header class="wl-header"><a class="wordmark" href="https://mototrack.app/" aria-label="MotoTrack home"><span class="mark" aria-hidden="true"></span><span>MotoTrack</span></a><span class="wl-badge">Early Access Beta</span></header>
+${stagingBanner}
+<main class="doc">${bodyHtml}</main>
+<footer class="wl-footer"><a href="/privacy.html">Privacy Policy</a><a href="https://mototrack.app/">Return to MotoTrack</a></footer>
+</div></body></html>`, {
     status,
     headers: {
       "content-type": "text/html; charset=utf-8",
@@ -60,7 +67,7 @@ function page(title, bodyHtml, status = 200) {
   });
 }
 
-const EXPIRED_PAGE = () => page("Link expired", `
+const EXPIRED_PAGE = (env) => page(env, "Link expired", `
   <h1>That link is no longer valid</h1>
   <p>It may have expired or already been used. You can join the waitlist again from the signup page to get a fresh confirmation email.</p>
   <p><a class="back" href="/waitlist.html">Back to the waitlist</a></p>`, 410);
@@ -138,15 +145,15 @@ async function sendConfirmationEmail(env, db, provider, origin, signup) {
     to: signup.email_normalized,
     subject: "Confirm your MotoTrack waitlist spot",
     text: [
-      "Confirm my place",
-      "",
-      `Open this link to confirm your spot on the MotoTrack waitlist:`,
+      "Confirm your email address to join the MotoTrack early-access waitlist:",
       `${origin}/waitlist/confirm?token=${confirmToken}`,
       "",
-      "The link is single-use and expires in 24 hours. If you didn't request this, you can ignore this email and nothing will be added.",
+      "The link is single-use and expires in 24 hours. Confirming your email adds you to the waitlist. It does not create a MotoTrack account or give immediate access to the beta.",
+      "If you didn't request this, you can ignore this email and nothing will be added.",
       "",
-      `Unsubscribe at any time: ${origin}/waitlist/unsubscribe?token=${unsubToken}`,
-      `Privacy: ${origin}/privacy.html`,
+      "You received this message because this email address was submitted to the MotoTrack early-access waitlist. You can unsubscribe at any time.",
+      `Unsubscribe: ${origin}/waitlist/unsubscribe?token=${unsubToken}`,
+      `Privacy Policy: ${origin}/privacy.html`,
     ].join("\n"),
   });
   await db.prepare(`INSERT INTO waitlist_email_deliveries (id, signup_id, purpose, provider_status) VALUES (?, ?, 'confirm', ?)`)
@@ -157,15 +164,18 @@ async function sendWelcomeEmail(env, db, provider, origin, signup) {
   const unsubToken = await activeUnsubscribeToken(db, signup.id);
   const result = await provider.send({
     to: signup.email_normalized,
-    subject: "You're on the MotoTrack waitlist",
+    subject: "You're on the MotoTrack early-access waitlist",
     text: [
-      "You're on the list.",
-      "We'll let you know when MotoTrack early access becomes available in your region.",
+      "You're on the MotoTrack early-access waitlist.",
       "",
-      `Tell us about your riding (optional, doesn't affect your spot): ${origin}/waitlist-profile.html`,
+      "MotoTrack is being built for track-day riders and racers to preserve session data, setup notes, tire information, and rider observations.",
       "",
-      `Unsubscribe at any time: ${origin}/waitlist/unsubscribe?token=${unsubToken}`,
-      `Privacy: ${origin}/privacy.html`,
+      "What happens next: MotoTrack is being tested with real track-day data and limited invited users. Access will open gradually based on beta capacity and supported use cases, and you will receive an email when access becomes available.",
+      "Joining the waitlist does not guarantee immediate access or a specific invitation date. Beta features may change as testing continues.",
+      "",
+      "You received this message because this email address was submitted to the MotoTrack early-access waitlist. You can unsubscribe at any time.",
+      `Unsubscribe: ${origin}/waitlist/unsubscribe?token=${unsubToken}`,
+      `Privacy Policy: ${origin}/privacy.html`,
     ].join("\n"),
   });
   await db.prepare(`INSERT INTO waitlist_email_deliveries (id, signup_id, purpose, provider_status) VALUES (?, ?, 'welcome', ?)`)
@@ -231,27 +241,43 @@ async function handleConfirm(request, env, url) {
     // GET can never confirm anyone; only the POST consumes the token.
     const row = await tokenRow(db, raw, "confirm");
     const usable = row && !row.used_at && !row.superseded_at && row.expires_at > new Date().toISOString().replace("T", " ").slice(0, 19);
-    if (!usable) return EXPIRED_PAGE();
-    return page("Confirm your spot", `
-      <h1>Confirm your MotoTrack waitlist spot</h1>
+    if (!usable) return EXPIRED_PAGE(env);
+    return page(env, "Confirm your email", `
+      <h1>Confirm your email</h1>
+      <p>Confirm your email address to join the MotoTrack early-access waitlist.</p>
+      <p>MotoTrack is being built for track-day riders and racers to preserve session data, setup notes, tire information, and rider observations.</p>
       <form method="post" action="/waitlist/confirm?token=${encodeURIComponent(raw)}">
-        <button type="submit">Confirm my place</button>
-      </form>`);
+        <button type="submit">Confirm email and join waitlist</button>
+      </form>
+      <p>Confirming your email adds you to the waitlist. It does not create a MotoTrack account or give immediate access to the beta.</p>`);
   }
   const row = await tokenRow(db, raw, "confirm");
-  if (!row) return EXPIRED_PAGE();
+  if (!row) return EXPIRED_PAGE(env);
   const claimed = await db.prepare(`UPDATE waitlist_tokens SET used_at = datetime('now')
     WHERE id = ? AND used_at IS NULL AND superseded_at IS NULL AND expires_at > datetime('now')`).bind(row.id).run();
-  if (Number(claimed?.meta?.changes ?? 0) !== 1) return EXPIRED_PAGE();
+  if (Number(claimed?.meta?.changes ?? 0) !== 1) return EXPIRED_PAGE(env);
   await db.prepare(`UPDATE waitlist_signups SET status = 'confirmed', confirmed_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ? AND status != 'confirmed'`).bind(row.signup_id).run();
   const signup = await db.prepare(`SELECT id, email_normalized FROM waitlist_signups WHERE id = ?`).bind(row.signup_id).first();
   const provider = emailProviderOrNull(env);
   if (provider && signup) await sendWelcomeEmail(env, db, provider, url.origin, signup);
-  return page("You're on the list", `
-    <h1>You’re on the list.</h1>
-    <p>We’ll let you know when MotoTrack early access becomes available in your region.</p>
-    <p><a class="back" href="/waitlist-profile.html">Tell us about your riding</a></p>`);
+  // Clean-path redirect: the consumed token never appears in the success
+  // page's address, history entry, markup, or referrer output.
+  return new Response(null, { status: 303, headers: { location: "/waitlist/confirmed", "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+}
+
+function confirmedPage(env) {
+  return page(env, "You’re on the MotoTrack waitlist", `
+    <h1>You’re on the MotoTrack waitlist</h1>
+    <p>Your email address is verified, and a welcome email is on its way to your inbox.</p>
+    <h2>What happens next</h2>
+    <ol>
+      <li>MotoTrack is being tested with real track-day data and limited invited users.</li>
+      <li>Access will open gradually based on beta capacity and supported use cases.</li>
+      <li>You will receive an email when access becomes available.</li>
+    </ol>
+    <p>Joining the waitlist does not guarantee immediate access or a specific invitation date. Beta features may change as testing continues.</p>
+    <p><a class="back" href="https://mototrack.app/">Return to MotoTrack</a></p>`);
 }
 
 async function handleUnsubscribe(request, env, url) {
@@ -259,9 +285,9 @@ async function handleUnsubscribe(request, env, url) {
   if (!db) return json({ error: "waitlist_unavailable" }, 503);
   const raw = url.searchParams.get("token") ?? "";
   const row = await tokenRow(db, raw, "unsubscribe");
-  if (!row) return EXPIRED_PAGE();
+  if (!row) return EXPIRED_PAGE(env);
   if (request.method === "GET") {
-    return page("Unsubscribe", `
+    return page(env, "Unsubscribe", `
       <h1>Unsubscribe from MotoTrack email</h1>
       <p>This stops wait-list and product-update email to your address. See the <a href="/privacy.html">Privacy Notice</a>.</p>
       <form method="post" action="/waitlist/unsubscribe?token=${encodeURIComponent(raw)}">
@@ -274,7 +300,7 @@ async function handleUnsubscribe(request, env, url) {
     WHERE id = ?`).bind(row.signup_id).run();
   await db.prepare(`UPDATE waitlist_tokens SET superseded_at = datetime('now')
     WHERE signup_id = ? AND purpose = 'confirm' AND used_at IS NULL AND superseded_at IS NULL`).bind(row.signup_id).run();
-  return page("Unsubscribed", `
+  return page(env, "Unsubscribed", `
     <h1>You’re unsubscribed</h1>
     <p>You won’t receive further wait-list or product-update email at this address. Rejoining later always requires the signup form and a fresh email confirmation.</p>
     <p><a class="back" href="/">Back to MotoTrack</a></p>`);
@@ -332,6 +358,7 @@ export default {
     if (url.pathname === "/api/waitlist" && request.method === "POST") return handleJoin(request, env);
     if (url.pathname === "/waitlist/confirm" && ["GET", "POST"].includes(request.method)) return handleConfirm(request, env, url);
     if (url.pathname === "/waitlist/unsubscribe" && ["GET", "POST"].includes(request.method)) return handleUnsubscribe(request, env, url);
+    if (url.pathname === "/waitlist/confirmed" && request.method === "GET") return stagingGuard(env, confirmedPage(env));
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/waitlist/")) return json({ error: "not_found" }, 404);
     return stagingGuard(env, await env.ASSETS.fetch(request));
   },
