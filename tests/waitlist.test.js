@@ -94,7 +94,7 @@ const linkFrom = (text, path) => {
   assert.deepEqual(JSON.parse(signup.attribution), { utm_source: "press" }, "only utm_*/ref attribution is kept");
   assert.equal(sent.length, 1);
   assert.equal(sent[0].subject, "Confirm your MotoTrack waitlist spot");
-  assert.ok(sent[0].text.includes("Confirm my place"));
+  assert.ok(sent[0].text.includes("Confirm your email address to join the MotoTrack early-access waitlist"));
   const confirmLink = linkFrom(sent[0].text, "/waitlist/confirm?token=");
   const rawToken = confirmLink.split("token=")[1];
   assert.ok(!row("SELECT id FROM waitlist_tokens WHERE token_digest = ?", rawToken), "the raw token is NOT stored (hashed at rest)");
@@ -112,17 +112,27 @@ const linkFrom = (text, path) => {
   const newLink = linkFrom(sent[sent.length - 1].text, "/waitlist/confirm?token=").trim();
   const interstitial = await worker.fetch(new Request(`${ORIGIN}${newLink}`), env);
   assert.equal(interstitial.status, 200);
-  assert.ok((await interstitial.text()).includes("Confirm my place"), "scanner-safe interstitial; only the POST consumes");
+  const interstitialHtml = await interstitial.text();
+  assert.ok(interstitialHtml.includes("Confirm email and join waitlist"), "scanner-safe interstitial; only the POST consumes");
+  assert.ok(interstitialHtml.includes("does not create a MotoTrack account"), "no account/guarantee implication");
+  assert.ok(interstitialHtml.includes("/privacy.html") && interstitialHtml.includes("Early Access Beta"), "shell carries privacy link and beta badge");
   assert.equal(row("SELECT status FROM waitlist_signups WHERE email_normalized='rider@example.com'").status, "pending", "GET alone never confirms");
   const confirmed = await worker.fetch(new Request(`${ORIGIN}${newLink}`, { method: "POST" }), env);
-  assert.equal(confirmed.status, 200);
-  const confirmedHtml = await confirmed.text();
-  assert.ok(confirmedHtml.includes("You’re on the list.") && confirmedHtml.includes("early access becomes available in your region"));
-  assert.ok(confirmedHtml.includes("Tell us about your riding"), "optional profile action offered");
+  assert.equal(confirmed.status, 303, "explicit POST answers a clean redirect");
+  assert.equal(confirmed.headers.get("location"), "/waitlist/confirmed", "the consumed token never reaches the success URL or history");
+  assert.equal(await confirmed.text(), "", "no token or markup in the redirect body");
+  const successPage = await worker.fetch(new Request(`${ORIGIN}/waitlist/confirmed`), env);
+  assert.equal(successPage.status, 200);
+  const confirmedHtml = await successPage.text();
+  assert.ok(confirmedHtml.includes("You’re on the MotoTrack waitlist"), "approved heading");
+  assert.ok(confirmedHtml.includes("What happens next"), "expectation-setting section");
+  assert.ok(confirmedHtml.includes("does not guarantee immediate access"), "no guaranteed-place implication");
+  assert.ok(!confirmedHtml.includes("Tell us about your riding") && !confirmedHtml.includes("waitlist-profile"), "profile CTA fully removed");
+  assert.ok(confirmedHtml.includes("Return to MotoTrack") && confirmedHtml.includes("/privacy.html"), "single primary action + privacy link");
   const after = row("SELECT status, confirmed_at FROM waitlist_signups WHERE email_normalized='rider@example.com'");
   assert.equal(after.status, "confirmed");
   assert.ok(after.confirmed_at);
-  assert.equal(sent[sent.length - 1].subject, "You're on the MotoTrack waitlist");
+  assert.equal(sent[sent.length - 1].subject, "You're on the MotoTrack early-access waitlist");
   const reused = await worker.fetch(new Request(`${ORIGIN}${newLink}`, { method: "POST" }), env);
   assert.equal(reused.status, 410, "confirmation tokens are one-time");
   // Confirmed + duplicate submission: generic reply, no email, no state change.
@@ -144,7 +154,7 @@ const linkFrom = (text, path) => {
 // Unsubscribe: one click, idempotent, suppressing - and never silently
 // resubscribed by a later duplicate form submission.
 {
-  const unsubLink = linkFrom(sent.find((m) => m.subject === "You're on the MotoTrack waitlist").text, "/waitlist/unsubscribe?token=").trim();
+  const unsubLink = linkFrom(sent.find((m) => m.subject === "You're on the MotoTrack early-access waitlist").text, "/waitlist/unsubscribe?token=").trim();
   const pageResponse = await worker.fetch(new Request(`${ORIGIN}${unsubLink}`), env);
   assert.equal(pageResponse.status, 200);
   const done = await worker.fetch(new Request(`${ORIGIN}${unsubLink}`, { method: "POST" }), env);
@@ -244,6 +254,13 @@ const linkFrom = (text, path) => {
   assert.equal(marked.headers.get("x-robots-tag"), "noindex, nofollow", "staging pages carry noindex");
   const unmarked = await worker.fetch(new Request(`${ORIGIN}/index.html`), env);
   assert.equal(unmarked.headers.get("x-robots-tag"), null, "production responses are untouched");
+  const stagingPage = await worker.fetch(new Request(`${ORIGIN}/waitlist/confirmed`), stagingEnv);
+  assert.ok((await stagingPage.text()).includes("STAGING TEST ENVIRONMENT"), "staging banner only on the isolated deployment");
+  const productionPage = await worker.fetch(new Request(`${ORIGIN}/waitlist/confirmed`), env);
+  assert.ok(!(await productionPage.text()).includes("STAGING TEST ENVIRONMENT"), "no banner outside staging");
+  const notice = "You received this message because this email address was submitted to the MotoTrack early-access waitlist";
+  assert.ok(sent.filter((m) => m.subject.startsWith("Confirm")).every((m) => m.text.includes(notice)), "confirmation emails carry the required notice");
+  assert.ok(sent.filter((m) => m.subject.startsWith("You're on")).every((m) => m.text.includes(notice) && !m.text.includes("waitlist-profile")), "welcome emails carry the notice and no profile CTA");
 }
 
 console.log("waitlist.test.js passed");
