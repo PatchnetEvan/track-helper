@@ -10,8 +10,7 @@ NOT `merge to main → automatic public production deployment`.
 
 ## Rules
 
-1. **`main` is the integration branch.** Merging to `main` builds and validates; it does not
-   promote anything to the public `mototrack` Worker.
+1. `main` is the integration branch. Merging to `main` runs the configured automated checks; it does not promote anything to the public `mototrack` Worker. The required MotoTrack security and test suites must be part of those automated checks before production authorization.
 2. **Production promotion is an explicit operator action** pinned to a reviewed commit:
    check out the exact SHA, apply migrations/bindings/secrets in runbook order, run the
    deployment, and record BOTH the Git commit SHA and the resulting Cloudflare Worker
