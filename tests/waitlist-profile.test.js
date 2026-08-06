@@ -367,8 +367,12 @@ seed("s_unsub", "unsubscribed@example.com", "unsubscribed", "international_inter
 
   // PR scope containment: no route, UI, email CTA, or production config.
   const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
-  assert.ok(!/\/waitlist\/profile/.test(workerSource), "no profile ROUTE has entered this PR");
-  assert.ok(!/profile.*\?token=|Tell us about your riding/i.test(workerSource), "no profile CTA or link in any email or page");
+  // PR 2 adds the protected routes; the welcome email and the confirmation
+  // page must still carry NO profile CTA (that is PR 3).
+  const welcomeEmailSource = workerSource.slice(workerSource.indexOf("async function sendWelcomeEmail"),
+    workerSource.indexOf("async function tokenRow"));
+  assert.ok(!new RegExp("waitlist\/profile|Tell us about your riding").test(welcomeEmailSource),
+    "the welcome email still contains no profile link or CTA");
   assert.ok(!workerSource.includes("issueProfileInvitation"), "no invitation is issued anywhere yet - PR 3 wires the welcome email");
   const wrangler = readFileSync(join(import.meta.dirname, "..", "wrangler.jsonc"), "utf8");
   const config = JSON.parse(wrangler.split(/\r?\n/).map((line) => line.replace(/^\s*\/\/.*$/, "")).join("\n"));
