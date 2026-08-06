@@ -7,7 +7,7 @@ import {
   requestProfileEditLink, revokeProfileInvitations, sweepProfileRetention,
   ProfileValidationError, TRACK_INVOLVEMENT_VALUES, TRACK_INVOLVEMENT_LABELS,
   EXPERIENCE_LEVEL_VALUES, EXPERIENCE_LEVEL_LABELS, GOALS_MAX_LENGTH,
-  PROFILE_COPY_VERSION, PROFILE_NOTICE_VERSION, PROFILE_TOKEN_TTL_DAYS,
+  PROFILE_COPY_VERSION, PROFILE_NOTICE_VERSION, PROFILE_TOKEN_TTL_DAYS, escapeHtml,
 } from "../src/waitlist-profile-service.js";
 
 // Optional post-confirmation rider profile — PR 1: schema, token lifecycle,
@@ -25,6 +25,16 @@ class LocalD1 {
         ? { success: true, results: sqlite.prepare(sql).all(...values), meta: { changes: 0 } }
         : { success: true, results: [], meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
     }; } };
+  }
+  // Mirrors D1: a batch is one transaction - all statements commit, or none.
+  async batch(statements) {
+    this.sqlite.exec("BEGIN");
+    try {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      this.sqlite.exec("COMMIT");
+      return results;
+    } catch (error) { this.sqlite.exec("ROLLBACK"); throw error; }
   }
 }
 
@@ -104,8 +114,8 @@ seed("s_unsub", "unsubscribed@example.com", "unsubscribed", "international_inter
   assert.deepEqual(JSON.parse(profile.track_involvement), ["track_day_rider", "coach_or_instructor"], "multi-select, de-duplicated");
   assert.equal(profile.experience_level, null, "partial profile is valid");
   assert.equal(profile.display_name, null);
-  assert.ok(!/[<>]/.test(profile.goals), "HTML/rich-text markup is stripped - plain text only");
-  assert.equal(profile.goals, "Understand why my front feels vague\n\nin fast corners.", "whitespace normalized, content preserved");
+  assert.equal(profile.goals, "Understand   why my <b>front</b> feels vague\n\n  in fast corners.",
+    "rider text is stored LITERALLY: internal spacing, wording, and line breaks preserved; only outer whitespace trimmed");
   assert.equal(profile.profile_copy_version, PROFILE_COPY_VERSION);
   assert.equal(profile.privacy_notice_version, PROFILE_NOTICE_VERSION);
   assert.equal(profile.interest_early_testing, 0, "interest flags default off");
@@ -235,6 +245,137 @@ seed("s_unsub", "unsubscribed@example.com", "unsubscribed", "international_inter
     assert.ok(!columns.includes(consentColumn), `${consentColumn} stays on the signup record, never duplicated onto profiles`);
   }
   assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean");
+}
+
+
+// ---------------------------------------------------------------------------
+// Free text is preserved literally and escaped at render - never rewritten.
+// ---------------------------------------------------------------------------
+{
+  const link = await requestProfileEditLink(db, "confirmed@example.com");
+  const written = "Front pushes < 60 mph & \"chatters\" on entry.\r\n\r\nLine two -> keep me.\r\n";
+  await saveProfileThroughInvitation(db, link, { goals: written });
+  const stored = row("SELECT goals FROM waitlist_profiles WHERE signup_id='s_conf'").goals;
+  assert.equal(stored, "Front pushes < 60 mph & \"chatters\" on entry.\n\nLine two -> keep me.",
+    "line endings normalized to LF and outer whitespace trimmed - nothing else changed");
+  assert.ok(stored.includes("<") && stored.includes("&") && stored.includes("\""),
+    "characters that merely look like markup survive verbatim");
+  assert.equal(stored.split("\n").length, 3, "internal line breaks preserved");
+  assert.equal(escapeHtml(stored),
+    "Front pushes &lt; 60 mph &amp; &quot;chatters&quot; on entry.\n\nLine two -&gt; keep me.",
+    "the render boundary escapes it so HTML can never execute");
+  assert.equal(escapeHtml("<script>alert(1)</script>"), "&lt;script&gt;alert(1)&lt;/script&gt;");
+
+  // A script-looking payload is STORED as written and only neutralized on render.
+  const link2 = await requestProfileEditLink(db, "confirmed@example.com");
+  await saveProfileThroughInvitation(db, link2, { goals: "<script>alert(1)</script>" });
+  assert.equal(row("SELECT goals FROM waitlist_profiles WHERE signup_id='s_conf'").goals, "<script>alert(1)</script>",
+    "storage is literal; safety lives at the render boundary");
+
+  // The 1,000-character limit is validated server-side on the literal text.
+  const link3 = await requestProfileEditLink(db, "confirmed@example.com");
+  await assert.rejects(() => saveProfileThroughInvitation(db, link3, { goals: "x".repeat(1001) }), /limited to 1000 characters/);
+  const link4 = await requestProfileEditLink(db, "confirmed@example.com");
+  await saveProfileThroughInvitation(db, link4, { goals: "y".repeat(1000) });
+  assert.equal(row("SELECT length(goals) AS n FROM waitlist_profiles WHERE signup_id='s_conf'").n, 1000, "exactly at the limit saves");
+}
+
+// ---------------------------------------------------------------------------
+// ATOMIC replacement: an interrupted issuance leaves exactly one usable link.
+// ---------------------------------------------------------------------------
+{
+  seed("s_atomic", "atomic@example.com", "confirmed");
+  const original = await issueProfileInvitation(db, "s_atomic", "welcome_email");
+  assert.ok(await resolveProfileInvitation(db, original), "the original link is usable");
+  const usable = () => count(`SELECT COUNT(*) AS n FROM waitlist_profile_invitations
+    WHERE signup_id='s_atomic' AND used_at IS NULL AND revoked_at IS NULL AND superseded_at IS NULL
+      AND expires_at > datetime('now')`);
+  assert.equal(usable(), 1, "exactly one usable link before replacement");
+
+  // FAILURE INJECTION: the supersede half of the replacement aborts.
+  db.sqlite.exec(`CREATE TRIGGER tmp_break_supersede BEFORE UPDATE ON waitlist_profile_invitations
+    BEGIN SELECT RAISE(ABORT, 'injected_supersede_failure'); END`);
+  let interrupted = null;
+  try { interrupted = await issueProfileInvitation(db, "s_atomic", "requested_edit_link"); }
+  catch (error) { interrupted = { error: String(error?.message) }; }
+  db.sqlite.exec("DROP TRIGGER tmp_break_supersede");
+  assert.ok(!interrupted || interrupted.error, "an interrupted replacement never returns a usable token");
+  assert.equal(usable(), 1, "still exactly one usable link - never zero, never two");
+  assert.ok(await resolveProfileInvitation(db, original), "the EXISTING link is intact and still works");
+
+  // FAILURE INJECTION: the insert half aborts.
+  db.sqlite.exec(`CREATE TRIGGER tmp_break_insert BEFORE INSERT ON waitlist_profile_invitations
+    BEGIN SELECT RAISE(ABORT, 'injected_insert_failure'); END`);
+  let insertFailed = null;
+  try { insertFailed = await issueProfileInvitation(db, "s_atomic", "requested_edit_link"); }
+  catch (error) { insertFailed = { error: String(error?.message) }; }
+  db.sqlite.exec("DROP TRIGGER tmp_break_insert");
+  assert.ok(!insertFailed || insertFailed.error);
+  assert.equal(usable(), 1, "a failed insert supersedes nothing");
+  assert.ok(await resolveProfileInvitation(db, original), "the existing link survives an insert failure");
+
+  // A REFUSED issuance (second later invitation) also supersedes nothing.
+  await issueProfileInvitation(db, "s_atomic", "later_invitation");
+  const afterLater = usable();
+  assert.equal(afterLater, 1, "a successful replacement leaves exactly one usable link");
+  assert.equal(await issueProfileInvitation(db, "s_atomic", "later_invitation"), null, "the second later invitation is refused");
+  assert.equal(usable(), 1, "the refusal left the live link untouched");
+
+  // Success path: replacement supersedes the old and leaves exactly one.
+  const replacement = await issueProfileInvitation(db, "s_atomic", "requested_edit_link");
+  assert.ok(replacement && await resolveProfileInvitation(db, replacement), "the replacement works");
+  assert.equal(usable(), 1, "exactly one usable link after a successful replacement");
+}
+
+// ---------------------------------------------------------------------------
+// Pre-merge confirmations: migration chain, failed-migration safety, no
+// logging of secrets or free text, and PR-scope containment.
+// ---------------------------------------------------------------------------
+{
+  // 0004 applies cleanly on top of 0001-0003, and only after them.
+  const fresh = new LocalD1();
+  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql"]) {
+    fresh.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  }
+  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'waitlist%'").get().n, 6);
+  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()").get().n, 0);
+
+  // A FAILED 0004 leaves the prior schema fully usable (statement-level, no
+  // partial table state that breaks 0001-0003 behavior).
+  const broken = new LocalD1();
+  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql"]) {
+    broken.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  }
+  const migrationSql = readFileSync(join(import.meta.dirname, "..", "migrations", "0004_rider_profiles.sql"), "utf8");
+  const statements = migrationSql.split("\n").filter((line) => !line.trim().startsWith("--")).join("\n")
+    .split(";").map((statement) => statement.trim()).filter(Boolean);
+  try {
+    broken.sqlite.exec(statements[0]);                 // first CREATE succeeds
+    broken.sqlite.exec("CREATE TABLE waitlist_profiles (x TEXT)"); // injected failure: already exists
+    assert.fail("expected the injected migration failure");
+  } catch (error) { assert.match(String(error.message), /already exists/); }
+  broken.sqlite.prepare("INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status, consent_at, consent_copy_version, privacy_notice_version) VALUES ('s_after_fail', 'after@example.com', 'US', 'us_beta_waitlist', 'pending', datetime('now'), 'v', 'v')").run();
+  assert.equal(broken.sqlite.prepare("SELECT status FROM waitlist_signups WHERE id='s_after_fail'").get().status, "pending",
+    "the prior schema still accepts wait-list writes after a failed 0004");
+  assert.equal(broken.sqlite.prepare("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()").get().n, 0);
+
+  // Token digests and rider free text never enter logs.
+  const serviceSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-profile-service.js"), "utf8");
+  assert.ok(!/console\.(log|info|warn|error|debug)/.test(serviceSource),
+    "the profile service logs NOTHING - no token, digest, or rider text can reach a log line");
+  assert.ok(!/raw|token/i.test((serviceSource.match(/console[^\n]*/g) || []).join(" ")), "no token logging anywhere");
+
+  // PR scope containment: no route, UI, email CTA, or production config.
+  const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
+  assert.ok(!/\/waitlist\/profile/.test(workerSource), "no profile ROUTE has entered this PR");
+  assert.ok(!/profile.*\?token=|Tell us about your riding/i.test(workerSource), "no profile CTA or link in any email or page");
+  assert.ok(!workerSource.includes("issueProfileInvitation"), "no invitation is issued anywhere yet - PR 3 wires the welcome email");
+  const wrangler = readFileSync(join(import.meta.dirname, "..", "wrangler.jsonc"), "utf8");
+  const config = JSON.parse(wrangler.split(/\r?\n/).map((line) => line.replace(/^\s*\/\/.*$/, "")).join("\n"));
+  const { env: environments, ...production } = config;
+  assert.equal("d1_databases" in production, false, "no production database binding entered this PR");
+  assert.equal("send_email" in production, false, "no production email binding entered this PR");
+  assert.ok(!wrangler.includes("mototrack_waitlist_production"), "no production resource name appears anywhere");
 }
 
 console.log("waitlist-profile.test.js passed");
