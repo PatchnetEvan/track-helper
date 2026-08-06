@@ -8,6 +8,8 @@
 // generic 202 whether the address is new, pending, confirmed, unsubscribed,
 // or rate limited.
 
+import { revokeProfileInvitations, sweepProfileRetention } from "./waitlist-profile-service.js";
+
 export const CONSENT_COPY_VERSION = "2026-08-05.2";
 export const PRIVACY_NOTICE_VERSION = "2026-08-05.2";
 export const CONSENT_COPY =
@@ -348,6 +350,9 @@ async function handleUnsubscribe(request, env, url) {
     WHERE id = ?`).bind(row.signup_id).run();
   await db.prepare(`UPDATE waitlist_tokens SET superseded_at = datetime('now')
     WHERE signup_id = ? AND purpose = 'confirm' AND used_at IS NULL AND superseded_at IS NULL`).bind(row.signup_id).run();
+  // Unsubscribing also revokes every outstanding rider-profile link, so a
+  // previously issued invitation stops working immediately (track-helper #31).
+  await revokeProfileInvitations(db, row.signup_id);
   return page(env, "Unsubscribed", `
     <h1>You’re unsubscribed</h1>
     <p>You won’t receive further wait-list or product-update email at this address. Rejoining later always requires the signup form and a fresh email confirmation.</p>
@@ -367,6 +372,8 @@ export async function runRetentionSweep(db) {
   const purgeSignups = async (where) => {
     const doomed = await db.prepare(`SELECT id FROM waitlist_signups WHERE ${where}`).bind().all();
     for (const { id: signupId } of doomed.results ?? []) {
+      await db.prepare("DELETE FROM waitlist_profile_invitations WHERE signup_id = ?").bind(signupId).run();
+      await db.prepare("DELETE FROM waitlist_profiles WHERE signup_id = ?").bind(signupId).run();
       await db.prepare("DELETE FROM waitlist_email_deliveries WHERE signup_id = ?").bind(signupId).run();
       await db.prepare("DELETE FROM waitlist_tokens WHERE signup_id = ?").bind(signupId).run();
       await db.prepare("DELETE FROM waitlist_signups WHERE id = ?").bind(signupId).run();
@@ -382,7 +389,13 @@ export async function runRetentionSweep(db) {
   const attribution = await db.prepare(`UPDATE waitlist_signups SET attribution = NULL, updated_at = datetime('now')
     WHERE attribution IS NOT NULL AND created_at <= datetime('now', '-12 months')`).bind().run();
   const buckets = await db.prepare("DELETE FROM waitlist_rate_buckets WHERE window_start <= datetime('now', '-2 days')").bind().run();
+  // Profile retention: deleted within 30 days after unsubscribe. Profiles of
+  // purged signups are removed by purgeSignups above, so nothing can outlive
+  // the wait-list retention ceiling.
+  const profiles = await sweepProfileRetention(db);
   return {
+    profiles_purged: profiles.profiles_purged,
+    profile_invitations_purged: profiles.invitations_purged,
     pending_purged: pending,
     confirmed_expired: confirmed,
     delivery_logs_purged: Number(logs?.meta?.changes ?? 0),
