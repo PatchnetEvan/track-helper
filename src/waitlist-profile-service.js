@@ -271,6 +271,31 @@ export async function revokeProfileInvitations(db, signupId) {
  * beyond the wait-list retention ceiling. Signup purges cascade separately in
  * the main sweep; this pass handles the post-unsubscribe window.
  */
+/**
+ * Current profile-consent state, DERIVED from the append-only history. No
+ * events or a latest `withdrawn` means no active consent. Ordering is by
+ * event_seq, never by occurred_at, so two events sharing a whole-second
+ * timestamp can never make the state ambiguous.
+ *
+ * `current` additionally requires the ACTIVE grant to be under the versions in
+ * force. An older grant is active consent for what it covered, but not
+ * authorization for the current purposes - so the rider is asked again rather
+ * than silently carried forward.
+ */
+export async function profileConsentState(db, signupId) {
+  const latest = await db.prepare(`SELECT event_type, profile_consent_version, privacy_notice_version
+    FROM waitlist_profile_consent_events WHERE signup_id = ?
+    ORDER BY event_seq DESC LIMIT 1`).bind(signupId).first();
+  const active = latest?.event_type === "granted";
+  return {
+    active,
+    current: active
+      && latest.profile_consent_version === PROFILE_CONSENT_VERSION
+      && latest.privacy_notice_version === PROFILE_NOTICE_VERSION,
+    latest: latest ?? null,
+  };
+}
+
 export async function sweepProfileRetention(db) {
   const doomed = await db.prepare(`SELECT p.id FROM waitlist_profiles p
     JOIN waitlist_signups s ON s.id = p.signup_id

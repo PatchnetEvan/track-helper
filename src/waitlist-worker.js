@@ -528,13 +528,14 @@ function profileFormPage(env, resolved, csrfValue, { error = null } = {}) {
         <label class="wl-check"><input type="checkbox" name="interest_remote_coaching" value="1"${profile?.interest_remote_coaching ? " checked" : ""} /> Remote coaching</label>
         <label class="wl-check"><input type="checkbox" name="interest_ai_coaching" value="1"${profile?.interest_ai_coaching ? " checked" : ""} /> Future AI-assisted coaching</label>
       </fieldset>
-      <fieldset class="wl-consent"><legend>Rider-profile consent</legend>
+      ${resolved.consent?.current ? `<p class="wl-hint">Your rider-profile consent is active. You can edit your profile or delete it at any time.</p>`
+        : `<fieldset class="wl-consent"><legend>Rider-profile consent</legend>
         <label class="wl-check"><input type="checkbox" name="profile_consent" value="1" /> ${escapeHtml(PROFILE_CONSENT_COPY)}</label>
         <p class="wl-hint"><a href="/privacy.html">Privacy Policy</a></p>
-      </fieldset>
+      </fieldset>`}
       <button type="submit">Save my profile</button>
     </form>
-    ${profile ? `<p class="wl-hint"><a class="back" href="${PROFILE_PATH}/delete">Delete my rider profile</a></p>` : ""}`);
+    ${resolved.consent?.active ? `<p class="wl-hint"><a class="back" href="${PROFILE_PATH}/delete">Delete my rider profile</a></p>` : ""}`);
 }
 
 function profileSavedPage(env) {

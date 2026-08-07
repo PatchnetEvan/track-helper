@@ -636,8 +636,10 @@ const openSession = async (signupId) => {
   const stored = row("SELECT profile_copy_version, privacy_notice_version FROM waitlist_profiles WHERE signup_id='s_consent'");
   assert.equal(stored.profile_copy_version, "2026-08-05.3");
   assert.equal(stored.privacy_notice_version, "2026-08-05.3");
-  const granted = row("SELECT event, consent_copy_version, privacy_notice_version FROM waitlist_profile_consent_events WHERE signup_id='s_consent'");
-  assert.deepEqual({ ...granted }, { event: "granted", consent_copy_version: "2026-08-05.3", privacy_notice_version: "2026-08-05.3" });
+  const granted = row(`SELECT event_type, profile_consent_version, privacy_notice_version, consent_method
+    FROM waitlist_profile_consent_events WHERE signup_id='s_consent'`);
+  assert.deepEqual({ ...granted }, { event_type: "granted", profile_consent_version: "2026-08-05.3",
+    privacy_notice_version: "2026-08-05.3", consent_method: "profile_form_checkbox" });
 }
 
 // ---------------------------------------------------------------------------
@@ -748,8 +750,12 @@ const joinAndConfirm = async (email, country, useEnv = env) => {
   assert.match(deletedHtml, /Your waitlist or international-interest status and your email preferences have not changed\./);
 
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_del'"), 0, "the answers are deleted");
-  const withdrawal = row("SELECT event, consent_copy_version, privacy_notice_version FROM waitlist_profile_consent_events WHERE signup_id='s_del' AND event='withdrawn'");
-  assert.deepEqual({ ...withdrawal }, { event: "withdrawn", consent_copy_version: "2026-08-05.3", privacy_notice_version: "2026-08-05.3" });
+  const withdrawal = row(`SELECT event_type, profile_consent_version, privacy_notice_version, consent_method
+    FROM waitlist_profile_consent_events WHERE signup_id='s_del' AND event_type='withdrawn'`);
+  assert.deepEqual({ ...withdrawal }, { event_type: "withdrawn", profile_consent_version: "2026-08-05.3",
+    privacy_notice_version: "2026-08-05.3", consent_method: "profile_delete_action" });
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_consent_events WHERE signup_id='s_del' AND event_type='granted'"), 1,
+    "the earlier granted event SURVIVES the withdrawal");
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_del' AND used_at IS NULL AND revoked_at IS NULL"), 0,
     "outstanding invitations revoked");
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations WHERE signup_id='s_del' AND consumed_at IS NULL AND revoked_at IS NULL"), 0,
@@ -761,6 +767,116 @@ const joinAndConfirm = async (email, country, useEnv = env) => {
   assert.deepEqual({ ...row("SELECT status, program_track, confirmed_at, unsubscribed_at, resubscribed_at, consent_copy_version, privacy_notice_version, consent_at FROM waitlist_signups WHERE id='s_del'") }, before,
     "status, track, confirmation, unsubscribe/re-subscription evidence and email consent are ALL unchanged");
   assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean");
+}
+
+// ---------------------------------------------------------------------------
+// PR 3: consent lifecycle over the append-only event history. State is DERIVED
+// from the latest event by event_seq - never a stored mutable flag - so
+// grant -> withdraw -> grant is an ordered history, not a rewritten row.
+// ---------------------------------------------------------------------------
+{
+  const events = (signupId) => db.sqlite.prepare(
+    `SELECT event_type, profile_consent_version, privacy_notice_version, consent_method
+     FROM waitlist_profile_consent_events WHERE signup_id = ? ORDER BY event_seq`).all(signupId).map((e) => ({ ...e }));
+
+  seed("s_life", "life@example.com", "confirmed");
+
+  // (1) First save without consent fails and records nothing.
+  const first = await openSession("s_life");
+  const firstHtml = await (await get(PROFILE_PATH, first.jar)).text();
+  assert.match(firstHtml, /name="profile_consent"/, "no active consent -> the unchecked control is shown");
+  const refused = await post(PROFILE_PATH, { csrf: first.jar[PROFILE_CSRF_COOKIE], display_name: "Nope" }, first.jar);
+  assert.match(await refused.text(), /confirm the rider-profile consent/i);
+  assert.equal(events("s_life").length, 0, "a refused save appends no event");
+
+  // (2) First save WITH consent appends exactly one granted event.
+  const created = await post(PROFILE_PATH,
+    { profile_consent: 1, csrf: first.jar[PROFILE_CSRF_COOKIE], display_name: "Rider One" }, first.jar);
+  assert.equal(created.status, 200);
+  assert.deepEqual(events("s_life"), [{ event_type: "granted", profile_consent_version: "2026-08-05.3",
+    privacy_notice_version: "2026-08-05.3", consent_method: "profile_form_checkbox" }],
+  "exactly one granted event, with the method and both versions recorded");
+
+  // (3) Ordinary edits append NO further granted event and ask nothing again.
+  const editSession = await openSession("s_life");
+  const editHtml = await (await get(PROFILE_PATH, editSession.jar)).text();
+  assert.ok(!/name="profile_consent"/.test(editHtml), "active current consent -> no second checkbox");
+  assert.match(editHtml, /Your rider-profile consent is active\. You can edit your profile or delete it at any time\./);
+  const edited = await post(PROFILE_PATH,
+    { csrf: editSession.jar[PROFILE_CSRF_COOKIE], display_name: "Rider One", primary_motorcycle: "Yamaha R3" },
+    editSession.jar);
+  assert.equal(edited.status, 200, "the edit saves without a consent checkbox");
+  assert.equal(row("SELECT primary_motorcycle FROM waitlist_profiles WHERE signup_id='s_life'").primary_motorcycle, "Yamaha R3");
+  assert.equal(events("s_life").length, 1, "editing a profile field is NOT a new consent decision");
+
+  // (4)(5)(6)(7) Withdrawal appends withdrawn, preserves granted, deletes answers.
+  const before = { ...row(`SELECT status, program_track, confirmed_at, unsubscribed_at, resubscribed_at,
+    consent_copy_version, privacy_notice_version, consent_at FROM waitlist_signups WHERE id='s_life'`) };
+  const withdrawSession = await openSession("s_life");
+  const withdrawn = await post(`${PROFILE_PATH}/delete`, { csrf: withdrawSession.jar[PROFILE_CSRF_COOKIE] }, withdrawSession.jar);
+  assert.equal(withdrawn.status, 200);
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn"], "history is appended, never rewritten");
+  assert.equal(events("s_life")[1].consent_method, "profile_delete_action");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_life'"), 0, "answers deleted");
+  assert.deepEqual({ ...row(`SELECT status, program_track, confirmed_at, unsubscribed_at, resubscribed_at,
+    consent_copy_version, privacy_notice_version, consent_at FROM waitlist_signups WHERE id='s_life'`) }, before,
+  "signup and email state untouched by withdrawal");
+
+  // (8)(9) Re-creation needs fresh protected access AND fresh affirmative consent.
+  const again = await openSession("s_life");
+  const againHtml = await (await get(PROFILE_PATH, again.jar)).text();
+  assert.match(againHtml, /name="profile_consent"/, "withdrawn -> the unchecked control returns");
+  assert.ok(!/Your rider-profile consent is active/.test(againHtml), "prior consent is NOT silently reactivated");
+  const refusedAgain = await post(PROFILE_PATH, { csrf: again.jar[PROFILE_CSRF_COOKIE], display_name: "Back" }, again.jar);
+  assert.match(await refusedAgain.text(), /confirm the rider-profile consent/i, "re-creation without consent still fails");
+  assert.equal(events("s_life").length, 2, "and appends nothing");
+  const recreated = await post(PROFILE_PATH,
+    { profile_consent: 1, csrf: again.jar[PROFILE_CSRF_COOKIE], display_name: "Back Again" }, again.jar);
+  assert.equal(recreated.status, 200);
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn", "granted"],
+    "a new granted event, with every earlier event preserved");
+
+  // (10) Ordering drives the derived state even when timestamps collide.
+  const stamps = db.sqlite.prepare(
+    "SELECT DISTINCT occurred_at FROM waitlist_profile_consent_events WHERE signup_id='s_life'").all();
+  assert.ok(stamps.length <= 3, "these events can and do share whole-second timestamps");
+  const finalWithdraw = await openSession("s_life");
+  await post(`${PROFILE_PATH}/delete`, { csrf: finalWithdraw.jar[PROFILE_CSRF_COOKIE] }, finalWithdraw.jar);
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn", "granted", "withdrawn"],
+    "a legitimate grant/withdraw/grant/withdraw history");
+  const afterAll = await openSession("s_life");
+  assert.match(await (await get(PROFILE_PATH, afterAll.jar)).text(), /name="profile_consent"/,
+    "latest event is withdrawn -> no active consent, derived by event_seq not by timestamp");
+
+  // (11) An existing event cannot be updated - the database refuses.
+  assert.throws(() => db.sqlite.prepare(
+    "UPDATE waitlist_profile_consent_events SET event_type='granted' WHERE signup_id='s_life'").run(),
+  /append-only/, "consent events are immutable");
+  assert.throws(() => db.sqlite.prepare(
+    "UPDATE waitlist_profile_consent_events SET occurred_at='1999-01-01 00:00:00' WHERE signup_id='s_life'").run(),
+  /append-only/, "timestamps cannot be rewritten either");
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn", "granted", "withdrawn"],
+    "history survives the attempts intact");
+
+  // No application path deletes an individual consent event.
+  const serviceSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-profile-service.js"), "utf8");
+  const authSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-profile-auth.js"), "utf8");
+  const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
+  for (const [name, source] of [["service", serviceSource], ["auth", authSource], ["worker", workerSource]]) {
+    assert.ok(!/DELETE\s+FROM\s+waitlist_profile_consent_events/i.test(source),
+      `the ${name} layer has no individual consent-event deletion path`);
+    assert.ok(!/UPDATE\s+waitlist_profile_consent_events/i.test(source),
+      `the ${name} layer never updates a consent event`);
+  }
+
+  // (12)(13) History is removed ONLY when the parent signup is purged, and the
+  // purge stays foreign-key clean.
+  assert.ok(events("s_life").length > 0, "history exists before the purge");
+  db.sqlite.prepare("UPDATE waitlist_signups SET confirmed_at = datetime('now','-25 months') WHERE id='s_life'").run();
+  await runRetentionSweep(db);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE id='s_life'"), 0, "the signup reached its ceiling");
+  assert.equal(events("s_life").length, 0, "consent history cascaded away with its parent");
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean after the purge");
 }
 
 // ---------------------------------------------------------------------------
