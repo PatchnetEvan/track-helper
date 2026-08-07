@@ -945,14 +945,16 @@ const joinAndConfirm = async (email, country, useEnv = env) => {
   const { env: environments, ...production } = config;
   assert.equal("d1_databases" in production, false, "no production binding entered PR 2");
   assert.ok(!wrangler.includes("mototrack_waitlist_production"), "no production resource name");
-  // The feature flag ships in NO configuration here - not production, and not
-  // staging either: staging may only be enabled after privacy notice
-  // 2026-08-05.3 is actually deployed, and production is a separately
-  // authorized runbook step.
-  assert.ok(!wrangler.includes("WAITLIST_PROFILE_ENABLED"),
-    "the profile feature flag is absent from every environment in wrangler.jsonc");
-  assert.equal("vars" in production && "WAITLIST_PROFILE_ENABLED" in (production.vars ?? {}), false,
-    "the profile feature flag is absent from production configuration");
+  // The binding invariant: PRODUCTION must never define or enable the profile
+  // flag. Staging carries it deliberately for the isolated proof, so the old
+  // "absent from every environment" assertion is obsolete - but the production
+  // half of it is the part that actually protects anything, and it stays.
+  assert.equal("WAITLIST_PROFILE_ENABLED" in (production.vars ?? {}), false,
+    "production configuration must not define WAITLIST_PROFILE_ENABLED");
+  assert.equal(JSON.stringify(production).includes("WAITLIST_PROFILE_ENABLED"), false,
+    "and it appears nowhere else in the production block");
+  assert.equal(environments?.staging?.vars?.WAITLIST_PROFILE_ENABLED, "true",
+    "staging enables the profile with exactly the string \"true\"");
   assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean");
 }
 

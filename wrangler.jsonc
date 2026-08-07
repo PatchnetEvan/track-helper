@@ -29,7 +29,7 @@
       // indexable. Production keeps its own asset config untouched.
       "assets": { "directory": "./", "binding": "ASSETS", "run_worker_first": ["/api/*", "/waitlist/*", "/waitlist.html", "/privacy.html"] },
       "triggers": { "crons": ["17 4 * * *"] },
-      "vars": { "WAITLIST_ENVIRONMENT": "staging", "WAITLIST_EMAIL_FROM": "MotoTrack Waitlist <waitlist@mototrack.app>" },
+      "vars": { "WAITLIST_ENVIRONMENT": "staging", "WAITLIST_EMAIL_FROM": "MotoTrack Waitlist <waitlist@mototrack.app>", "WAITLIST_PROFILE_ENABLED": "true" },
       "d1_databases": [
         { "binding": "WAITLIST_DB", "database_name": "mototrack_waitlist", "database_id": "c1ce20d5-aea7-45a0-99e7-1eaa055bf8ee" }
       ],

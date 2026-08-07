@@ -479,7 +479,12 @@ const INVITATION_CLOSING_TEXT =
   const batchSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-profile-batch.js"), "utf8");
   assert.ok(!/addEventListener|export default/.test(batchSource), "the module exposes no handler surface");
   const wrangler = readFileSync(join(import.meta.dirname, "..", "wrangler.jsonc"), "utf8");
-  assert.ok(!wrangler.includes("WAITLIST_PROFILE_ENABLED"), "the feature flag is in no environment");
+  const wranglerConfig = JSON.parse(wrangler.split("\n").map((line) => line.replace(/^\s*\/\/.*$/, "")).join("\n"));
+  const { env: wranglerEnvs, ...wranglerProduction } = wranglerConfig;
+  assert.equal("WAITLIST_PROFILE_ENABLED" in (wranglerProduction.vars ?? {}), false,
+    "production configuration must not define WAITLIST_PROFILE_ENABLED");
+  assert.equal(wranglerEnvs?.staging?.vars?.WAITLIST_PROFILE_ENABLED, "true",
+    "staging enables it with exactly \"true\" - the batch still has no trigger either way");
   assert.ok(!/"queues"|"consumers"/.test(wrangler), "no queue binding entered this PR");
 }
 
