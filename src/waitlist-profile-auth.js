@@ -24,6 +24,13 @@ export const EDIT_AUTH_TTL_SECONDS = 20 * 60;
 export const PROFILE_COOKIE = "__Secure-mototrack_profile";
 export const PROFILE_CSRF_COOKIE = "__Secure-mototrack_profile_csrf";
 export const PROFILE_PATH = "/waitlist/profile";
+// The public edit-link request form is UNAUTHENTICATED and must never share
+// cookie state with a live edit session. It gets its own name AND its own
+// deeper path, so visiting it cannot overwrite, clear, or poison the
+// authenticated CSRF cookie - which would otherwise make the next form render
+// carry a value the stored digest cannot match, revoking a valid session.
+export const PROFILE_REQUEST_CSRF_COOKIE = "__Secure-mototrack_profile_request_csrf";
+export const PROFILE_REQUEST_PATH = "/waitlist/profile/request";
 
 function id(prefix) { return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`; }
 
@@ -58,11 +65,11 @@ export function parseCookies(request) {
 // Scoped to the profile path, opaque, HttpOnly, Secure, SameSite=Strict, no
 // Domain attribute, explicit bounded Max-Age. __Secure- (not __Host-, which
 // browsers only accept with Path=/).
-export function sessionCookie(name, value, maxAgeSeconds) {
-  return `${name}=${value}; Path=${PROFILE_PATH}; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Strict`;
+export function sessionCookie(name, value, maxAgeSeconds, path = PROFILE_PATH) {
+  return `${name}=${value}; Path=${path}; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Strict`;
 }
-export function clearedCookie(name) {
-  return `${name}=; Path=${PROFILE_PATH}; Max-Age=0; HttpOnly; Secure; SameSite=Strict`;
+export function clearedCookie(name, path = PROFILE_PATH) {
+  return `${name}=; Path=${path}; Max-Age=0; HttpOnly; Secure; SameSite=Strict`;
 }
 
 /**

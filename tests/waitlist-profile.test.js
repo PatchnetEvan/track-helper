@@ -39,7 +39,7 @@ class LocalD1 {
 }
 
 const db = new LocalD1();
-for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql"]) {
+for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql"]) {
   db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
 }
 const row = (sql, ...args) => db.sqlite.prepare(sql).get(...args);
@@ -332,12 +332,19 @@ seed("s_unsub", "unsubscribed@example.com", "unsubscribed", "international_inter
 // logging of secrets or free text, and PR-scope containment.
 // ---------------------------------------------------------------------------
 {
-  // 0004 applies cleanly on top of 0001-0003, and only after them.
+  // 0004 and 0005 apply cleanly on top of 0001-0003, and only after them.
   const fresh = new LocalD1();
-  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql"]) {
+  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql"]) {
     fresh.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
   }
-  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'waitlist%'").get().n, 6);
+  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'waitlist%'").get().n, 7);
+  // 0005's parent relationships must CASCADE, or the retention sweep aborts.
+  const authorizationSql = fresh.sqlite.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='waitlist_profile_edit_authorizations'").get().sql;
+  for (const parent of ["waitlist_profile_invitations(id) ON DELETE CASCADE", "waitlist_signups(id) ON DELETE CASCADE"]) {
+    assert.ok(authorizationSql.includes(parent), `edit authorizations cascade from ${parent}`);
+  }
+  assert.ok(/cookie_digest TEXT NOT NULL UNIQUE/.test(authorizationSql), "cookie uniqueness is preserved");
   assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()").get().n, 0);
 
   // A FAILED 0004 leaves the prior schema fully usable (statement-level, no

@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import worker from "../src/waitlist-worker.js";
+import worker, { runRetentionSweep, EMAIL_SEND_LIMIT_PER_DAY } from "../src/waitlist-worker.js";
 import { issueProfileInvitation } from "../src/waitlist-profile-service.js";
-import { PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH } from "../src/waitlist-profile-auth.js";
+import {
+  PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH,
+  PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH,
+} from "../src/waitlist-profile-auth.js";
 
 // Rider profile PR 2: protected exchange, short-lived revocable edit
 // authorization, form, atomic save, generic unavailable state, and the
@@ -41,6 +44,7 @@ for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscrip
 const sent = [];
 const env = {
   WAITLIST_DB: db,
+  WAITLIST_PROFILE_ENABLED: "true",
   WAITLIST_EMAIL_TEST: { async send(message) { sent.push(message); return { status: "test_capture" }; } },
   ASSETS: { fetch: async () => new Response("static", { status: 200 }) },
 };
@@ -63,7 +67,7 @@ const get = (path, cookies = {}) => worker.fetch(new Request(`${ORIGIN}${path}`,
   headers: Object.keys(cookies).length
     ? { cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ") } : {},
 }), env);
-const post = (path, fields, cookies = {}, origin = ORIGIN) => {
+const post = (path, fields, cookies = {}, origin = ORIGIN, extraHeaders = {}, useEnv = env) => {
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries(fields)) {
     if (Array.isArray(value)) value.forEach((v) => body.append(key, v));
@@ -74,10 +78,11 @@ const post = (path, fields, cookies = {}, origin = ORIGIN) => {
     headers: {
       "content-type": "application/x-www-form-urlencoded",
       ...(origin ? { origin } : {}),
+      ...extraHeaders,
       ...(Object.keys(cookies).length ? { cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
     },
     body,
-  }), env);
+  }), useEnv);
 };
 const cookiesFrom = (response) => {
   const jar = {};
@@ -267,20 +272,31 @@ const openSession = async (signupId) => {
 // ineligible addresses.
 // ---------------------------------------------------------------------------
 {
-  const formPage = await get(`${PROFILE_PATH}/request`);
+  const invitationsBeforeGet = count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations");
+  const formPage = await get(PROFILE_REQUEST_PATH);
   assert.equal(formPage.status, 200);
   const requestJar = cookiesFrom(formPage);
-  const csrf = requestJar[PROFILE_CSRF_COOKIE];
-  assert.ok(csrf, "the unauthenticated form sets a double-submit CSRF cookie");
-  assert.equal(sent.length, 0, "GET sends nothing");
+  const csrf = requestJar[PROFILE_REQUEST_CSRF_COOKIE];
+  assert.ok(csrf, "the unauthenticated form sets its OWN double-submit CSRF cookie");
+  assert.equal(requestJar[PROFILE_CSRF_COOKIE], undefined, "it never writes the authenticated edit CSRF cookie");
+  const requestCookieHeader = formPage.headers.getSetCookie().find((h) => h.startsWith(PROFILE_REQUEST_CSRF_COOKIE));
+  assert.match(requestCookieHeader, new RegExp(`Path=${PROFILE_REQUEST_PATH}(;|$)`), "scoped to the request path only");
+  for (const attribute of ["HttpOnly", "Secure", "SameSite=Strict"]) {
+    assert.ok(requestCookieHeader.includes(attribute), `request cookie keeps ${attribute}`);
+  }
+  assert.match(requestCookieHeader, /Max-Age=\d+/, "bounded Max-Age");
+  assert.ok(!/Domain=/i.test(requestCookieHeader), "no Domain attribute");
+  assert.equal(sent.length, 0, "GET sends nothing and issues nothing");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations"), invitationsBeforeGet,
+    "GET performs no issuance");
 
   const outcomes = [];
   for (const email of ["pending@example.com", "gone@example.com", "nobody@example.com", "other@example.com"]) {
     const before = { signups: count("SELECT COUNT(*) AS n FROM waitlist_signups"),
       s3: row("SELECT status FROM waitlist_signups WHERE id='s3'").status,
       s4: row("SELECT status, unsubscribed_at, resubscribed_at FROM waitlist_signups WHERE id='s4'") };
-    const response = await post(`${PROFILE_PATH}/request`, { csrf, email }, requestJar);
-    assert.equal(response.status, 200);
+    const response = await post(PROFILE_REQUEST_PATH, { csrf, email }, requestJar);
+    assert.equal(response.status, 202, "one generic 202 acknowledgement for every address");
     outcomes.push(await response.text());
     assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups"), before.signups, "no signup row is ever created");
     assert.equal(row("SELECT status FROM waitlist_signups WHERE id='s3'").status, before.s3, "pending unchanged");
@@ -297,8 +313,8 @@ const openSession = async (signupId) => {
 
   // CSRF mismatch answers the same generic page and sends nothing.
   const before = sent.length;
-  const mismatched = await post(`${PROFILE_PATH}/request`, { csrf: "wrong", email: "other@example.com" }, requestJar);
-  assert.equal(mismatched.status, 200);
+  const mismatched = await post(PROFILE_REQUEST_PATH, { csrf: "wrong", email: "other@example.com" }, requestJar);
+  assert.equal(mismatched.status, 202);
   assert.equal(await mismatched.text(), outcomes[0], "identical response");
   assert.equal(sent.length, before, "nothing sent on CSRF failure");
 }
@@ -369,6 +385,220 @@ const openSession = async (signupId) => {
 }
 
 // ---------------------------------------------------------------------------
+// The public request flow must NEVER disturb a live authenticated edit
+// session. Regression for the cookie-name/path collision: visiting the
+// request form used to overwrite the edit CSRF cookie, so the next form
+// render carried a value the stored digest could not match - which revoked a
+// perfectly valid session.
+// ---------------------------------------------------------------------------
+{
+  seed("s_collide", "collide@example.com", "confirmed");
+  const session = await openSession("s_collide");
+  let jar = { ...session.jar };
+
+  // 1. The rider opens a valid authenticated profile form.
+  assert.equal((await get(PROFILE_PATH, jar)).status, 200, "form opens");
+
+  // 2. The rider visits the public request page in the same browser.
+  const requestVisit = await get(PROFILE_REQUEST_PATH, jar);
+  assert.equal(requestVisit.status, 200);
+  const visitCookies = cookiesFrom(requestVisit);
+  assert.equal(visitCookies[PROFILE_CSRF_COOKIE], undefined, "the visit does not touch the edit CSRF cookie");
+  assert.equal(visitCookies[PROFILE_COOKIE], undefined, "the visit does not touch the edit session cookie");
+  // The request cookie is scoped deeper, so a real browser would not even send
+  // it back to /waitlist/profile; merging it here is the worst case.
+  jar = { ...jar, ...visitCookies };
+  assert.equal(jar[PROFILE_CSRF_COOKIE], session.jar[PROFILE_CSRF_COOKIE], "edit CSRF value is unchanged");
+
+  // 3. The rider returns to and reloads the authenticated form.
+  const reloaded = await get(PROFILE_PATH, jar);
+  assert.equal(reloaded.status, 200, "the authenticated form still renders");
+  const reloadedHtml = await reloaded.text();
+  const rendered = /name="csrf" value="([^"]*)"/.exec(reloadedHtml)?.[1];
+  // 4. It renders with valid edit CSRF state.
+  assert.equal(rendered, session.jar[PROFILE_CSRF_COOKIE], "the form carries the ORIGINAL edit CSRF value");
+
+  // 5. The rider saves successfully.
+  const saved = await post(PROFILE_PATH, { csrf: rendered, display_name: "Not Poisoned" }, jar);
+  assert.equal(saved.status, 200, "the save succeeds after visiting the public request flow");
+  assert.equal(row("SELECT display_name FROM waitlist_profiles WHERE signup_id='s_collide'").display_name, "Not Poisoned");
+  assert.ok(row("SELECT consumed_at FROM waitlist_profile_edit_authorizations WHERE signup_id='s_collide'").consumed_at,
+    "the session was consumed by the SAVE, never revoked by the visit");
+}
+
+// ---------------------------------------------------------------------------
+// Rate limiting on the edit-link request: same generic answer, no email, and
+// the rider's currently usable invitation is left alone.
+// ---------------------------------------------------------------------------
+{
+  seed("s_limit", "limit@example.com", "confirmed");
+  const held = await issueProfileInvitation(db, "s_limit", "requested_edit_link");
+  const heldDigestRow = () => row(`SELECT used_at, revoked_at, superseded_at FROM waitlist_profile_invitations
+    WHERE signup_id='s_limit' ORDER BY issued_at DESC LIMIT 1`);
+  // An isolated client bucket so this block cannot disturb the others.
+  const ip = { "cf-connecting-ip": "203.0.113.9" };
+  const jarOf = async () => cookiesFrom(await get(PROFILE_REQUEST_PATH));
+  const bodies = [];
+  for (let attempt = 0; attempt < EMAIL_SEND_LIMIT_PER_DAY; attempt += 1) {
+    const jar = await jarOf();
+    const response = await post(PROFILE_REQUEST_PATH,
+      { csrf: jar[PROFILE_REQUEST_CSRF_COOKIE], email: "limit@example.com" }, jar, ORIGIN, ip);
+    assert.equal(response.status, 202, "allowed requests answer the generic 202");
+    bodies.push(await response.text());
+  }
+  assert.equal(sent.filter((m) => m.to === "limit@example.com").length, EMAIL_SEND_LIMIT_PER_DAY,
+    "every allowed request sends exactly one email");
+  const beforeSent = sent.length;
+  const beforeSignups = count("SELECT COUNT(*) AS n FROM waitlist_signups");
+  const beforeSignup = { ...row(`SELECT status, program_track, unsubscribed_at, resubscribed_at
+    FROM waitlist_signups WHERE id='s_limit'`) };
+  const beforeInvitation = { ...heldDigestRow() };
+  const beforeInvitationCount = count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_limit'");
+
+  // Over the limit, twice: identical answer, nothing sent, nothing changed.
+  for (const _ of [1, 2]) {
+    const jar = await jarOf();
+    const limited = await post(PROFILE_REQUEST_PATH,
+      { csrf: jar[PROFILE_REQUEST_CSRF_COOKIE], email: "limit@example.com" }, jar, ORIGIN, ip);
+    assert.equal(limited.status, 202, "a rate-limited request is indistinguishable from an accepted one");
+    bodies.push(await limited.text());
+  }
+  assert.ok(bodies.every((body) => body === bodies[0]), "identical body whether allowed or limited");
+  assert.equal(sent.length, beforeSent, "a rate-limited request sends no email");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_limit'"),
+    beforeInvitationCount, "no invitation is issued while limited");
+  assert.deepEqual({ ...heldDigestRow() }, beforeInvitation,
+    "the invitation the rider currently holds is neither superseded nor revoked");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups"), beforeSignups, "no signup is created");
+  assert.deepEqual({ ...row(`SELECT status, program_track, unsubscribed_at, resubscribed_at
+    FROM waitlist_signups WHERE id='s_limit'`) }, beforeSignup,
+    "status, program_track, unsubscribed_at and resubscribed_at are untouched");
+  assert.ok(held, "the pre-existing invitation was issued for this fixture");
+}
+
+// ---------------------------------------------------------------------------
+// Feature gate: only the exact string "true" enables the profile. Anything
+// else leaves every route non-existent, with no read, write, issuance or send.
+// ---------------------------------------------------------------------------
+{
+  seed("s_gate", "gate@example.com", "confirmed");
+  const gateToken = await issueProfileInvitation(db, "s_gate", "requested_edit_link");
+  const ROUTES = [
+    ["GET", `${PROFILE_PATH}/open?token=${gateToken}`],
+    ["GET", PROFILE_PATH],
+    ["POST", PROFILE_PATH],
+    ["GET", PROFILE_REQUEST_PATH],
+    ["POST", PROFILE_REQUEST_PATH],
+  ];
+  for (const flag of [undefined, "false", "TRUE", "1", "", "yes"]) {
+    const gatedEnv = { ...env };
+    if (flag === undefined) delete gatedEnv.WAITLIST_PROFILE_ENABLED;
+    else gatedEnv.WAITLIST_PROFILE_ENABLED = flag;
+    const before = {
+      sent: sent.length,
+      invitations: count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations"),
+      authorizations: count("SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations"),
+      profiles: count("SELECT COUNT(*) AS n FROM waitlist_profiles"),
+      signups: count("SELECT COUNT(*) AS n FROM waitlist_signups"),
+      buckets: count("SELECT COUNT(*) AS n FROM waitlist_rate_buckets"),
+    };
+    for (const [method, path] of ROUTES) {
+      const response = method === "GET"
+        ? await worker.fetch(new Request(`${ORIGIN}${path}`), gatedEnv)
+        : await post(path, { csrf: "anything", email: "gate@example.com", display_name: "nope" }, {}, ORIGIN, {}, gatedEnv);
+      assert.equal(response.status, 404,
+        `${method} ${path} is unavailable when WAITLIST_PROFILE_ENABLED is ${JSON.stringify(flag)}`);
+      const body = await response.text();
+      assert.ok(!/Tell us about your riding|Request a profile link|Check your email/.test(body),
+        "no profile surface is rendered");
+    }
+    assert.equal(sent.length, before.sent, "a disabled build sends nothing");
+    assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations"), before.invitations, "issues nothing");
+    assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations"), before.authorizations, "authorizes nothing");
+    assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles"), before.profiles, "writes no profile");
+    assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups"), before.signups, "writes no signup");
+    assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_rate_buckets"), before.buckets, "touches no rate bucket");
+  }
+  // The same token still works once the flag is exactly "true".
+  assert.equal((await get(`${PROFILE_PATH}/open?token=${gateToken}`)).status, 303,
+    "the gate is the only thing that was blocking it");
+}
+
+// ---------------------------------------------------------------------------
+// Retention regression. Edit authorizations FK-reference their signup and
+// their invitation; without ON DELETE CASCADE the sweep threw FOREIGN KEY
+// constraint failed for any rider who had ever opened a profile link, which
+// aborted the whole daily job and left personal data in place past the
+// published retention commitment.
+// ---------------------------------------------------------------------------
+{
+  // (a) Unsubscribed longer than 30 days, having opened a profile link.
+  seed("s_ret_unsub", "retunsub@example.com", "confirmed");
+  const unsubSession = await openSession("s_ret_unsub");
+  assert.equal(unsubSession.exchange.status, 303, "the rider really did open a session");
+  db.sqlite.prepare(`UPDATE waitlist_signups SET status='unsubscribed',
+    unsubscribed_at=datetime('now','-31 days') WHERE id='s_ret_unsub'`).run();
+  db.sqlite.prepare(`INSERT INTO waitlist_profiles (id, signup_id, display_name, profile_copy_version, privacy_notice_version)
+    VALUES ('p_ret_unsub','s_ret_unsub','Leaving','2026-08-05.3','2026-08-05.3')`).run();
+
+  // (b) Confirmed past the 24-month ceiling, having opened a profile link.
+  seed("s_ret_old", "retold@example.com", "confirmed");
+  const oldSession = await openSession("s_ret_old");
+  assert.equal(oldSession.exchange.status, 303);
+  db.sqlite.prepare(`UPDATE waitlist_signups SET confirmed_at=datetime('now','-25 months') WHERE id='s_ret_old'`).run();
+
+  // Evidence the other sweep passes still have work to do.
+  db.sqlite.prepare(`INSERT INTO waitlist_email_deliveries (id, signup_id, purpose, provider_status, requested_at)
+    VALUES ('d_old','s1','confirm','test_capture',datetime('now','-100 days'))`).run();
+  db.sqlite.prepare(`UPDATE waitlist_signups SET attribution='{"ref":"old"}', created_at=datetime('now','-13 months')
+    WHERE id='s2'`).run();
+  db.sqlite.prepare(`INSERT INTO waitlist_rate_buckets (bucket_key, window_start, send_count)
+    VALUES ('stale', date('now','-3 days'), 1)`).run();
+
+  let summary;
+  await assert.doesNotReject(async () => { summary = await runRetentionSweep(db); },
+    "the sweep completes instead of throwing FOREIGN KEY constraint failed");
+
+  // The unsubscribed record's profile data is gone; the suppression record stays.
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_ret_unsub'"), 0, "profile purged");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_ret_unsub'"), 0, "invitations purged");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations WHERE signup_id='s_ret_unsub'"), 0,
+    "edit authorizations purged");
+  const suppression = row(`SELECT status, email_normalized, unsubscribed_at FROM waitlist_signups WHERE id='s_ret_unsub'`);
+  assert.equal(suppression.status, "unsubscribed", "the minimal suppression record SURVIVES");
+  assert.ok(suppression.unsubscribed_at, "with its unsubscribe evidence intact");
+
+  // The ceiling-aged confirmed record is purged outright, children and all.
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE id='s_ret_old'"), 0, "signup purged at the ceiling");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_ret_old'"), 0, "invitations purged");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations WHERE signup_id='s_ret_old'"), 0,
+    "edit authorizations purged");
+
+  // The rest of the sweep still ran.
+  assert.equal(summary.confirmed_expired >= 1, true, "ceiling purge counted");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_email_deliveries WHERE id='d_old'"), 0, "delivery-log cleanup ran");
+  assert.equal(summary.delivery_logs_purged >= 1, true, "and is reported");
+  assert.equal(row("SELECT attribution FROM waitlist_signups WHERE id='s2'").attribution, null, "attribution cleanup ran");
+  assert.equal(summary.attribution_cleared >= 1, true, "and is reported");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_rate_buckets WHERE bucket_key='stale'"), 0, "rate-bucket cleanup ran");
+  assert.equal(summary.rate_buckets_purged >= 1, true, "and is reported");
+
+  // Spent authorizations are deleted for everyone, live ones survive their TTL.
+  seed("s_ret_live", "retlive@example.com", "confirmed");
+  const live = await openSession("s_ret_live");
+  assert.equal(live.exchange.status, 303);
+  await runRetentionSweep(db);
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_ret_live' AND consumed_at IS NULL AND revoked_at IS NULL`), 1,
+    "a LIVE authorization survives for its own short TTL");
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE consumed_at IS NOT NULL OR revoked_at IS NOT NULL OR expires_at <= datetime('now')`), 0,
+    "every consumed, revoked or expired authorization is swept");
+
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean after the sweep");
+}
+
+// ---------------------------------------------------------------------------
 // PR-scope containment and application-surface token absence.
 // ---------------------------------------------------------------------------
 {
@@ -391,6 +621,14 @@ const openSession = async (signupId) => {
   const { env: environments, ...production } = config;
   assert.equal("d1_databases" in production, false, "no production binding entered PR 2");
   assert.ok(!wrangler.includes("mototrack_waitlist_production"), "no production resource name");
+  // The feature flag ships in NO configuration here - not production, and not
+  // staging either: staging may only be enabled after privacy notice
+  // 2026-08-05.3 is actually deployed, and production is a separately
+  // authorized runbook step.
+  assert.ok(!wrangler.includes("WAITLIST_PROFILE_ENABLED"),
+    "the profile feature flag is absent from every environment in wrangler.jsonc");
+  assert.equal("vars" in production && "WAITLIST_PROFILE_ENABLED" in (production.vars ?? {}), false,
+    "the profile feature flag is absent from production configuration");
   assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean");
 }
 

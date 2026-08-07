@@ -10,17 +10,25 @@
 -- batch stamps it on the authorization row in its first statement, and every
 -- later statement in that same transaction is conditional on THAT marker, so
 -- a previously consumed authorization can never satisfy a new save.
+-- Parent relationships CASCADE. An authorization is derived state that exists
+-- only to serve one invitation for one signup: when either parent is deleted
+-- by the retention sweep, the authorization must go with it. Without the
+-- cascade, purging an unsubscribed or ceiling-aged signup that had ever opened
+-- a profile link fails on the foreign key and aborts the whole daily sweep -
+-- which would let personal data outlive the published retention commitment.
 CREATE TABLE waitlist_profile_edit_authorizations (
   id TEXT PRIMARY KEY,
-  invitation_id TEXT NOT NULL REFERENCES waitlist_profile_invitations(id),
-  signup_id TEXT NOT NULL REFERENCES waitlist_signups(id),
+  invitation_id TEXT NOT NULL,
+  signup_id TEXT NOT NULL,
   cookie_digest TEXT NOT NULL UNIQUE CHECK (length(cookie_digest) = 64),
   csrf_digest TEXT NOT NULL CHECK (length(csrf_digest) = 64),
   claim_marker TEXT,
   issued_at TEXT NOT NULL DEFAULT (datetime('now')),
   expires_at TEXT NOT NULL,
   consumed_at TEXT,
-  revoked_at TEXT
+  revoked_at TEXT,
+  FOREIGN KEY (invitation_id) REFERENCES waitlist_profile_invitations(id) ON DELETE CASCADE,
+  FOREIGN KEY (signup_id) REFERENCES waitlist_signups(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_profile_auth_invitation ON waitlist_profile_edit_authorizations (invitation_id);
 CREATE INDEX idx_profile_auth_signup ON waitlist_profile_edit_authorizations (signup_id);
