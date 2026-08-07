@@ -39,7 +39,7 @@ class LocalD1 {
 }
 
 const db = new LocalD1();
-for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql"]) {
+for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql"]) {
   db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
 }
 const row = (sql, ...args) => db.sqlite.prepare(sql).get(...args);
@@ -334,10 +334,10 @@ seed("s_unsub", "unsubscribed@example.com", "unsubscribed", "international_inter
 {
   // 0004 and 0005 apply cleanly on top of 0001-0003, and only after them.
   const fresh = new LocalD1();
-  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql"]) {
+  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql"]) {
     fresh.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
   }
-  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'waitlist%'").get().n, 7);
+  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'waitlist%'").get().n, 8);
   // 0005's parent relationships must CASCADE, or the retention sweep aborts.
   const authorizationSql = fresh.sqlite.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='waitlist_profile_edit_authorizations'").get().sql;
@@ -374,13 +374,15 @@ seed("s_unsub", "unsubscribed@example.com", "unsubscribed", "international_inter
 
   // PR scope containment: no route, UI, email CTA, or production config.
   const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
-  // PR 2 adds the protected routes; the welcome email and the confirmation
-  // page must still carry NO profile CTA (that is PR 3).
-  const welcomeEmailSource = workerSource.slice(workerSource.indexOf("async function sendWelcomeEmail"),
-    workerSource.indexOf("async function tokenRow"));
-  assert.ok(!new RegExp("waitlist\/profile|Tell us about your riding").test(welcomeEmailSource),
-    "the welcome email still contains no profile link or CTA");
-  assert.ok(!workerSource.includes("issueProfileInvitation"), "no invitation is issued anywhere yet - PR 3 wires the welcome email");
+  // PR 3 wires the welcome-email CTA, so the invitation IS now issued from the
+  // confirmation path - but only through the gated helper, and the
+  // confirmation-success page must STILL carry no CTA (owner rule: the
+  // invitation reaches riders by email only).
+  assert.ok(workerSource.includes("profileWelcomeSection"), "the welcome email composes a gated profile section");
+  const confirmedPageSource = workerSource.slice(workerSource.indexOf("function confirmedPage"),
+    workerSource.indexOf("async function handleUnsubscribe"));
+  assert.ok(!new RegExp("waitlist\/profile|Tell us about your riding|Set up your rider profile").test(confirmedPageSource),
+    "the confirmation-success page still has no profile CTA");
   const wrangler = readFileSync(join(import.meta.dirname, "..", "wrangler.jsonc"), "utf8");
   const config = JSON.parse(wrangler.split(/\r?\n/).map((line) => line.replace(/^\s*\/\/.*$/, "")).join("\n"));
   const { env: environments, ...production } = config;

@@ -16,6 +16,19 @@
 
 export const PROFILE_COPY_VERSION = "2026-08-05.3";
 export const PROFILE_NOTICE_VERSION = "2026-08-05.3";
+
+// Profile consent is its OWN Art. 6(1)(a) basis, separate from the wait-list
+// and product-update consent. It is collected through an unchecked control,
+// the save refuses without the affirmative action, and withdrawing it leaves
+// the email consent untouched.
+export const PROFILE_CONSENT_VERSION = "2026-08-05.3";
+export const PROFILE_CONSENT_COPY =
+  "I consent to MotoTrack using the optional rider-profile information I choose to provide to understand "
+  + "rider needs, plan regional availability, and improve the product. I understand that completing the "
+  + "profile is optional and does not affect my place on the waitlist or international interest list, "
+  + "eligibility, or access timing, and does not guarantee MotoTrack access or availability in my region. "
+  + "I can withdraw this profile consent at any time without affecting my separate wait-list or "
+  + "product-update consent. See the Privacy Policy.";
 export const PROFILE_TOKEN_TTL_DAYS = 30;
 export const GOALS_MAX_LENGTH = 1000;
 export const TRACK_INVOLVEMENT_OTHER_MAX_LENGTH = 100;

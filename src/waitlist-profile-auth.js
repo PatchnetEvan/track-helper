@@ -17,6 +17,7 @@
 import {
   PROFILE_COPY_VERSION, PROFILE_NOTICE_VERSION, GOALS_MAX_LENGTH,
   TRACK_INVOLVEMENT_OTHER_MAX_LENGTH, TRACK_INVOLVEMENT_VALUES, EXPERIENCE_LEVEL_VALUES,
+  PROFILE_CONSENT_VERSION,
   ProfileValidationError,
 } from "./waitlist-profile-service.js";
 
@@ -139,6 +140,14 @@ function literalText(value, maxLength) {
 }
 
 function validatedPayload(payload) {
+  // Separate profile consent, collected through an unchecked control. Without
+  // the affirmative action there is no lawful basis for the answers, so the
+  // save refuses BEFORE any write. The session and the invitation both stay
+  // usable, so the rider simply sees the form again with the message.
+  if (payload.profile_consent !== true) {
+    throw new ProfileValidationError(
+      "Please confirm the rider-profile consent before saving. Your waitlist place and email preferences are unaffected.");
+  }
   const involvement = Array.isArray(payload.track_involvement) ? [...new Set(payload.track_involvement)] : [];
   for (const value of involvement) {
     if (!TRACK_INVOLVEMENT_VALUES.includes(value)) throw new ProfileValidationError("Unsupported track-involvement value.");
@@ -220,10 +229,61 @@ export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf,
     db.prepare(`UPDATE waitlist_profile_edit_authorizations SET revoked_at = datetime('now')
       WHERE invitation_id = (SELECT invitation_id FROM waitlist_profile_edit_authorizations WHERE claim_marker = ?)
         AND claim_marker IS NOT ? AND consumed_at IS NULL AND revoked_at IS NULL`).bind(marker, marker),
+    // 5. Consent evidence, in the SAME transaction as the answers it covers.
+    db.prepare(`INSERT INTO waitlist_profile_consent_events
+        (id, signup_id, event, consent_copy_version, privacy_notice_version)
+      SELECT ?, a.signup_id, 'granted', ?, ?
+        FROM waitlist_profile_edit_authorizations a WHERE a.claim_marker = ?`)
+      .bind(id("wlpc"), PROFILE_CONSENT_VERSION, PROFILE_NOTICE_VERSION, marker),
   ]);
   const claimed = Number(results?.[0]?.meta?.changes ?? 0);
   if (claimed !== 1) return null;  // nothing else could have written: all conditional on the marker
   return { saved: true, program_track: resolved.authorization.program_track };
+}
+
+/**
+ * ATOMIC withdrawal of profile consent. Same claim guard as the save: one
+ * transaction claims the authorization, deletes the rider's answers, records
+ * the minimum withdrawal evidence, revokes every outstanding invitation, and
+ * revokes sibling authorizations. It touches NOTHING on the signup - status,
+ * program_track, confirmation, unsubscribed_at, resubscribed_at and the email
+ * consent are all outside this statement set - and it issues no replacement
+ * invitation. Returns null for any denial.
+ */
+export async function withdrawProfileWithAuthorization(db, rawCookie, submittedCsrf) {
+  const resolved = await resolveEditAuthorization(db, rawCookie);
+  if (!resolved) return null;
+  if (!sameValue(await sha256Hex(String(submittedCsrf ?? "")), resolved.authorization.csrf_digest)) return { csrfRejected: true };
+  const cookieDigest = await sha256Hex(rawCookie);
+  const marker = id("claim");
+
+  const results = await db.batch([
+    // 1. Claim, re-validating ownership and confirmed status at this instant.
+    db.prepare(`UPDATE waitlist_profile_edit_authorizations SET consumed_at = datetime('now'), claim_marker = ?
+      WHERE cookie_digest = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > datetime('now')
+        AND EXISTS (SELECT 1 FROM waitlist_signups s WHERE s.id = signup_id AND s.status = 'confirmed')`)
+      .bind(marker, cookieDigest),
+    // 2. Delete the answers - conditional on THIS claim.
+    db.prepare(`DELETE FROM waitlist_profiles WHERE signup_id =
+      (SELECT signup_id FROM waitlist_profile_edit_authorizations WHERE claim_marker = ?)`).bind(marker),
+    // 3. Minimum withdrawal evidence: which signup, which direction, which
+    //    version, when. No answers, no free text, no email address.
+    db.prepare(`INSERT INTO waitlist_profile_consent_events
+        (id, signup_id, event, consent_copy_version, privacy_notice_version)
+      SELECT ?, a.signup_id, 'withdrawn', ?, ?
+        FROM waitlist_profile_edit_authorizations a WHERE a.claim_marker = ?`)
+      .bind(id("wlpc"), PROFILE_CONSENT_VERSION, PROFILE_NOTICE_VERSION, marker),
+    // 4. Revoke every outstanding invitation for that signup.
+    db.prepare(`UPDATE waitlist_profile_invitations SET revoked_at = datetime('now')
+      WHERE signup_id = (SELECT signup_id FROM waitlist_profile_edit_authorizations WHERE claim_marker = ?)
+        AND used_at IS NULL AND revoked_at IS NULL`).bind(marker),
+    // 5. Revoke every other live authorization for that signup.
+    db.prepare(`UPDATE waitlist_profile_edit_authorizations SET revoked_at = datetime('now')
+      WHERE signup_id = (SELECT signup_id FROM waitlist_profile_edit_authorizations WHERE claim_marker = ?)
+        AND claim_marker IS NOT ? AND consumed_at IS NULL AND revoked_at IS NULL`).bind(marker, marker),
+  ]);
+  if (Number(results?.[0]?.meta?.changes ?? 0) !== 1) return null;
+  return { withdrawn: true };
 }
 
 /** Terminal invalidation of an edit session (used on success and on failure). */
