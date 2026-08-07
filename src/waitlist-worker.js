@@ -749,6 +749,10 @@ async function handleProfileRoutes(request, env, url) {
       const signup = await db.prepare("SELECT id, email_normalized FROM waitlist_signups WHERE email_normalized = ?")
         .bind(String(submitted.email).trim().toLowerCase()).first();
       if (signup) {
+        // The footer promises "You can unsubscribe at any time", so the message
+        // has to carry a link that actually does it - same standard footer as
+        // every other wait-list email.
+        const unsubToken = await activeUnsubscribeToken(db, signup.id);
         await provider.send({
           to: signup.email_normalized,
           subject: "Your MotoTrack profile link",
@@ -759,6 +763,7 @@ async function handleProfileRoutes(request, env, url) {
             "The link is single-use and expires in 30 days. Sharing a profile is optional and does not affect your place on the waitlist, your eligibility, or when you may be invited.",
             "",
             "You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list. You can unsubscribe at any time.",
+            `Unsubscribe: ${url.origin}/waitlist/unsubscribe?token=${unsubToken}`,
             `Privacy Policy: ${url.origin}/privacy.html`,
           ].join("\n"),
         });
