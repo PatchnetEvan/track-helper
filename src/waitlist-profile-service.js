@@ -16,6 +16,19 @@
 
 export const PROFILE_COPY_VERSION = "2026-08-05.3";
 export const PROFILE_NOTICE_VERSION = "2026-08-05.3";
+
+// Profile consent is its OWN Art. 6(1)(a) basis, separate from the wait-list
+// and product-update consent. It is collected through an unchecked control,
+// the save refuses without the affirmative action, and withdrawing it leaves
+// the email consent untouched.
+export const PROFILE_CONSENT_VERSION = "2026-08-05.3";
+export const PROFILE_CONSENT_COPY =
+  "I consent to MotoTrack using the optional rider-profile information I choose to provide to understand "
+  + "rider needs, plan regional availability, and improve the product. I understand that completing the "
+  + "profile is optional and does not affect my place on the waitlist or international interest list, "
+  + "eligibility, or access timing, and does not guarantee MotoTrack access or availability in my region. "
+  + "I can withdraw this profile consent at any time without affecting my separate wait-list or "
+  + "product-update consent. See the Privacy Policy.";
 export const PROFILE_TOKEN_TTL_DAYS = 30;
 export const GOALS_MAX_LENGTH = 1000;
 export const TRACK_INVOLVEMENT_OTHER_MAX_LENGTH = 100;
@@ -258,6 +271,31 @@ export async function revokeProfileInvitations(db, signupId) {
  * beyond the wait-list retention ceiling. Signup purges cascade separately in
  * the main sweep; this pass handles the post-unsubscribe window.
  */
+/**
+ * Current profile-consent state, DERIVED from the append-only history. No
+ * events or a latest `withdrawn` means no active consent. Ordering is by
+ * event_seq, never by occurred_at, so two events sharing a whole-second
+ * timestamp can never make the state ambiguous.
+ *
+ * `current` additionally requires the ACTIVE grant to be under the versions in
+ * force. An older grant is active consent for what it covered, but not
+ * authorization for the current purposes - so the rider is asked again rather
+ * than silently carried forward.
+ */
+export async function profileConsentState(db, signupId) {
+  const latest = await db.prepare(`SELECT event_type, profile_consent_version, privacy_notice_version
+    FROM waitlist_profile_consent_events WHERE signup_id = ?
+    ORDER BY event_seq DESC LIMIT 1`).bind(signupId).first();
+  const active = latest?.event_type === "granted";
+  return {
+    active,
+    current: active
+      && latest.profile_consent_version === PROFILE_CONSENT_VERSION
+      && latest.privacy_notice_version === PROFILE_NOTICE_VERSION,
+    latest: latest ?? null,
+  };
+}
+
 export async function sweepProfileRetention(db) {
   const doomed = await db.prepare(`SELECT p.id FROM waitlist_profiles p
     JOIN waitlist_signups s ON s.id = p.signup_id

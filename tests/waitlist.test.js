@@ -23,7 +23,7 @@ class LocalD1 {
 }
 
 const db = new LocalD1();
-for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql"]) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql"]) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
 const sent = [];
 const env = {
   WAITLIST_DB: db,
@@ -82,7 +82,7 @@ const linkFrom = (text, path) => {
   assert.ok(html.includes('aria-live="polite"') && html.includes("<label for="), "accessible labels and status region");
   assert.ok(CONSENT_COPY.startsWith("Yes, add me to the MotoTrack early-access waitlist or regional interest list"), "server pins the v2 consent copy");
   assert.equal(CONSENT_COPY_VERSION, "2026-08-05.2");
-  assert.equal(PRIVACY_NOTICE_VERSION, "2026-08-05.2");
+  assert.equal(PRIVACY_NOTICE_VERSION, "2026-08-05.3", "signups record the CURRENTLY PUBLISHED notice version; the consent wording itself is unchanged at .2");
 }
 
 // Pending signup: created with stamps + versions; token hashed; email sent.
@@ -306,7 +306,7 @@ const linkFrom = (text, path) => {
   assert.equal(intlRow.program_track, "international_interest", "declared DE wins over the cf-ipcountry US header");
   assert.equal(intlRow.country_code, "DE");
   assert.equal(intlRow.consent_copy_version, "2026-08-05.2");
-  assert.equal(intlRow.privacy_notice_version, "2026-08-05.2");
+  assert.equal(intlRow.privacy_notice_version, "2026-08-05.3");
   assert.ok(!Object.keys(intlRow).some((k) => /geo|ip_|latitude|longitude|region|city/i.test(k)), "no geolocation columns exist");
   const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
   assert.ok(!/cf-ipcountry|request\.cf\b/i.test(workerSource), "the worker never reads IP-derived country for classification");
@@ -380,7 +380,7 @@ const linkFrom = (text, path) => {
 // Privacy notice v2 carries the geographic disclosure and no placeholders.
 {
   const notice = readFileSync(join(import.meta.dirname, "..", "privacy.html"), "utf8");
-  assert.ok(notice.includes("Version:</strong> 2026-08-05.2"), "notice version bumped");
+  assert.ok(notice.includes("Version:</strong> 2026-08-05.3"), "notice version bumped");
   assert.ok(notice.includes("Geographic availability"), "geographic section present");
   assert.ok(notice.includes("50 United States, Washington, D.C., and U.S. territories"), "scope stated");
   assert.ok(notice.includes("does not provide current beta access or guarantee future availability"), "no availability promise");
@@ -434,7 +434,7 @@ const linkFrom = (text, path) => {
   assert.ok(back.resubscribed_at, "a distinct re-subscription event is recorded");
   assert.ok(back.unsubscribed_at, "the prior unsubscribe evidence is PRESERVED, never overwritten");
   assert.equal(back.consent_copy_version, "2026-08-05.2", "fresh acceptance of the current consent copy is recorded");
-  assert.equal(back.privacy_notice_version, "2026-08-05.2");
+  assert.equal(back.privacy_notice_version, "2026-08-05.3");
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE email_normalized='returning@example.com'"), 1, "no duplicate signup row");
 }
 

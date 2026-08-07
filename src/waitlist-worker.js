@@ -10,18 +10,20 @@
 
 import {
   revokeProfileInvitations, sweepProfileRetention, requestProfileEditLink, escapeHtml,
+  issueProfileInvitation,
   TRACK_INVOLVEMENT_VALUES, TRACK_INVOLVEMENT_LABELS, EXPERIENCE_LEVEL_VALUES, EXPERIENCE_LEVEL_LABELS,
   GOALS_PROMPT, GOALS_SUPPORTING_COPY, GOALS_MAX_LENGTH, ProfileValidationError,
+  PROFILE_CONSENT_COPY,
 } from "./waitlist-profile-service.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
-  revokeEditAuthorization, parseCookies, sessionCookie, clearedCookie,
+  revokeEditAuthorization, withdrawProfileWithAuthorization, parseCookies, sessionCookie, clearedCookie,
   PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH, EDIT_AUTH_TTL_SECONDS, profileAuthOpaqueValue,
   PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH,
 } from "./waitlist-profile-auth.js";
 
 export const CONSENT_COPY_VERSION = "2026-08-05.2";
-export const PRIVACY_NOTICE_VERSION = "2026-08-05.2";
+export const PRIVACY_NOTICE_VERSION = "2026-08-05.3";
 export const CONSENT_COPY =
   "Yes, add me to the MotoTrack early-access waitlist or regional interest list, based on my current location, "
   + "and email me about early access and MotoTrack product updates. I can unsubscribe at any time. "
@@ -189,8 +191,29 @@ async function sendConfirmationEmail(env, db, provider, origin, signup) {
     .bind(id("wld"), signup.id, String(result?.status ?? "unknown")).run();
 }
 
+// Rider-profile section for the welcome email. All four conditions must hold:
+// the feature is enabled, the signup is confirmed and eligible (which
+// issueProfileInvitation enforces, returning null otherwise), issuance
+// succeeded, and a usable protected link therefore exists. A profile-subsystem
+// failure must never cost the rider their ordinary welcome email, so issuance
+// is isolated here: on any failure the email goes out with no profile section
+// and no broken or placeholder CTA.
+export const PROFILE_CTA_TEXT = "Set up your rider profile";
+async function profileWelcomeSection(env, db, origin, signup) {
+  if (env?.WAITLIST_PROFILE_ENABLED !== "true") return [];
+  let rawToken = null;
+  try { rawToken = await issueProfileInvitation(db, signup.id, "welcome_email"); } catch { return []; }
+  if (!rawToken) return [];
+  const body = trackOf(signup) === "international_interest"
+    ? "Your rider profile is optional and does not affect your place on the international interest list or guarantee MotoTrack access or availability in your region. Share your motorcycles, track experience, and what you want MotoTrack to help you improve."
+    : "Your rider profile is optional and does not affect your waitlist position, eligibility, or access timing. Share your motorcycles, track experience, and what you want MotoTrack to help you improve.";
+  return ["", "", "Tell us about your riding", "", body, "", PROFILE_CTA_TEXT,
+    `${origin}${PROFILE_PATH}/open?token=${rawToken}`];
+}
+
 async function sendWelcomeEmail(env, db, provider, origin, signup) {
   const unsubToken = await activeUnsubscribeToken(db, signup.id);
+  const profileSection = await profileWelcomeSection(env, db, origin, signup);
   const result = await provider.send({
     to: signup.email_normalized,
     subject: trackOf(signup) === "international_interest"
@@ -210,7 +233,7 @@ async function sendWelcomeEmail(env, db, provider, origin, signup) {
       "",
       "What happens next: MotoTrack is being tested with real track-day data and limited invited users. Access will open gradually based on beta capacity and supported use cases, and you will receive an email when access becomes available.",
       "Joining the waitlist does not guarantee immediate access or a specific invitation date. Beta features may change as testing continues.",
-    ]).concat([
+    ]).concat(profileSection).concat([
       "",
       "",
       "You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list. You can unsubscribe at any time.",
@@ -505,8 +528,14 @@ function profileFormPage(env, resolved, csrfValue, { error = null } = {}) {
         <label class="wl-check"><input type="checkbox" name="interest_remote_coaching" value="1"${profile?.interest_remote_coaching ? " checked" : ""} /> Remote coaching</label>
         <label class="wl-check"><input type="checkbox" name="interest_ai_coaching" value="1"${profile?.interest_ai_coaching ? " checked" : ""} /> Future AI-assisted coaching</label>
       </fieldset>
+      ${resolved.consent?.current ? `<p class="wl-hint">Your rider-profile consent is active. You can edit your profile or delete it at any time.</p>`
+        : `<fieldset class="wl-consent"><legend>Rider-profile consent</legend>
+        <label class="wl-check"><input type="checkbox" name="profile_consent" value="1" /> ${escapeHtml(PROFILE_CONSENT_COPY)}</label>
+        <p class="wl-hint"><a href="/privacy.html">Privacy Policy</a></p>
+      </fieldset>`}
       <button type="submit">Save my profile</button>
-    </form>`);
+    </form>
+    ${resolved.consent?.active ? `<p class="wl-hint"><a class="back" href="${PROFILE_PATH}/delete">Delete my rider profile</a></p>` : ""}`);
 }
 
 function profileSavedPage(env) {
@@ -565,6 +594,7 @@ async function readProfileForm(request) {
       interest_early_testing: formValue(form, "interest_early_testing") === "1",
       interest_remote_coaching: formValue(form, "interest_remote_coaching") === "1",
       interest_ai_coaching: formValue(form, "interest_ai_coaching") === "1",
+      profile_consent: formValue(form, "profile_consent") === "1",
     },
     email: formValue(form, "email"),
   };
@@ -650,6 +680,48 @@ async function handleProfileRoutes(request, env, url) {
       return profileUnavailablePage(env);
     }
     return profileSavedPage(env);
+  }
+
+  // 3b. WITHDRAW PROFILE CONSENT. Requires the same protected authorization as
+  //     a save, POST-only, CSRF-checked, ownership revalidated inside the
+  //     transaction. It never touches wait-list status, track, confirmation,
+  //     unsubscribe/re-subscription evidence, or email consent, and it issues
+  //     no replacement invitation.
+  if (url.pathname === `${PROFILE_PATH}/delete` && request.method === "GET") {
+    const resolved = await resolveEditAuthorization(db, cookies[PROFILE_COOKIE] ?? "");
+    if (!resolved) return profileUnavailablePage(env);
+    return profilePage(env, "Delete your rider profile?", `
+      <h1>Delete your rider profile?</h1>
+      <p>This will withdraw your rider-profile consent and delete the profile information you provided. It will not remove you from the MotoTrack waitlist or international interest list and will not unsubscribe you from MotoTrack email.</p>
+      <form method="post" action="${PROFILE_PATH}/delete">
+        <input type="hidden" name="csrf" value="${escapeHtml(cookies[PROFILE_CSRF_COOKIE] ?? "")}" />
+        <button type="submit">Delete my rider profile</button>
+      </form>
+      <p><a class="back" href="${PROFILE_PATH}">Keep my profile</a></p>`);
+  }
+  if (url.pathname === `${PROFILE_PATH}/delete` && request.method === "POST") {
+    if (!sameOriginRequest(request)) return profileUnavailablePage(env);
+    let submitted;
+    try { submitted = await readProfileForm(request); } catch { return profileUnavailablePage(env); }
+    const cookieValue = cookies[PROFILE_COOKIE] ?? "";
+    let outcome;
+    try {
+      outcome = await withdrawProfileWithAuthorization(db, cookieValue, submitted.csrf);
+    } catch {
+      return profilePage(env, "Temporarily unavailable", `
+        <h1>We couldn't do that just now</h1>
+        <p>Nothing was changed. Please try again in a moment using the same link.</p>
+        <p><a class="back" href="${PROFILE_PATH}/delete">Back</a></p>`, { status: 503 });
+    }
+    if (!outcome || outcome.csrfRejected) {
+      await revokeEditAuthorization(db, cookieValue);
+      return profileUnavailablePage(env);
+    }
+    return profilePage(env, "Rider profile deleted", `
+      <h1>Your rider profile has been deleted.</h1>
+      <p>Your waitlist or international-interest status and your email preferences have not changed.</p>
+      <p><a class="back" href="https://mototrack.app/">Return to MotoTrack</a></p>`,
+    { cookies: [clearedCookie(PROFILE_COOKIE), clearedCookie(PROFILE_CSRF_COOKIE)] });
   }
 
   // 4. REQUEST A NEW LINK: GET renders the form (no send, no mutation);

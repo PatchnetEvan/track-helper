@@ -38,7 +38,7 @@ class LocalD1 {
 
 const db = new LocalD1();
 for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql",
-  "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql"]) {
+  "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql"]) {
   db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
 }
 const sent = [];
@@ -150,7 +150,7 @@ const openSession = async (signupId) => {
 // ---------------------------------------------------------------------------
 {
   const { token, jar } = await openSession("s1");
-  const bad = await post(PROFILE_PATH, { csrf: jar[PROFILE_CSRF_COOKIE], goals: "x".repeat(1001) }, jar);
+  const bad = await post(PROFILE_PATH, { profile_consent: 1, csrf: jar[PROFILE_CSRF_COOKIE], goals: "x".repeat(1001) }, jar);
   assert.equal(bad.status, 200, "a validation failure re-renders the form");
   assert.match(await bad.text(), /limited to 1000 characters/);
   assert.equal(row("SELECT used_at FROM waitlist_profile_invitations WHERE token_digest IS NOT NULL AND signup_id='s1' ORDER BY issued_at DESC LIMIT 1").used_at, null,
@@ -158,6 +158,7 @@ const openSession = async (signupId) => {
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s1'"), 0, "and writes nothing");
 
   const saved = await post(PROFILE_PATH, {
+    profile_consent: 1,
     csrf: jar[PROFILE_CSRF_COOKIE],
     display_name: "Evan",
     track_involvement: ["track_day_rider", "coach_or_instructor"],
@@ -179,7 +180,7 @@ const openSession = async (signupId) => {
   assert.ok(clearing.includes("Max-Age=0"), "cookies are deleted on success");
 
   // Replay with the same cookie cannot change anything.
-  const replay = await post(PROFILE_PATH, { csrf: jar[PROFILE_CSRF_COOKIE], display_name: "Replayed" }, jar);
+  const replay = await post(PROFILE_PATH, { profile_consent: 1, csrf: jar[PROFILE_CSRF_COOKIE], display_name: "Replayed" }, jar);
   assert.equal(replay.status, 410, "replay hits the generic unavailable state");
   assert.equal(row("SELECT display_name FROM waitlist_profiles WHERE signup_id='s1'").display_name, "Evan",
     "the replay changed nothing");
@@ -213,7 +214,7 @@ const openSession = async (signupId) => {
     const { jar } = await openSession(signupId);
     assert.equal((await get(PROFILE_PATH, jar)).status, 200, `${label}: form loads first`);
     mutate(signupId);
-    const attempt = await post(PROFILE_PATH, { csrf: jar[PROFILE_CSRF_COOKIE], display_name: "Should Not Save" }, jar);
+    const attempt = await post(PROFILE_PATH, { profile_consent: 1, csrf: jar[PROFILE_CSRF_COOKIE], display_name: "Should Not Save" }, jar);
     assert.equal(attempt.status, 410, `${label}: the same generic unavailable state`);
     assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id=?", signupId), 0,
       `${label}: NO profile was written`);
@@ -229,11 +230,11 @@ const openSession = async (signupId) => {
   const a = await openSession("s_a");
   const b = await openSession("s_b");
   // A's cookie can only ever write A's profile - there is no signup selector.
-  await post(PROFILE_PATH, { csrf: a.jar[PROFILE_CSRF_COOKIE], display_name: "A only" }, a.jar);
+  await post(PROFILE_PATH, { profile_consent: 1, csrf: a.jar[PROFILE_CSRF_COOKIE], display_name: "A only" }, a.jar);
   assert.equal(row("SELECT display_name FROM waitlist_profiles WHERE signup_id='s_a'").display_name, "A only");
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_b'"), 0, "B untouched by A's session");
   // Mixing A's CSRF with B's cookie fails.
-  const mixed = await post(PROFILE_PATH, { csrf: a.jar[PROFILE_CSRF_COOKIE], display_name: "Cross" }, b.jar);
+  const mixed = await post(PROFILE_PATH, { profile_consent: 1, csrf: a.jar[PROFILE_CSRF_COOKIE], display_name: "Cross" }, b.jar);
   assert.equal(mixed.status, 410, "a mismatched CSRF value is refused");
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_b'"), 0);
 
@@ -242,7 +243,7 @@ const openSession = async (signupId) => {
   const c = await openSession("s_c");
   assert.equal((await post(PROFILE_PATH, { display_name: "No CSRF" }, c.jar)).status, 410, "missing CSRF refused");
   const d = await openSession("s_c");
-  assert.equal((await post(PROFILE_PATH, { csrf: d.jar[PROFILE_CSRF_COOKIE], display_name: "Foreign" }, d.jar,
+  assert.equal((await post(PROFILE_PATH, { profile_consent: 1, csrf: d.jar[PROFILE_CSRF_COOKIE], display_name: "Foreign" }, d.jar,
     "https://evil.example")).status, 410, "foreign origin refused");
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_c'"), 0, "neither wrote anything");
 
@@ -326,7 +327,7 @@ const openSession = async (signupId) => {
   seed("s_esc", "escape@example.com", "confirmed");
   const first = await openSession("s_esc");
   const payload = '<script>alert("xss")</script> & "quoted"';
-  await post(PROFILE_PATH, { csrf: first.jar[PROFILE_CSRF_COOKIE], goals: payload }, first.jar);
+  await post(PROFILE_PATH, { profile_consent: 1, csrf: first.jar[PROFILE_CSRF_COOKIE], goals: payload }, first.jar);
   assert.equal(row("SELECT goals FROM waitlist_profiles WHERE signup_id='s_esc'").goals, payload, "stored literally");
   const second = await openSession("s_esc");
   const html = await (await get(PROFILE_PATH, second.jar)).text();
@@ -336,7 +337,7 @@ const openSession = async (signupId) => {
   // Partial profile: an empty submission is valid.
   seed("s_partial", "partial@example.com", "confirmed");
   const partial = await openSession("s_partial");
-  const response = await post(PROFILE_PATH, { csrf: partial.jar[PROFILE_CSRF_COOKIE] }, partial.jar);
+  const response = await post(PROFILE_PATH, { profile_consent: 1, csrf: partial.jar[PROFILE_CSRF_COOKIE] }, partial.jar);
   assert.equal(response.status, 200);
   const saved = row("SELECT * FROM waitlist_profiles WHERE signup_id='s_partial'");
   assert.ok(saved, "a fully empty (partial) profile saves");
@@ -358,8 +359,8 @@ const openSession = async (signupId) => {
   seed("s_race", "race@example.com", "confirmed");
   const race = await openSession("s_race");
   const [first, second] = await Promise.all([
-    post(PROFILE_PATH, { csrf: race.jar[PROFILE_CSRF_COOKIE], display_name: "First" }, race.jar),
-    post(PROFILE_PATH, { csrf: race.jar[PROFILE_CSRF_COOKIE], display_name: "Second" }, race.jar),
+    post(PROFILE_PATH, { profile_consent: 1, csrf: race.jar[PROFILE_CSRF_COOKIE], display_name: "First" }, race.jar),
+    post(PROFILE_PATH, { profile_consent: 1, csrf: race.jar[PROFILE_CSRF_COOKIE], display_name: "Second" }, race.jar),
   ]);
   const statuses = [first.status, second.status].sort();
   assert.deepEqual(statuses, [200, 410], "exactly one concurrent save succeeds; the other hits the generic state");
@@ -373,7 +374,7 @@ const openSession = async (signupId) => {
   db.sqlite.exec(`CREATE TRIGGER tmp_break_profile_save BEFORE UPDATE ON waitlist_profile_invitations
     BEGIN SELECT RAISE(ABORT, 'injected_save_failure'); END`);
   let injected;
-  try { injected = await post(PROFILE_PATH, { csrf: inject.jar[PROFILE_CSRF_COOKIE], display_name: "Should roll back" }, inject.jar); }
+  try { injected = await post(PROFILE_PATH, { profile_consent: 1, csrf: inject.jar[PROFILE_CSRF_COOKIE], display_name: "Should roll back" }, inject.jar); }
   catch { injected = null; }
   db.sqlite.exec("DROP TRIGGER tmp_break_profile_save");
   assert.ok(!injected || injected.status >= 400, "an interrupted save never reports success");
@@ -384,7 +385,7 @@ const openSession = async (signupId) => {
   assert.equal(row("SELECT used_at FROM waitlist_profile_invitations WHERE signup_id='s_inject' ORDER BY issued_at DESC LIMIT 1").used_at, null,
     "the invitation was NOT consumed");
   // The rider can still complete the save afterwards.
-  const recovered = await post(PROFILE_PATH, { csrf: inject.jar[PROFILE_CSRF_COOKIE], display_name: "Recovered" }, inject.jar);
+  const recovered = await post(PROFILE_PATH, { profile_consent: 1, csrf: inject.jar[PROFILE_CSRF_COOKIE], display_name: "Recovered" }, inject.jar);
   assert.equal(recovered.status, 200, "the session still works after the rolled-back attempt");
   assert.equal(row("SELECT display_name FROM waitlist_profiles WHERE signup_id='s_inject'").display_name, "Recovered");
 }
@@ -424,7 +425,7 @@ const openSession = async (signupId) => {
   assert.equal(rendered, session.jar[PROFILE_CSRF_COOKIE], "the form carries the ORIGINAL edit CSRF value");
 
   // 5. The rider saves successfully.
-  const saved = await post(PROFILE_PATH, { csrf: rendered, display_name: "Not Poisoned" }, jar);
+  const saved = await post(PROFILE_PATH, { profile_consent: 1, csrf: rendered, display_name: "Not Poisoned" }, jar);
   assert.equal(saved.status, 200, "the save succeeds after visiting the public request flow");
   assert.equal(row("SELECT display_name FROM waitlist_profiles WHERE signup_id='s_collide'").display_name, "Not Poisoned");
   assert.ok(row("SELECT consumed_at FROM waitlist_profile_edit_authorizations WHERE signup_id='s_collide'").consumed_at,
@@ -604,6 +605,281 @@ const openSession = async (signupId) => {
 }
 
 // ---------------------------------------------------------------------------
+// PR 3: separate profile consent. The control is unchecked by default and the
+// save refuses without the affirmative action - profile answers have no lawful
+// basis without it.
+// ---------------------------------------------------------------------------
+{
+  seed("s_consent", "consent@example.com", "confirmed");
+  const session = await openSession("s_consent");
+  const form = await get(PROFILE_PATH, session.jar);
+  const html = await form.text();
+  assert.match(html, /name="profile_consent"/, "the form carries a separate profile-consent control");
+  assert.ok(!/name="profile_consent"[^>]*\bchecked\b/.test(html), "it is UNCHECKED by default");
+  assert.match(html, /I consent to MotoTrack using the optional rider-profile information/,
+    "the exact profile-consent wording is shown");
+  assert.ok(!/add me to the MotoTrack early-access waitlist/.test(html),
+    "profile consent is separate from the wait-list/email-marketing consent wording");
+
+  const refused = await post(PROFILE_PATH, { csrf: session.jar[PROFILE_CSRF_COOKIE], display_name: "No Consent" }, session.jar);
+  assert.equal(refused.status, 200, "the form is re-rendered rather than the session destroyed");
+  assert.match(await refused.text(), /confirm the rider-profile consent/i);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_consent'"), 0, "nothing written");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_consent_events WHERE signup_id='s_consent'"), 0,
+    "no consent evidence is fabricated");
+  assert.equal(row("SELECT used_at FROM waitlist_profile_invitations WHERE signup_id='s_consent'").used_at, null,
+    "and nothing consumed");
+
+  const accepted = await post(PROFILE_PATH,
+    { profile_consent: 1, csrf: session.jar[PROFILE_CSRF_COOKIE], display_name: "Consented" }, session.jar);
+  assert.equal(accepted.status, 200);
+  const stored = row("SELECT profile_copy_version, privacy_notice_version FROM waitlist_profiles WHERE signup_id='s_consent'");
+  assert.equal(stored.profile_copy_version, "2026-08-05.3");
+  assert.equal(stored.privacy_notice_version, "2026-08-05.3");
+  const granted = row(`SELECT event_type, profile_consent_version, privacy_notice_version, consent_method
+    FROM waitlist_profile_consent_events WHERE signup_id='s_consent'`);
+  assert.deepEqual({ ...granted }, { event_type: "granted", profile_consent_version: "2026-08-05.3",
+    privacy_notice_version: "2026-08-05.3", consent_method: "profile_form_checkbox" });
+}
+
+// ---------------------------------------------------------------------------
+// PR 3: welcome-email profile section, exact copy, four-condition CTA gate,
+// and isolation of the welcome email from profile-subsystem failure.
+// ---------------------------------------------------------------------------
+const US_PROFILE_BODY = "Your rider profile is optional and does not affect your waitlist position, eligibility, or access timing. Share your motorcycles, track experience, and what you want MotoTrack to help you improve.";
+const INTL_PROFILE_BODY = "Your rider profile is optional and does not affect your place on the international interest list or guarantee MotoTrack access or availability in your region. Share your motorcycles, track experience, and what you want MotoTrack to help you improve.";
+const CTA = "Set up your rider profile";
+const linkFrom = (text, marker) => text.split("\n").find((line) => line.includes(marker)) ?? "";
+
+const joinAndConfirm = async (email, country, useEnv = env) => {
+  await worker.fetch(new Request(`${ORIGIN}/api/waitlist`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify({ email, country, consent: true }),
+  }), useEnv);
+  const link = linkFrom(sent[sent.length - 1].text, "/waitlist/confirm?token=").trim();
+  // GET renders the interstitial; the POST performs the confirmation.
+  await worker.fetch(new Request(link, { method: "POST", headers: { origin: ORIGIN } }), useEnv);
+  return sent[sent.length - 1];
+};
+
+{
+  const welcome = await joinAndConfirm("us-cta@example.com", "US");
+  const section = welcome.text.split("\n");
+  assert.ok(section.includes("Tell us about your riding"), "exact heading");
+  assert.ok(section.includes(US_PROFILE_BODY), "exact U.S. profile body");
+  assert.ok(section.includes(CTA), "exact CTA text");
+  assert.match(welcome.text, new RegExp(`${CTA}\\n${ORIGIN}${PROFILE_PATH}/open\\?token=`),
+    "the CTA is followed by a usable protected link");
+  assert.ok(!welcome.text.includes(INTL_PROFILE_BODY), "no international wording on the U.S. track");
+
+  const intl = await joinAndConfirm("intl-cta@example.com", "DE");
+  const intlLines = intl.text.split("\n");
+  assert.ok(intlLines.includes("Tell us about your riding"));
+  assert.ok(intlLines.includes(INTL_PROFILE_BODY), "exact international-interest profile body");
+  assert.ok(intlLines.includes(CTA));
+  assert.ok(!intl.text.includes(US_PROFILE_BODY), "no U.S. wording on the interest track");
+
+  // The emailed link actually works - no broken or placeholder CTA.
+  const ctaLink = linkFrom(intl.text, `${PROFILE_PATH}/open?token=`).trim();
+  assert.equal((await get(ctaLink.replace(ORIGIN, ""))).status, 303, "the CTA link exchanges successfully");
+
+  // Flag off: welcome email still sends, with NO profile section and no CTA.
+  const disabledEnv = { ...env };
+  delete disabledEnv.WAITLIST_PROFILE_ENABLED;
+  const before = count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations");
+  const gated = await joinAndConfirm("gated-cta@example.com", "US", disabledEnv);
+  assert.match(gated.subject, /waitlist/i, "the ordinary welcome email is still delivered");
+  assert.ok(!gated.text.includes("Tell us about your riding") && !gated.text.includes(CTA),
+    "no profile section and no CTA while the feature is disabled");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations"), before,
+    "and no invitation is issued");
+
+  // Issuance failure must NOT cost the rider the welcome email.
+  db.sqlite.exec("CREATE TRIGGER tmp_break_issuance BEFORE INSERT ON waitlist_profile_invitations BEGIN SELECT RAISE(ABORT, 'injected_issuance_failure'); END");
+  const resilient = await joinAndConfirm("broken-cta@example.com", "US");
+  db.sqlite.exec("DROP TRIGGER tmp_break_issuance");
+  assert.match(resilient.subject, /waitlist/i, "the welcome email is delivered despite profile-subsystem failure");
+  assert.ok(resilient.text.includes("You're on the MotoTrack early-access waitlist"), "with its ordinary content intact");
+  assert.ok(!resilient.text.includes("Tell us about your riding") && !resilient.text.includes(CTA),
+    "and no profile section");
+  assert.ok(!resilient.text.includes("/open?token="), "no broken or placeholder CTA link");
+}
+
+// ---------------------------------------------------------------------------
+// PR 3: self-service profile-consent withdrawal. Deletes the answers, records
+// the minimum evidence, revokes access - and touches NOTHING on the wait-list
+// record or the email consent.
+// ---------------------------------------------------------------------------
+{
+  seed("s_del", "delete@example.com", "confirmed");
+  const first = await openSession("s_del");
+  await post(PROFILE_PATH, { profile_consent: 1, csrf: first.jar[PROFILE_CSRF_COOKIE], display_name: "To Be Deleted" }, first.jar);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_del'"), 1, "a profile exists");
+
+  const session = await openSession("s_del");
+  const formHtml = await (await get(PROFILE_PATH, session.jar)).text();
+  assert.match(formHtml, /Delete my rider profile/, "the form offers the withdrawal action");
+
+  // Unauthenticated and wrong-method attempts get nowhere.
+  assert.equal((await get(`${PROFILE_PATH}/delete`)).status, 410, "no authorization, no confirmation page");
+  assert.equal((await post(`${PROFILE_PATH}/delete`, { csrf: "x" })).status, 410, "no authorization, no deletion");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_del'"), 1, "still there");
+
+  const confirmPage = await get(`${PROFILE_PATH}/delete`, session.jar);
+  assert.equal(confirmPage.status, 200);
+  const confirmHtml = await confirmPage.text();
+  assert.match(confirmHtml, /Delete your rider profile\?/);
+  assert.match(confirmHtml, /This will withdraw your rider-profile consent and delete the profile information you provided\. It will not remove you from the MotoTrack waitlist or international interest list and will not unsubscribe you from MotoTrack email\./);
+  assert.match(confirmHtml, /<button type="submit">Delete my rider profile<\/button>/);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_del'"), 1, "GET deletes nothing");
+
+  const badCsrf = await post(`${PROFILE_PATH}/delete`, { csrf: "wrong" }, session.jar);
+  assert.equal(badCsrf.status, 410, "CSRF is validated");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_del'"), 1, "and nothing deleted");
+
+  const live = await openSession("s_del");
+  const before = { ...row("SELECT status, program_track, confirmed_at, unsubscribed_at, resubscribed_at, consent_copy_version, privacy_notice_version, consent_at FROM waitlist_signups WHERE id='s_del'") };
+  const invitationsBefore = count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_del'");
+  const sentBefore = sent.length;
+
+  const deleted = await post(`${PROFILE_PATH}/delete`, { csrf: live.jar[PROFILE_CSRF_COOKIE] }, live.jar);
+  assert.equal(deleted.status, 200);
+  const deletedHtml = await deleted.text();
+  assert.match(deletedHtml, /Your rider profile has been deleted\./);
+  assert.match(deletedHtml, /Your waitlist or international-interest status and your email preferences have not changed\./);
+
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_del'"), 0, "the answers are deleted");
+  const withdrawal = row(`SELECT event_type, profile_consent_version, privacy_notice_version, consent_method
+    FROM waitlist_profile_consent_events WHERE signup_id='s_del' AND event_type='withdrawn'`);
+  assert.deepEqual({ ...withdrawal }, { event_type: "withdrawn", profile_consent_version: "2026-08-05.3",
+    privacy_notice_version: "2026-08-05.3", consent_method: "profile_delete_action" });
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_consent_events WHERE signup_id='s_del' AND event_type='granted'"), 1,
+    "the earlier granted event SURVIVES the withdrawal");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_del' AND used_at IS NULL AND revoked_at IS NULL"), 0,
+    "outstanding invitations revoked");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations WHERE signup_id='s_del' AND consumed_at IS NULL AND revoked_at IS NULL"), 0,
+    "live authorizations revoked");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s_del'"),
+    invitationsBefore, "NO replacement invitation is silently issued");
+  assert.equal(sent.length, sentBefore, "and nothing is emailed");
+
+  assert.deepEqual({ ...row("SELECT status, program_track, confirmed_at, unsubscribed_at, resubscribed_at, consent_copy_version, privacy_notice_version, consent_at FROM waitlist_signups WHERE id='s_del'") }, before,
+    "status, track, confirmation, unsubscribe/re-subscription evidence and email consent are ALL unchanged");
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean");
+}
+
+// ---------------------------------------------------------------------------
+// PR 3: consent lifecycle over the append-only event history. State is DERIVED
+// from the latest event by event_seq - never a stored mutable flag - so
+// grant -> withdraw -> grant is an ordered history, not a rewritten row.
+// ---------------------------------------------------------------------------
+{
+  const events = (signupId) => db.sqlite.prepare(
+    `SELECT event_type, profile_consent_version, privacy_notice_version, consent_method
+     FROM waitlist_profile_consent_events WHERE signup_id = ? ORDER BY event_seq`).all(signupId).map((e) => ({ ...e }));
+
+  seed("s_life", "life@example.com", "confirmed");
+
+  // (1) First save without consent fails and records nothing.
+  const first = await openSession("s_life");
+  const firstHtml = await (await get(PROFILE_PATH, first.jar)).text();
+  assert.match(firstHtml, /name="profile_consent"/, "no active consent -> the unchecked control is shown");
+  const refused = await post(PROFILE_PATH, { csrf: first.jar[PROFILE_CSRF_COOKIE], display_name: "Nope" }, first.jar);
+  assert.match(await refused.text(), /confirm the rider-profile consent/i);
+  assert.equal(events("s_life").length, 0, "a refused save appends no event");
+
+  // (2) First save WITH consent appends exactly one granted event.
+  const created = await post(PROFILE_PATH,
+    { profile_consent: 1, csrf: first.jar[PROFILE_CSRF_COOKIE], display_name: "Rider One" }, first.jar);
+  assert.equal(created.status, 200);
+  assert.deepEqual(events("s_life"), [{ event_type: "granted", profile_consent_version: "2026-08-05.3",
+    privacy_notice_version: "2026-08-05.3", consent_method: "profile_form_checkbox" }],
+  "exactly one granted event, with the method and both versions recorded");
+
+  // (3) Ordinary edits append NO further granted event and ask nothing again.
+  const editSession = await openSession("s_life");
+  const editHtml = await (await get(PROFILE_PATH, editSession.jar)).text();
+  assert.ok(!/name="profile_consent"/.test(editHtml), "active current consent -> no second checkbox");
+  assert.match(editHtml, /Your rider-profile consent is active\. You can edit your profile or delete it at any time\./);
+  const edited = await post(PROFILE_PATH,
+    { csrf: editSession.jar[PROFILE_CSRF_COOKIE], display_name: "Rider One", primary_motorcycle: "Yamaha R3" },
+    editSession.jar);
+  assert.equal(edited.status, 200, "the edit saves without a consent checkbox");
+  assert.equal(row("SELECT primary_motorcycle FROM waitlist_profiles WHERE signup_id='s_life'").primary_motorcycle, "Yamaha R3");
+  assert.equal(events("s_life").length, 1, "editing a profile field is NOT a new consent decision");
+
+  // (4)(5)(6)(7) Withdrawal appends withdrawn, preserves granted, deletes answers.
+  const before = { ...row(`SELECT status, program_track, confirmed_at, unsubscribed_at, resubscribed_at,
+    consent_copy_version, privacy_notice_version, consent_at FROM waitlist_signups WHERE id='s_life'`) };
+  const withdrawSession = await openSession("s_life");
+  const withdrawn = await post(`${PROFILE_PATH}/delete`, { csrf: withdrawSession.jar[PROFILE_CSRF_COOKIE] }, withdrawSession.jar);
+  assert.equal(withdrawn.status, 200);
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn"], "history is appended, never rewritten");
+  assert.equal(events("s_life")[1].consent_method, "profile_delete_action");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_life'"), 0, "answers deleted");
+  assert.deepEqual({ ...row(`SELECT status, program_track, confirmed_at, unsubscribed_at, resubscribed_at,
+    consent_copy_version, privacy_notice_version, consent_at FROM waitlist_signups WHERE id='s_life'`) }, before,
+  "signup and email state untouched by withdrawal");
+
+  // (8)(9) Re-creation needs fresh protected access AND fresh affirmative consent.
+  const again = await openSession("s_life");
+  const againHtml = await (await get(PROFILE_PATH, again.jar)).text();
+  assert.match(againHtml, /name="profile_consent"/, "withdrawn -> the unchecked control returns");
+  assert.ok(!/Your rider-profile consent is active/.test(againHtml), "prior consent is NOT silently reactivated");
+  const refusedAgain = await post(PROFILE_PATH, { csrf: again.jar[PROFILE_CSRF_COOKIE], display_name: "Back" }, again.jar);
+  assert.match(await refusedAgain.text(), /confirm the rider-profile consent/i, "re-creation without consent still fails");
+  assert.equal(events("s_life").length, 2, "and appends nothing");
+  const recreated = await post(PROFILE_PATH,
+    { profile_consent: 1, csrf: again.jar[PROFILE_CSRF_COOKIE], display_name: "Back Again" }, again.jar);
+  assert.equal(recreated.status, 200);
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn", "granted"],
+    "a new granted event, with every earlier event preserved");
+
+  // (10) Ordering drives the derived state even when timestamps collide.
+  const stamps = db.sqlite.prepare(
+    "SELECT DISTINCT occurred_at FROM waitlist_profile_consent_events WHERE signup_id='s_life'").all();
+  assert.ok(stamps.length <= 3, "these events can and do share whole-second timestamps");
+  const finalWithdraw = await openSession("s_life");
+  await post(`${PROFILE_PATH}/delete`, { csrf: finalWithdraw.jar[PROFILE_CSRF_COOKIE] }, finalWithdraw.jar);
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn", "granted", "withdrawn"],
+    "a legitimate grant/withdraw/grant/withdraw history");
+  const afterAll = await openSession("s_life");
+  assert.match(await (await get(PROFILE_PATH, afterAll.jar)).text(), /name="profile_consent"/,
+    "latest event is withdrawn -> no active consent, derived by event_seq not by timestamp");
+
+  // (11) An existing event cannot be updated - the database refuses.
+  assert.throws(() => db.sqlite.prepare(
+    "UPDATE waitlist_profile_consent_events SET event_type='granted' WHERE signup_id='s_life'").run(),
+  /append-only/, "consent events are immutable");
+  assert.throws(() => db.sqlite.prepare(
+    "UPDATE waitlist_profile_consent_events SET occurred_at='1999-01-01 00:00:00' WHERE signup_id='s_life'").run(),
+  /append-only/, "timestamps cannot be rewritten either");
+  assert.deepEqual(events("s_life").map((e) => e.event_type), ["granted", "withdrawn", "granted", "withdrawn"],
+    "history survives the attempts intact");
+
+  // No application path deletes an individual consent event.
+  const serviceSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-profile-service.js"), "utf8");
+  const authSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-profile-auth.js"), "utf8");
+  const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
+  for (const [name, source] of [["service", serviceSource], ["auth", authSource], ["worker", workerSource]]) {
+    assert.ok(!/DELETE\s+FROM\s+waitlist_profile_consent_events/i.test(source),
+      `the ${name} layer has no individual consent-event deletion path`);
+    assert.ok(!/UPDATE\s+waitlist_profile_consent_events/i.test(source),
+      `the ${name} layer never updates a consent event`);
+  }
+
+  // (12)(13) History is removed ONLY when the parent signup is purged, and the
+  // purge stays foreign-key clean.
+  assert.ok(events("s_life").length > 0, "history exists before the purge");
+  db.sqlite.prepare("UPDATE waitlist_signups SET confirmed_at = datetime('now','-25 months') WHERE id='s_life'").run();
+  await runRetentionSweep(db);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE id='s_life'"), 0, "the signup reached its ceiling");
+  assert.equal(events("s_life").length, 0, "consent history cascaded away with its parent");
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean after the purge");
+}
+
+// ---------------------------------------------------------------------------
 // PR-scope containment and application-surface token absence.
 // ---------------------------------------------------------------------------
 {
@@ -612,15 +888,12 @@ const openSession = async (signupId) => {
   assert.ok(!/console\.(log|info|warn|error|debug)/.test(authSource), "the authorization module logs nothing");
   // The welcome email and the confirmation-success page must carry NO profile
   // link or CTA in PR 2 (that is PR 3, gated behind the notice bump).
-  const welcomeEmailSource = workerSource.slice(workerSource.indexOf("async function sendWelcomeEmail"),
-    workerSource.indexOf("async function tokenRow"));
-  assert.ok(!new RegExp("waitlist\/profile|Tell us about your riding").test(welcomeEmailSource),
-    "the welcome email contains no profile link or CTA");
+  // PR 3 adds the welcome-email CTA. The confirmation-success page must STILL
+  // carry none: the owner rule is welcome-email invitation ONLY.
   const confirmedPageSource = workerSource.slice(workerSource.indexOf("function confirmedPage"),
     workerSource.indexOf("async function handleUnsubscribe"));
-  assert.ok(!new RegExp("waitlist\/profile|Tell us about your riding").test(confirmedPageSource),
+  assert.ok(!new RegExp("waitlist\/profile|Tell us about your riding|Set up your rider profile").test(confirmedPageSource),
     "the confirmation-success page still has no profile CTA");
-  assert.ok(!workerSource.includes("issueProfileInvitation("), "no invitation is issued from the welcome email in PR 2");
   const wrangler = readFileSync(join(import.meta.dirname, "..", "wrangler.jsonc"), "utf8");
   const config = JSON.parse(wrangler.split(/\r?\n/).map((line) => line.replace(/^\s*\/\/.*$/, "")).join("\n"));
   const { env: environments, ...production } = config;
