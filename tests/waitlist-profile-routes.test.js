@@ -311,6 +311,19 @@ const openSession = async (signupId) => {
   assert.equal(sent[0].to, "other@example.com");
   assert.match(sent[0].text, /does not affect your place on the waitlist/);
   assert.match(sent[0].text, /waitlist or regional interest list/);
+  // The footer says "You can unsubscribe at any time", so it must carry a link
+  // that actually does. A promise with no mechanism is the defect this pins.
+  const unsubscribeLine = sent[0].text.split("\n").find((line) => line.startsWith("Unsubscribe: "));
+  assert.ok(unsubscribeLine, "the requested-link email carries an unsubscribe line");
+  const unsubToken = unsubscribeLine.split("token=")[1];
+  assert.ok(unsubToken && unsubToken.length >= 40, "with a real token, not a placeholder");
+  const storedUnsub = row(`SELECT purpose, used_at, superseded_at FROM waitlist_tokens
+    WHERE signup_id = 's2' AND purpose = 'unsubscribe'`);
+  assert.equal(storedUnsub.purpose, "unsubscribe", "the token is genuinely stored and usable");
+  assert.equal(storedUnsub.used_at, null);
+  assert.equal(storedUnsub.superseded_at, null);
+  assert.match(sent[0].text, /^Privacy Policy: https:\/\/mototrack\.app\/privacy\.html$/m,
+    "and the Privacy Policy link is unchanged");
 
   // CSRF mismatch answers the same generic page and sends nothing.
   const before = sent.length;
