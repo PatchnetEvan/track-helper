@@ -39,7 +39,7 @@ class LocalD1 {
 }
 
 const db = new LocalD1();
-for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql"]) {
+for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql", "0007_profile_invitation_batches.sql"]) {
   db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
 }
 const row = (sql, ...args) => db.sqlite.prepare(sql).get(...args);
@@ -332,12 +332,12 @@ seed("s_unsub", "unsubscribed@example.com", "unsubscribed", "international_inter
 // logging of secrets or free text, and PR-scope containment.
 // ---------------------------------------------------------------------------
 {
-  // 0004 and 0005 apply cleanly on top of 0001-0003, and only after them.
+  // 0004-0007 apply cleanly on top of 0001-0003, and only after them.
   const fresh = new LocalD1();
-  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql"]) {
+  for (const m of ["0001_waitlist.sql", "0002_program_track.sql", "0003_resubscription_evidence.sql", "0004_rider_profiles.sql", "0005_profile_edit_authorizations.sql", "0006_profile_consent_events.sql", "0007_profile_invitation_batches.sql"]) {
     fresh.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
   }
-  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'waitlist%'").get().n, 8);
+  assert.equal(fresh.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'waitlist%'").get().n, 10);
   // 0005's parent relationships must CASCADE, or the retention sweep aborts.
   const authorizationSql = fresh.sqlite.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='waitlist_profile_edit_authorizations'").get().sql;

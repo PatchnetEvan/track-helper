@@ -15,6 +15,7 @@ import {
   GOALS_PROMPT, GOALS_SUPPORTING_COPY, GOALS_MAX_LENGTH, ProfileValidationError,
   PROFILE_CONSENT_COPY,
 } from "./waitlist-profile-service.js";
+import { sweepProfileInvitationBatches } from "./waitlist-profile-batch.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
   revokeEditAuthorization, withdrawProfileWithAuthorization, parseCookies, sessionCookie, clearedCookie,
@@ -427,7 +428,11 @@ export async function runRetentionSweep(db) {
   // the wait-list retention ceiling. Edit authorizations cascade from their
   // signup and invitation parents, and spent ones are swept here as well.
   const profiles = await sweepProfileRetention(db);
+  // Batch audit trail: operational/delivery records, 90 days, same commitment
+  // as the delivery and security logs above.
+  const batches = await sweepProfileInvitationBatches(db);
   return {
+    profile_invitation_batches_purged: batches,
     profiles_purged: profiles.profiles_purged,
     profile_invitations_purged: profiles.invitations_purged,
     profile_edit_authorizations_purged: profiles.edit_authorizations_purged,
