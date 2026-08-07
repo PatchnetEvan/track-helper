@@ -268,8 +268,16 @@ export async function sweepProfileRetention(db) {
   const invitations = await db.prepare(`DELETE FROM waitlist_profile_invitations
     WHERE signup_id IN (SELECT id FROM waitlist_signups WHERE status = 'unsubscribed'
       AND unsubscribed_at <= datetime('now', '-30 days'))`).bind().run();
+  // Spent edit authorizations are deleted outright, for every signup: an
+  // expired, consumed, or revoked row can never authorize anything again, so
+  // keeping its signup linkage is retaining personal data for no purpose. Only
+  // a LIVE authorization survives, and only for its own short TTL. Rows whose
+  // parent signup or invitation is deleted elsewhere cascade away with it.
+  const authorizations = await db.prepare(`DELETE FROM waitlist_profile_edit_authorizations
+    WHERE expires_at <= datetime('now') OR consumed_at IS NOT NULL OR revoked_at IS NOT NULL`).bind().run();
   return {
     profiles_purged: (doomed.results ?? []).length,
     invitations_purged: Number(invitations?.meta?.changes ?? 0),
+    edit_authorizations_purged: Number(authorizations?.meta?.changes ?? 0),
   };
 }

@@ -8,7 +8,17 @@
 // generic 202 whether the address is new, pending, confirmed, unsubscribed,
 // or rate limited.
 
-import { revokeProfileInvitations, sweepProfileRetention } from "./waitlist-profile-service.js";
+import {
+  revokeProfileInvitations, sweepProfileRetention, requestProfileEditLink, escapeHtml,
+  TRACK_INVOLVEMENT_VALUES, TRACK_INVOLVEMENT_LABELS, EXPERIENCE_LEVEL_VALUES, EXPERIENCE_LEVEL_LABELS,
+  GOALS_PROMPT, GOALS_SUPPORTING_COPY, GOALS_MAX_LENGTH, ProfileValidationError,
+} from "./waitlist-profile-service.js";
+import {
+  exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
+  revokeEditAuthorization, parseCookies, sessionCookie, clearedCookie,
+  PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH, EDIT_AUTH_TTL_SECONDS, profileAuthOpaqueValue,
+  PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH,
+} from "./waitlist-profile-auth.js";
 
 export const CONSENT_COPY_VERSION = "2026-08-05.2";
 export const PRIVACY_NOTICE_VERSION = "2026-08-05.2";
@@ -391,11 +401,13 @@ export async function runRetentionSweep(db) {
   const buckets = await db.prepare("DELETE FROM waitlist_rate_buckets WHERE window_start <= datetime('now', '-2 days')").bind().run();
   // Profile retention: deleted within 30 days after unsubscribe. Profiles of
   // purged signups are removed by purgeSignups above, so nothing can outlive
-  // the wait-list retention ceiling.
+  // the wait-list retention ceiling. Edit authorizations cascade from their
+  // signup and invitation parents, and spent ones are swept here as well.
   const profiles = await sweepProfileRetention(db);
   return {
     profiles_purged: profiles.profiles_purged,
     profile_invitations_purged: profiles.invitations_purged,
+    profile_edit_authorizations_purged: profiles.edit_authorizations_purged,
     pending_purged: pending,
     confirmed_expired: confirmed,
     delivery_logs_purged: Number(logs?.meta?.changes ?? 0),
@@ -413,12 +425,300 @@ function stagingGuard(env, response) {
   return marked;
 }
 
+// ---------------------------------------------------------------------------
+// Rider profile (PR 2): protected exchange, short-lived edit authorization,
+// form, save, and the edit-link request. No welcome-email CTA, no operator
+// batch, no production configuration - those are later PRs.
+// ---------------------------------------------------------------------------
+
+const PROFILE_SECURITY_HEADERS = {
+  "cache-control": "no-store",
+  "referrer-policy": "no-referrer",
+  "x-frame-options": "DENY",
+  "content-security-policy":
+    "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+};
+
+function profilePage(env, title, bodyHtml, { status = 200, cookies = [] } = {}) {
+  const response = page(env, title, bodyHtml, status);
+  const merged = new Response(response.body, response);
+  for (const [name, value] of Object.entries(PROFILE_SECURITY_HEADERS)) merged.headers.set(name, value);
+  for (const cookie of cookies) merged.headers.append("set-cookie", cookie);
+  return merged;
+}
+
+// ONE generic unavailable state for every failure: malformed, unknown, used,
+// revoked, superseded, expired, non-confirmed, unsubscribed, suppressed,
+// lapsed authorization, or CSRF rejection.
+function profileUnavailablePage(env, cookies = []) {
+  return profilePage(env, "Link no longer available", `
+    <h1>This link is no longer available</h1>
+    <p>Profile links are single-use and time-limited. If you are on the MotoTrack waitlist, you can request a new link and we will email it to you.</p>
+    <p><a class="back" href="${PROFILE_REQUEST_PATH}">Request a new link</a></p>
+    <p><a class="back" href="https://mototrack.app/">Return to MotoTrack</a></p>`,
+  { status: 410, cookies: [clearedCookie(PROFILE_COOKIE), clearedCookie(PROFILE_CSRF_COOKIE), ...cookies] });
+}
+
+function checkedAttribute(profile, value) {
+  if (!profile?.track_involvement) return "";
+  try { return JSON.parse(profile.track_involvement).includes(value) ? " checked" : ""; } catch { return ""; }
+}
+
+function profileFormPage(env, resolved, csrfValue, { error = null } = {}) {
+  const profile = resolved.profile;
+  const international = resolved.authorization.program_track === "international_interest";
+  const value = (field) => escapeHtml(profile?.[field] ?? "");
+  const involvementBoxes = TRACK_INVOLVEMENT_VALUES.map((option) => `
+        <label class="wl-check"><input type="checkbox" name="track_involvement" value="${option}"${checkedAttribute(profile, option)} /> ${escapeHtml(TRACK_INVOLVEMENT_LABELS[option])}</label>`).join("");
+  const experienceOptions = ["", ...EXPERIENCE_LEVEL_VALUES].map((option) => `
+        <option value="${option}"${profile?.experience_level === option ? " selected" : ""}>${option ? escapeHtml(EXPERIENCE_LEVEL_LABELS[option]) : "Prefer not to answer now"}</option>`).join("");
+  return profilePage(env, "Tell us about your riding", `
+    <h1>Tell us about your riding</h1>
+    <p><strong>This is optional. It does not affect your place on the waitlist, your eligibility, or when you may be invited.</strong></p>
+    <p>${international
+      ? "MotoTrack beta access is not currently available in your region. Sharing this does not change that, and it does not guarantee future availability."
+      : "MotoTrack's beta is opening gradually to riders in the United States and U.S. territories. Sharing this does not change your position or timing."}</p>
+    ${error ? `<p class="wl-error">${escapeHtml(error)}</p>` : ""}
+    <form method="post" action="${PROFILE_PATH}">
+      <input type="hidden" name="csrf" value="${escapeHtml(csrfValue)}" />
+      <label for="p-display">Preferred display name</label>
+      <input id="p-display" name="display_name" type="text" maxlength="100" value="${value("display_name")}" />
+      <fieldset><legend>Track involvement (choose any)</legend>${involvementBoxes}
+        <label for="p-other">If other, briefly describe</label>
+        <input id="p-other" name="track_involvement_other" type="text" maxlength="100" value="${value("track_involvement_other")}" />
+      </fieldset>
+      <label for="p-exp">Experience</label>
+      <select id="p-exp" name="experience_level">${experienceOptions}</select>
+      <label for="p-primary">Primary motorcycle</label>
+      <input id="p-primary" name="primary_motorcycle" type="text" maxlength="200" value="${value("primary_motorcycle")}" />
+      <label for="p-others">Other motorcycles</label>
+      <input id="p-others" name="other_motorcycles" type="text" maxlength="500" value="${value("other_motorcycles")}" />
+      <label for="p-tracks">Tracks and event types</label>
+      <input id="p-tracks" name="tracks_and_events" type="text" maxlength="500" value="${value("tracks_and_events")}" />
+      <label for="p-tools">Current timing or data tools</label>
+      <input id="p-tools" name="timing_tools" type="text" maxlength="500" value="${value("timing_tools")}" />
+      <label for="p-goals">${escapeHtml(GOALS_PROMPT)}</label>
+      <textarea id="p-goals" name="goals" rows="5" maxlength="${GOALS_MAX_LENGTH}">${value("goals")}</textarea>
+      <p class="wl-hint">${escapeHtml(GOALS_SUPPORTING_COPY)}</p>
+      <fieldset><legend>Optional interests</legend>
+        <label class="wl-check"><input type="checkbox" name="interest_early_testing" value="1"${profile?.interest_early_testing ? " checked" : ""} /> Early testing</label>
+        <label class="wl-check"><input type="checkbox" name="interest_remote_coaching" value="1"${profile?.interest_remote_coaching ? " checked" : ""} /> Remote coaching</label>
+        <label class="wl-check"><input type="checkbox" name="interest_ai_coaching" value="1"${profile?.interest_ai_coaching ? " checked" : ""} /> Future AI-assisted coaching</label>
+      </fieldset>
+      <button type="submit">Save my profile</button>
+    </form>`);
+}
+
+function profileSavedPage(env) {
+  return profilePage(env, "Profile saved", `
+    <h1>Thank you — your profile is saved</h1>
+    <p>This does not change your place on the waitlist, your eligibility, or when you may be invited.</p>
+    <p>To update it later, request a new link and we'll email one to you.</p>
+    <p><a class="back" href="https://mototrack.app/">Return to MotoTrack</a></p>`,
+  { cookies: [clearedCookie(PROFILE_COOKIE), clearedCookie(PROFILE_CSRF_COOKIE)] });
+}
+
+// The ONE generic acknowledgement for every POST to the request form: known,
+// unknown, pending, unsubscribed, suppressed, or rate limited all land here
+// with the same status, body, and cookie behaviour.
+function profileRequestPage(env, csrfValue, { sent = false } = {}) {
+  if (sent) {
+    return profilePage(env, "Check your email", `
+      <h1>Check your email</h1>
+      <p>If this email address is on the MotoTrack waitlist, we've sent a link to update your profile. The link is single-use and expires in 30 days.</p>
+      <p><a class="back" href="https://mototrack.app/">Return to MotoTrack</a></p>`,
+    { status: 202, cookies: [clearedCookie(PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH)] });
+  }
+  return profilePage(env, "Request a profile link", `
+    <h1>Request a profile link</h1>
+    <p>Enter the email address you used to join the MotoTrack waitlist and we'll send a link to update your optional profile.</p>
+    <form method="post" action="${PROFILE_REQUEST_PATH}">
+      <input type="hidden" name="csrf" value="${escapeHtml(csrfValue)}" />
+      <label for="p-email">Email address</label>
+      <input id="p-email" name="email" type="email" autocomplete="email" required />
+      <button type="submit">Email me a link</button>
+    </form>`,
+  // Own name, own deeper path: this cookie is invisible to /waitlist/profile
+  // and cannot disturb a live edit session.
+  { cookies: [sessionCookie(PROFILE_REQUEST_CSRF_COOKIE, csrfValue, 900, PROFILE_REQUEST_PATH)] });
+}
+
+function formValue(form, name) {
+  const value = form.get(name);
+  return typeof value === "string" ? value : null;
+}
+
+async function readProfileForm(request) {
+  const form = await request.formData();
+  return {
+    csrf: formValue(form, "csrf"),
+    payload: {
+      display_name: formValue(form, "display_name"),
+      track_involvement: form.getAll("track_involvement").filter((v) => typeof v === "string"),
+      track_involvement_other: formValue(form, "track_involvement_other"),
+      experience_level: formValue(form, "experience_level"),
+      primary_motorcycle: formValue(form, "primary_motorcycle"),
+      other_motorcycles: formValue(form, "other_motorcycles"),
+      tracks_and_events: formValue(form, "tracks_and_events"),
+      timing_tools: formValue(form, "timing_tools"),
+      goals: formValue(form, "goals"),
+      interest_early_testing: formValue(form, "interest_early_testing") === "1",
+      interest_remote_coaching: formValue(form, "interest_remote_coaching") === "1",
+      interest_ai_coaching: formValue(form, "interest_ai_coaching") === "1",
+    },
+    email: formValue(form, "email"),
+  };
+}
+
+function sameOriginRequest(request) {
+  const origin = request.headers.get("origin");
+  // Origin is verified WHERE AVAILABLE: some browsers omit it on same-origin
+  // form posts, so its absence is tolerated while a foreign value is refused.
+  return !origin || origin === new URL(request.url).origin;
+}
+
+// Feature gate. The rider profile is flag-gated per the owner ruling on #31:
+// only the exact string "true" enables it. Absent, "false", "1", "TRUE", or
+// anything else leaves every profile route non-existent - returning null here
+// falls through to static assets, so the paths 404 exactly as they do today.
+// The check runs BEFORE the database is even resolved, so a disabled build
+// cannot read, write, issue an invitation, or send mail.
+function profileEnabled(env) {
+  return env?.WAITLIST_PROFILE_ENABLED === "true";
+}
+
+async function handleProfileRoutes(request, env, url) {
+  if (!profileEnabled(env)) return null;
+  const db = database(env);
+  if (!db) return json({ error: "waitlist_unavailable" }, 503);
+  const cookies = parseCookies(request);
+
+  // 1. EXCHANGE: validate WITHOUT consuming, mint authorization, 303 to a
+  //    clean URL. The invitation token is absent from MotoTrack application
+  //    logs, rendered markup, redirect targets, form actions, analytics, and
+  //    stored edit-authorization state after exchange. Because the initial
+  //    invitation is delivered as a URL query parameter, it may appear in
+  //    browser history and infrastructure-level request telemetry.
+  if (url.pathname === `${PROFILE_PATH}/open` && request.method === "GET") {
+    const issued = await exchangeInvitationForEditAuthorization(db, url.searchParams.get("token") ?? "");
+    if (!issued) return profileUnavailablePage(env);
+    const headers = new Headers({
+      location: PROFILE_PATH,
+      ...PROFILE_SECURITY_HEADERS,
+    });
+    headers.append("set-cookie", sessionCookie(PROFILE_COOKIE, issued.cookie, EDIT_AUTH_TTL_SECONDS));
+    headers.append("set-cookie", sessionCookie(PROFILE_CSRF_COOKIE, issued.csrf, EDIT_AUTH_TTL_SECONDS));
+    return new Response(null, { status: 303, headers });
+  }
+
+  // 2. FORM: rendered purely from the short-lived authorization.
+  if (url.pathname === PROFILE_PATH && request.method === "GET") {
+    const resolved = await resolveEditAuthorization(db, cookies[PROFILE_COOKIE] ?? "");
+    if (!resolved) return profileUnavailablePage(env);
+    return profileFormPage(env, resolved, cookies[PROFILE_CSRF_COOKIE] ?? "");
+  }
+
+  // 3. SAVE: POST only, CSRF + origin checked, then ONE atomic operation.
+  if (url.pathname === PROFILE_PATH && request.method === "POST") {
+    if (!sameOriginRequest(request)) return profileUnavailablePage(env);
+    let submitted;
+    try { submitted = await readProfileForm(request); } catch { return profileUnavailablePage(env); }
+    const cookieValue = cookies[PROFILE_COOKIE] ?? "";
+    let outcome;
+    try {
+      outcome = await saveProfileWithAuthorization(db, cookieValue, submitted.csrf, submitted.payload);
+    } catch (error) {
+      if (error instanceof ProfileValidationError) {
+        // Validation failure: the invitation and the authorization both remain
+        // usable, and the rider sees the form again with a message.
+        const resolved = await resolveEditAuthorization(db, cookieValue);
+        if (!resolved) return profileUnavailablePage(env);
+        return profileFormPage(env, resolved, cookies[PROFILE_CSRF_COOKIE] ?? "",
+          { error: String(error.message) });
+      }
+      // An infrastructure failure is NEVER reported as success or as a rider
+      // mistake. The atomic batch rolled back, so nothing was written and
+      // nothing was consumed - the session stays alive for a retry, and the
+      // cookies are deliberately NOT cleared.
+      return profilePage(env, "Temporarily unavailable", `
+        <h1>We couldn't save that just now</h1>
+        <p>Nothing was changed. Please try again in a moment using the same link.</p>
+        <p><a class="back" href="${PROFILE_PATH}">Back to the form</a></p>`, { status: 503 });
+    }
+    if (!outcome || outcome.csrfRejected) {
+      await revokeEditAuthorization(db, cookieValue);
+      return profileUnavailablePage(env);
+    }
+    return profileSavedPage(env);
+  }
+
+  // 4. REQUEST A NEW LINK: GET renders the form (no send, no mutation);
+  //    POST always answers the SAME generic response.
+  if (url.pathname === PROFILE_REQUEST_PATH && request.method === "GET") {
+    // GET renders the form only: no issuance, no send, no mutation.
+    return profileRequestPage(env, profileAuthOpaqueValue());
+  }
+  if (url.pathname === PROFILE_REQUEST_PATH && request.method === "POST") {
+    const acknowledged = () => profileRequestPage(env, profileAuthOpaqueValue(), { sent: true });
+    if (!sameOriginRequest(request)) return acknowledged();
+    let submitted;
+    try { submitted = await readProfileForm(request); } catch { submitted = { csrf: null, email: null }; }
+    // Double-submit CSRF for this unauthenticated form, read from its OWN
+    // cookie so a live edit session is never consulted or disturbed.
+    const cookieCsrf = cookies[PROFILE_REQUEST_CSRF_COOKIE] ?? "";
+    if (!cookieCsrf || cookieCsrf !== submitted.csrf) return acknowledged();
+
+    // Rate limiting, using the same salted-hash bucket mechanism as the join
+    // endpoint but in its OWN key namespace, so profile-link requests neither
+    // consume nor are consumed by the signup budget. Checked BEFORE issuance:
+    // a limited request must not supersede the invitation the rider already
+    // holds, and must not create or modify a signup in any way.
+    const requestedEmail = normalizedEmail(submitted.email) ?? "";
+    const today = new Date().toISOString().slice(0, 10);
+    const hour = new Date().toISOString().slice(0, 13);
+    const clientKey = await sha256Hex(`profile_client:${request.headers.get("cf-connecting-ip") ?? "unknown"}:${String(env.WAITLIST_RATE_PEPPER ?? "")}`);
+    if (!(await underLimit(db, clientKey, hour, CLIENT_SEND_LIMIT_PER_HOUR))) return acknowledged();
+    if (requestedEmail) {
+      const emailKey = await sha256Hex(`profile_email:${requestedEmail}`);
+      if (!(await underLimit(db, emailKey, today, EMAIL_SEND_LIMIT_PER_DAY))) return acknowledged();
+    }
+
+    const provider = emailProviderOrNull(env);
+    const rawToken = await requestProfileEditLink(db, submitted.email ?? "");
+    if (rawToken && provider) {
+      const signup = await db.prepare("SELECT id, email_normalized FROM waitlist_signups WHERE email_normalized = ?")
+        .bind(String(submitted.email).trim().toLowerCase()).first();
+      if (signup) {
+        await provider.send({
+          to: signup.email_normalized,
+          subject: "Your MotoTrack profile link",
+          text: [
+            "Here is your link to update your optional MotoTrack rider profile:",
+            `${url.origin}${PROFILE_PATH}/open?token=${rawToken}`,
+            "",
+            "The link is single-use and expires in 30 days. Sharing a profile is optional and does not affect your place on the waitlist, your eligibility, or when you may be invited.",
+            "",
+            "You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list. You can unsubscribe at any time.",
+            `Privacy Policy: ${url.origin}/privacy.html`,
+          ].join("\n"),
+        });
+      }
+    }
+    return acknowledged();
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/waitlist" && request.method === "POST") return handleJoin(request, env);
     if (url.pathname === "/waitlist/confirm" && ["GET", "POST"].includes(request.method)) return handleConfirm(request, env, url);
     if (url.pathname === "/waitlist/unsubscribe" && ["GET", "POST"].includes(request.method)) return handleUnsubscribe(request, env, url);
+    if (url.pathname === PROFILE_PATH || url.pathname.startsWith(`${PROFILE_PATH}/`)) {
+      const handled = await handleProfileRoutes(request, env, url);
+      if (handled) return stagingGuard(env, handled);
+    }
     if (url.pathname === "/waitlist/confirmed" && request.method === "GET") {
       const track = url.searchParams.get("list") === "interest" ? "international_interest" : "us_beta_waitlist";
       return stagingGuard(env, confirmedPage(env, track));
