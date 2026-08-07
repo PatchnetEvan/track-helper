@@ -138,7 +138,7 @@ const seedPopulation = () => {
   [{ signup_id: "c1", outcome: "issued" }, { signup_id: "c2", outcome: "issued" }],
   "deterministic confirmed_at ASC, id ASC selection");
   assert.deepEqual(provider.sent.map((m) => m.to), ["one@example.com", "two@example.com"]);
-  assert.equal(provider.sent[0].subject, "Your MotoTrack profile link");
+  assert.equal(provider.sent[0].subject, "Set up your MotoTrack rider profile");
   assert.match(provider.sent[0].text, /\/waitlist\/profile\/open\?token=/, "a usable protected link is sent");
   for (const signupId of ["c1", "c2"]) {
     assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_invitations
@@ -343,6 +343,128 @@ const seedPopulation = () => {
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_rate_buckets WHERE bucket_key='stale'"), 0, "rate-bucket cleanup ran");
   assert.equal(typeof summary.profile_invitation_batches_purged, "number", "the sweep reports batch purges");
   assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean after retention");
+  db = original;
+}
+
+// ---------------------------------------------------------------------------
+// Invitation copy fidelity. The one-time operator invitation and the
+// rider-requested edit link are DIFFERENT events: one arrives unbidden and has
+// to explain itself, the other answers a rider who asked. They must never
+// share a subject or a body.
+// ---------------------------------------------------------------------------
+const US_INVITATION_TEXT = [
+  "Tell us about your riding",
+  "",
+  "You previously confirmed your place on the MotoTrack early-access waitlist. We’re now offering an optional rider profile so you can tell us about your motorcycles, track experience, and what you want MotoTrack to help you improve.",
+  "",
+  "Completing your rider profile is optional and does not affect your waitlist position, eligibility, or access timing.",
+  "",
+  "Set up your rider profile",
+];
+const INTERNATIONAL_INVITATION_TEXT = [
+  "Tell us about your riding",
+  "",
+  "You previously confirmed your place on the MotoTrack international interest list. We’re now offering an optional rider profile so you can tell us about your motorcycles, track experience, and what you want MotoTrack to help you improve.",
+  "",
+  "Completing your rider profile is optional and does not affect your place on the international interest list or guarantee MotoTrack access or availability in your region.",
+  "",
+  "Set up your rider profile",
+];
+const INVITATION_CLOSING_TEXT =
+  "This secure profile link expires in 30 days. If you choose not to complete a profile, you can simply ignore this email.";
+
+{
+  const copyDb = freshDb();
+  const original = db;
+  db = copyDb;
+  db.sqlite.prepare(`INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status,
+    consent_at, confirmed_at, consent_copy_version, privacy_notice_version)
+    VALUES ('us1','us@example.com','US','us_beta_waitlist','confirmed',datetime('now'),datetime('now','-9 days'),'2026-08-05.2','2026-08-05.3')`).run();
+  db.sqlite.prepare(`INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status,
+    consent_at, confirmed_at, consent_copy_version, privacy_notice_version)
+    VALUES ('in1','intl@example.com','DE','international_interest','confirmed',datetime('now'),datetime('now','-8 days'),'2026-08-05.2','2026-08-05.3')`).run();
+
+  const provider = capturingProvider();
+  const result = await executeProfileInvitationBatch(copyDb, ENABLED, provider, { origin: ORIGIN, limit: 25 });
+  assert.equal(result.issued, 2);
+  const us = provider.sent.find((m) => m.to === "us@example.com");
+  const intl = provider.sent.find((m) => m.to === "intl@example.com");
+
+  // (4) The operator invitation never borrows the rider-requested subject.
+  for (const message of [us, intl]) {
+    assert.equal(message.subject, "Set up your MotoTrack rider profile");
+    assert.notEqual(message.subject, "Your MotoTrack profile link");
+  }
+
+  // (1)(2) Exact approved body copy, in order, for each track.
+  const lines = (message) => message.text.split("\n");
+  assert.deepEqual(lines(us).slice(0, US_INVITATION_TEXT.length), US_INVITATION_TEXT, "exact U.S. invitation copy");
+  assert.deepEqual(lines(intl).slice(0, INTERNATIONAL_INVITATION_TEXT.length), INTERNATIONAL_INVITATION_TEXT,
+    "exact international-interest invitation copy");
+  for (const message of [us, intl]) {
+    assert.ok(lines(message).includes(INVITATION_CLOSING_TEXT), "exact closing line");
+  }
+  // Track copy never crosses over.
+  assert.ok(!us.text.includes("international interest list"), "no interest-list wording on the U.S. track");
+  assert.ok(!intl.text.includes("early-access waitlist. We’re"), "no waitlist wording on the interest track");
+
+  // (3) The international copy promises nothing.
+  assert.ok(!/beta access|you will receive|access will open|when access becomes available|invited on|launch|priority/i
+    .test(intl.text), "no beta-access, timing, launch, or priority promise");
+  assert.ok(!/U\.S\. beta|United States/i.test(intl.text),
+    "an international recipient is never described as being in the U.S. beta");
+
+  // (6) Exactly one protected profile CTA, immediately followed by its link.
+  for (const message of [us, intl]) {
+    const messageLines = lines(message);
+    assert.equal(messageLines.filter((line) => line === "Set up your rider profile").length, 1, "exactly one CTA");
+    assert.equal(messageLines.filter((line) => line.includes("/waitlist/profile/open?token=")).length, 1,
+      "exactly one protected profile link");
+    const ctaIndex = messageLines.indexOf("Set up your rider profile");
+    assert.match(messageLines[ctaIndex + 1], /^https:\/\/mototrack\.app\/waitlist\/profile\/open\?token=.+/,
+      "the link immediately follows the CTA");
+  }
+
+  // (7) The standard footer survives, with a WORKING unsubscribe link.
+  for (const message of [us, intl]) {
+    assert.match(message.text, /You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list\. You can unsubscribe at any time\./);
+    assert.match(message.text, /^Privacy Policy: https:\/\/mototrack\.app\/privacy\.html$/m);
+    const unsubscribe = lines(message).find((line) => line.startsWith("Unsubscribe: "));
+    assert.ok(unsubscribe, "an unsubscribe line is present");
+    const token = unsubscribe.split("token=")[1];
+    assert.ok(token && token.length >= 40, "carrying a real token, not a placeholder");
+    const stored = row("SELECT purpose, used_at, superseded_at FROM waitlist_tokens WHERE signup_id = ? AND purpose = 'unsubscribe'",
+      message.to === "us@example.com" ? "us1" : "in1");
+    assert.equal(stored.purpose, "unsubscribe", "the token is a real, stored, usable unsubscribe token");
+    assert.equal(stored.used_at, null);
+    assert.equal(stored.superseded_at, null);
+  }
+
+  // (8) A failure never falls back to the other template.
+  const failing = {
+    sent: [],
+    async send(message) {
+      if (message.to === "fail@example.com") throw new Error("injected");
+      this.sent.push(message);
+      return { status: "test_capture" };
+    },
+  };
+  db.sqlite.prepare(`INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status,
+    consent_at, confirmed_at, consent_copy_version, privacy_notice_version)
+    VALUES ('f1','fail@example.com','US','us_beta_waitlist','confirmed',datetime('now'),datetime('now','-7 days'),'2026-08-05.2','2026-08-05.3')`).run();
+  db.sqlite.prepare(`INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status,
+    consent_at, confirmed_at, consent_copy_version, privacy_notice_version)
+    VALUES ('f2','after@example.com','DE','international_interest','confirmed',datetime('now'),datetime('now','-6 days'),'2026-08-05.2','2026-08-05.3')`).run();
+  const failed = await executeProfileInvitationBatch(copyDb, ENABLED, failing, { origin: ORIGIN, limit: 25 });
+  assert.equal(failed.send_failed, 1);
+  assert.equal(failed.issued, 1);
+  for (const message of failing.sent) {
+    assert.equal(message.subject, "Set up your MotoTrack rider profile",
+      "a neighbouring failure never switches the surviving message to another template");
+  }
+  const after = failing.sent.find((m) => m.to === "after@example.com");
+  assert.deepEqual(after.text.split("\n").slice(0, INTERNATIONAL_INVITATION_TEXT.length), INTERNATIONAL_INVITATION_TEXT,
+    "and its track-specific copy is still exact");
   db = original;
 }
 

@@ -12,7 +12,8 @@
 // unique index idx_one_later_invitation_per_signup permits at most one
 // later_invitation per signup, so a rerun physically cannot double-invite.
 
-import { issueProfileInvitation, PROFILE_TOKEN_TTL_DAYS } from "./waitlist-profile-service.js";
+import { issueProfileInvitation } from "./waitlist-profile-service.js";
+import { activeUnsubscribeToken } from "./waitlist-tokens.js";
 
 export const BATCH_MAX_RECIPIENTS = 25;
 
@@ -55,19 +56,50 @@ export async function previewProfileInvitationBatch(db) {
   };
 }
 
-// The invitation email for existing confirmed riders. PR 4 was given no new
-// copy, so this is the wording already shipped for a rider-requested profile
-// link rather than anything invented here.
-export function profileInvitationEmail(origin, rawToken) {
+// The ONE-TIME operator-triggered invitation to an existing confirmed rider.
+// This is a different event from the rider-requested edit link and must never
+// share its copy: that flow answers a rider who asked, this one arrives
+// unbidden and has to explain why. The subject and body below are the exact
+// approved copy, track-specific - the international variant never describes
+// the recipient as being in the U.S. beta and promises nothing about access,
+// timing, or regional availability.
+export const INVITATION_SUBJECT = "Set up your MotoTrack rider profile";
+export const INVITATION_CTA = "Set up your rider profile";
+
+const US_INVITATION_BODY = [
+  "Tell us about your riding",
+  "",
+  "You previously confirmed your place on the MotoTrack early-access waitlist. We’re now offering an optional rider profile so you can tell us about your motorcycles, track experience, and what you want MotoTrack to help you improve.",
+  "",
+  "Completing your rider profile is optional and does not affect your waitlist position, eligibility, or access timing.",
+];
+const INTERNATIONAL_INVITATION_BODY = [
+  "Tell us about your riding",
+  "",
+  "You previously confirmed your place on the MotoTrack international interest list. We’re now offering an optional rider profile so you can tell us about your motorcycles, track experience, and what you want MotoTrack to help you improve.",
+  "",
+  "Completing your rider profile is optional and does not affect your place on the international interest list or guarantee MotoTrack access or availability in your region.",
+];
+const INVITATION_CLOSING = "This secure profile link expires in 30 days. If you choose not to complete a profile, you can simply ignore this email.";
+
+export function profileInvitationEmail(origin, rawToken, programTrack, unsubscribeToken) {
+  const body = programTrack === "international_interest" ? INTERNATIONAL_INVITATION_BODY : US_INVITATION_BODY;
   return {
-    subject: "Your MotoTrack profile link",
+    subject: INVITATION_SUBJECT,
     text: [
-      "Here is your link to update your optional MotoTrack rider profile:",
+      ...body,
+      "",
+      INVITATION_CTA,
       `${origin}/waitlist/profile/open?token=${rawToken}`,
       "",
-      `The link is single-use and expires in ${PROFILE_TOKEN_TTL_DAYS} days. Sharing a profile is optional and does not affect your place on the waitlist, your eligibility, or when you may be invited.`,
+      INVITATION_CLOSING,
+      // The standard MotoTrack wait-list footer, unchanged: same
+      // received-because sentence, a WORKING unsubscribe link, and the
+      // Privacy Policy link.
+      "",
       "",
       "You received this message because this email address was submitted to the MotoTrack early-access waitlist or regional interest list. You can unsubscribe at any time.",
+      `Unsubscribe: ${origin}/waitlist/unsubscribe?token=${unsubscribeToken}`,
       `Privacy Policy: ${origin}/privacy.html`,
     ].join("\n"),
   };
@@ -104,7 +136,7 @@ export async function executeProfileInvitationBatch(db, env, provider, { origin,
   try {
     // Deterministic selection, so a rerun after a partial batch walks the same
     // queue in the same order rather than an arbitrary slice.
-    const candidates = await db.prepare(`SELECT s.id, s.email_normalized FROM waitlist_signups s
+    const candidates = await db.prepare(`SELECT s.id, s.email_normalized, s.program_track FROM waitlist_signups s
       WHERE ${ACTIVE_CONFIRMED} AND NOT ${HAS_LATER_INVITATION}
       ORDER BY s.confirmed_at ASC, s.id ASC LIMIT ?`).bind(requestedLimit).all();
 
@@ -126,7 +158,8 @@ export async function executeProfileInvitationBatch(db, env, provider, { origin,
       } else {
         let sent = null;
         try {
-          const message = profileInvitationEmail(origin, rawToken);
+          const unsubscribeToken = await activeUnsubscribeToken(db, signup.id);
+          const message = profileInvitationEmail(origin, rawToken, signup.program_track, unsubscribeToken);
           sent = await provider.send({ to: signup.email_normalized, ...message });
         } catch {
           sent = null;

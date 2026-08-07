@@ -16,6 +16,7 @@ import {
   PROFILE_CONSENT_COPY,
 } from "./waitlist-profile-service.js";
 import { sweepProfileInvitationBatches } from "./waitlist-profile-batch.js";
+import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
   revokeEditAuthorization, withdrawProfileWithAuthorization, parseCookies, sessionCookie, clearedCookie,
@@ -144,25 +145,7 @@ async function underLimit(db, bucketKey, windowStart, limit) {
   return Number(raised?.meta?.changes ?? 0) === 1;
 }
 
-async function mintAndStoreToken(db, signupId, purpose, ttlMinutes) {
-  const raw = mintToken();
-  await db.prepare(`UPDATE waitlist_tokens SET superseded_at = datetime('now')
-    WHERE signup_id = ? AND purpose = ? AND used_at IS NULL AND superseded_at IS NULL`).bind(signupId, purpose).run();
-  await db.prepare(`INSERT INTO waitlist_tokens (id, signup_id, token_digest, purpose, expires_at)
-    VALUES (?, ?, ?, ?, ${ttlMinutes ? `datetime('now', '+${ttlMinutes} minutes')` : "NULL"})`)
-    .bind(id("wlt"), signupId, await sha256Hex(raw), purpose).run();
-  return raw;
-}
 
-async function activeUnsubscribeToken(db, signupId) {
-  const existing = await db.prepare(`SELECT id FROM waitlist_tokens
-    WHERE signup_id = ? AND purpose = 'unsubscribe' AND used_at IS NULL AND superseded_at IS NULL`).bind(signupId).first();
-  if (existing) {
-    // Raw tokens are never stored, so a fresh link means a fresh token.
-    return mintAndStoreToken(db, signupId, "unsubscribe", 0);
-  }
-  return mintAndStoreToken(db, signupId, "unsubscribe", 0);
-}
 
 function trackOf(signup) {
   return signup?.program_track === "international_interest" ? "international_interest" : "us_beta_waitlist";
