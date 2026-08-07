@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running and deploying
 
-- **Run locally:** open `index.html` directly in a browser. There is no build step, no bundler, no `package.json`, and no dependencies to install.
+- **Run locally:** open `index.html` directly in a browser. There is no build step, no bundler, and no dependencies to install. `package.json` exists only to define the test command — it declares no dependencies and installs nothing.
 - **Deploy:** static-only. `wrangler.jsonc` configures a Cloudflare Workers Static Assets deploy (`assets.directory: "./"`, no Worker code). `vercel.json` configures the Vercel alternative. Both honor `_headers` for security headers.
-- **No test suite, no lint config, no CI scripts exist.** Verification is manual: open `index.html`, exercise the tab affected by the change, then reload to confirm `localStorage` round-trips.
+- **Test:** `npm test` — the canonical command. It is `node --test` with default discovery, so every `*.test.js` file in the repo runs; there is nothing to keep in sync when a suite is added. Node 24 (`engines.node` is `>=24 <25`, `.node-version` pins `24`) — the wait-list suites use `node:sqlite`, which is flagged on Node 22. Executable suites are `**/*.test.js`; the only non-test JavaScript permitted under a `tests/` directory lives in `tests/helpers/**` or `tests/fixtures/**`. `tests/ci-contract.test.js` asserts all of that, plus a private manifest with zero installable dependencies.
+- **The browser app has no automated coverage.** For changes to `index.html` / `app.js` / `storage.js` / `tire-core.js`, verification is still manual: open `index.html`, exercise the tab affected by the change, then reload to confirm `localStorage` round-trips.
 
 ## Architecture
 
