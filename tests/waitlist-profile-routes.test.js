@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import worker, { runRetentionSweep, EMAIL_SEND_LIMIT_PER_DAY } from "../src/waitlist-worker.js";
 import { issueProfileInvitation } from "../src/waitlist-profile-service.js";
+import { profileInvitationEmail } from "../src/waitlist-profile-batch.js";
 import {
   PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH,
   PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH,
@@ -324,6 +325,38 @@ const openSession = async (signupId) => {
   assert.equal(storedUnsub.superseded_at, null);
   assert.match(sent[0].text, /^Privacy Policy: https:\/\/mototrack\.app\/privacy\.html$/m,
     "and the Privacy Policy link is unchanged");
+
+  // Exactly one unsubscribe URL, and exactly one profile link: the message
+  // must not sprout a second call to action or a duplicate opt-out.
+  const requestedLines = sent[0].text.split("\n");
+  assert.equal(requestedLines.filter((line) => line.startsWith("Unsubscribe: ")).length, 1,
+    "exactly one unsubscribe URL");
+  const profileLinkLines = requestedLines.filter((line) => line.includes(`${PROFILE_PATH}/open?token=`));
+  assert.equal(profileLinkLines.length, 1, "the profile link is still present, exactly once");
+  const profileToken = profileLinkLines[0].split("token=")[1];
+
+  // The two tokens are distinct and purpose-specific: an unsubscribe link must
+  // never double as profile access, and a profile link must never opt anyone
+  // out. They live in different tables for exactly that reason.
+  assert.notEqual(profileToken, unsubToken, "the profile and unsubscribe tokens are distinct values");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_tokens WHERE signup_id='s2' AND purpose != 'unsubscribe'"), 0,
+    "the only waitlist_token minted here is the unsubscribe token");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_invitations WHERE signup_id='s2'"), 1,
+    "and the profile token is an invitation, not a wait-list token");
+
+  // The batch invitation copy is a DIFFERENT purpose and must be untouched by
+  // this fix.
+  const usInvitation = profileInvitationEmail("https://mototrack.app", "T", "us_beta_waitlist", "U");
+  const intlInvitation = profileInvitationEmail("https://mototrack.app", "T", "international_interest", "U");
+  assert.equal(usInvitation.subject, "Set up your MotoTrack rider profile");
+  assert.equal(intlInvitation.subject, "Set up your MotoTrack rider profile");
+  assert.notEqual(usInvitation.subject, sent[0].subject, "the two email purposes keep distinct subjects");
+  assert.equal(usInvitation.text.split("\n")[0], "Tell us about your riding");
+  assert.match(usInvitation.text, /does not affect your waitlist position, eligibility, or access timing\./);
+  assert.match(intlInvitation.text, /does not affect your place on the international interest list or guarantee MotoTrack access or availability in your region\./);
+  assert.ok(!usInvitation.text.includes("Here is your link to update your optional MotoTrack rider profile:"),
+    "the batch invitation never borrows the rider-requested body");
+
 
   // CSRF mismatch answers the same generic page and sends nothing.
   const before = sent.length;
