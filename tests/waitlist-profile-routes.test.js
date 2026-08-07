@@ -346,7 +346,12 @@ const openSession = async (signupId) => {
 }
 
 // ---------------------------------------------------------------------------
-// Atomicity: concurrency and failure injection at the save boundary.
+// Atomicity: competing saves and failure injection at the save boundary.
+//
+// The transactional SQLite harness proves the claim-marker and rollback logic
+// under competing save attempts. Real Cloudflare D1 concurrency behavior
+// remains a staging-proof item and is not claimed from the local harness
+// alone.
 // ---------------------------------------------------------------------------
 {
   // Two concurrent saves on the same authorization: exactly one writes.

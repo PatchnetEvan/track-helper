@@ -594,8 +594,11 @@ async function handleProfileRoutes(request, env, url) {
   const cookies = parseCookies(request);
 
   // 1. EXCHANGE: validate WITHOUT consuming, mint authorization, 303 to a
-  //    clean URL. The token never reaches the redirect target, the cookie,
-  //    the markup, a form action, or a log line.
+  //    clean URL. The invitation token is absent from MotoTrack application
+  //    logs, rendered markup, redirect targets, form actions, analytics, and
+  //    stored edit-authorization state after exchange. Because the initial
+  //    invitation is delivered as a URL query parameter, it may appear in
+  //    browser history and infrastructure-level request telemetry.
   if (url.pathname === `${PROFILE_PATH}/open` && request.method === "GET") {
     const issued = await exchangeInvitationForEditAuthorization(db, url.searchParams.get("token") ?? "");
     if (!issued) return profileUnavailablePage(env);
