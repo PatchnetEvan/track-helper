@@ -1223,6 +1223,104 @@ const CREDENTIAL_FREE = (response) => {
 }
 
 // ---------------------------------------------------------------------------
+// Claim diagnostics. The previous round established that every enumerated
+// precondition passes and the save is still refused, so the remaining unknown
+// is what D1 actually returns for the conditional claim. These report it
+// verbatim, plus a read-only check of whether the claim marker landed.
+// ---------------------------------------------------------------------------
+const CLAIM_HEADERS = ["X-MotoTrack-Profile-Claim-Success", "X-MotoTrack-Profile-Claim-Changes",
+  "X-MotoTrack-Profile-Claim-Rows-Written", "X-MotoTrack-Profile-Claim-Changed-Db",
+  "X-MotoTrack-Profile-Claim-Marker-Present"];
+
+{
+  const stagingEnv = { ...env, WAITLIST_ENVIRONMENT: "staging" };
+  const send = (path, fields, jar, useEnv) => {
+    const body = new URLSearchParams();
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null) body.append(k, String(v));
+    return worker.fetch(new Request(`${ORIGIN}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: ORIGIN,
+        ...(jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
+      },
+      body,
+    }), useEnv);
+  };
+  const load = (path, jar, useEnv) => worker.fetch(new Request(`${ORIGIN}${path}`, {
+    headers: jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {},
+  }), useEnv);
+
+  // --- A claim that lands: reported exactly, and the marker is present ---
+  seed("s_claim_ok", "claimok@example.com", "confirmed");
+  const okToken = await issueProfileInvitation(db, "s_claim_ok", "requested_edit_link");
+  const okBrowser = new Browser();
+  okBrowser.absorb(await load(`${PROFILE_PATH}/open?token=${okToken}`, okBrowser.jar, stagingEnv));
+  const okCsrf = csrfIn(await (await load(PROFILE_PATH, okBrowser.jar, stagingEnv)).text());
+  const okSave = await send(PROFILE_PATH,
+    { profile_consent: 1, csrf: okCsrf, display_name: "Claim Landed" }, okBrowser.jar, stagingEnv);
+  assert.equal(okSave.status, 200);
+  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Denial"), null, "a landed claim reports no denial");
+  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Claim-Success"), "true");
+  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Claim-Changes"), "1", "reported verbatim, not normalised");
+  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Claim-Marker-Present"), "true",
+    "the marker actually landed on the row");
+  for (const header of CLAIM_HEADERS) {
+    assert.match(okSave.headers.get(header) ?? "", /^(true|false|missing|\d+)$/,
+      `${header} carries only a flag, a non-negative integer, or "missing"`);
+  }
+
+  // --- A claim that does NOT land, with every precondition still passing ---
+  seed("s_claim_no", "claimno@example.com", "confirmed");
+  const noToken = await issueProfileInvitation(db, "s_claim_no", "requested_edit_link");
+  const noBrowser = new Browser();
+  noBrowser.absorb(await load(`${PROFILE_PATH}/open?token=${noToken}`, noBrowser.jar, stagingEnv));
+  const noCsrf = csrfIn(await (await load(PROFILE_PATH, noBrowser.jar, stagingEnv)).text());
+  // RAISE(IGNORE) skips the row silently: the statement succeeds and changes 0
+  // rows, which is exactly the shape we are trying to distinguish.
+  db.sqlite.exec(`CREATE TRIGGER tmp_block_claim BEFORE UPDATE OF claim_marker
+    ON waitlist_profile_edit_authorizations BEGIN SELECT RAISE(IGNORE); END`);
+  const noSave = await send(PROFILE_PATH,
+    { profile_consent: 1, csrf: noCsrf, display_name: "Claim Lost" }, noBrowser.jar, stagingEnv);
+  db.sqlite.exec("DROP TRIGGER tmp_block_claim");
+
+  assert.equal(noSave.headers.get("X-MotoTrack-Profile-Denial"), "claim_not_applied",
+    "all preconditions passing plus a claim that did not succeed is named precisely");
+  assert.equal(noSave.headers.get("X-MotoTrack-Profile-Claim-Changes"), "0");
+  assert.equal(noSave.headers.get("X-MotoTrack-Profile-Claim-Marker-Present"), "false",
+    "and the marker genuinely did not land");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_claim_no'"), 0,
+    "nothing was written");
+
+  // The diagnostic read must not mutate anything.
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_claim_no' AND claim_marker IS NOT NULL`), 0,
+  "the marker-presence read leaves the row untouched");
+
+  // --- Production and every other environment stay silent ---
+  seed("s_claim_prod", "claimprod@example.com", "confirmed");
+  const prodToken = await issueProfileInvitation(db, "s_claim_prod", "requested_edit_link");
+  for (const environment of [{ WAITLIST_ENVIRONMENT: "production" }, {}, { WAITLIST_ENVIRONMENT: "Staging" }]) {
+    const quiet = { ...env, ...environment };
+    if (!("WAITLIST_ENVIRONMENT" in environment)) delete quiet.WAITLIST_ENVIRONMENT;
+    const jar = new Map();
+    const opened = await load(`${PROFILE_PATH}/open?token=${prodToken}`, jar, quiet);
+    for (const header of opened.headers.getSetCookie?.() ?? []) {
+      const [pair] = header.split(";");
+      const [n, ...rest] = pair.split("=");
+      jar.set(n.trim(), rest.join("="));
+    }
+    const form = await load(PROFILE_PATH, jar, quiet);
+    const csrf = csrfIn(await form.text());
+    const saved = await send(PROFILE_PATH, { profile_consent: 1, csrf, display_name: "Quiet" }, jar, quiet);
+    for (const header of [...CLAIM_HEADERS, "X-MotoTrack-Profile-Denial"]) {
+      assert.equal(saved.headers.get(header), null,
+        `${header} absent for ${JSON.stringify(environment.WAITLIST_ENVIRONMENT ?? "(absent)")}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // PR-scope containment and application-surface token absence.
 // ---------------------------------------------------------------------------
 {

@@ -20,6 +20,7 @@ import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js"
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
   revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission, diagnoseSaveDenial,
+  claimMarkerLanded,
   parseCookies, sessionCookie, clearedCookie,
   PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH, EDIT_AUTH_TTL_SECONDS, profileAuthOpaqueValue,
   PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH,
@@ -545,6 +546,23 @@ function withDiagnostics(env, response, headers) {
   return marked;
 }
 
+// Reports the D1 result for the conditional claim EXACTLY as returned -
+// no normalising `changes` into "rows matched", no filling in of absent
+// fields - plus a read-only check of whether this request's claim marker
+// actually landed. Staging only, and never a marker, id, token, or address.
+async function claimDiagnostics(env, db, diagnostics) {
+  if (!stagingDiagnostics(env) || !diagnostics?.claimAttempted) return {};
+  const flag = (value) => (value === true ? "true" : value === false ? "false" : "missing");
+  const whole = (value) => (Number.isInteger(value) && value >= 0 ? String(value) : "missing");
+  return {
+    "X-MotoTrack-Profile-Claim-Success": flag(diagnostics.claimSuccess),
+    "X-MotoTrack-Profile-Claim-Changes": whole(diagnostics.claimChanges),
+    "X-MotoTrack-Profile-Claim-Rows-Written": whole(diagnostics.claimRowsWritten),
+    "X-MotoTrack-Profile-Claim-Changed-Db": flag(diagnostics.claimChangedDb),
+    "X-MotoTrack-Profile-Claim-Marker-Present": (await claimMarkerLanded(db, diagnostics.marker)) ? "true" : "false",
+  };
+}
+
 function profileSupersededPage(env) {
   return profilePage(env, "Editing session replaced", `
     <h1>This editing session was replaced by a newer one.</h1>
@@ -690,8 +708,9 @@ async function handleProfileRoutes(request, env, url) {
     try { submitted = await readProfileForm(request); } catch { return profileUnavailablePage(env); }
     const cookieValue = cookies[PROFILE_COOKIE] ?? "";
     let outcome;
+    const claimProbe = stagingDiagnostics(env) ? {} : null;
     try {
-      outcome = await saveProfileWithAuthorization(db, cookieValue, submitted.csrf, submitted.payload);
+      outcome = await saveProfileWithAuthorization(db, cookieValue, submitted.csrf, submitted.payload, claimProbe);
     } catch (error) {
       if (error instanceof ProfileValidationError) {
         // Validation failure: the invitation and the authorization both remain
@@ -705,28 +724,33 @@ async function handleProfileRoutes(request, env, url) {
       // mistake. The atomic batch rolled back, so nothing was written and
       // nothing was consumed - the session stays alive for a retry, and the
       // cookies are deliberately NOT cleared.
-      return profilePage(env, "Temporarily unavailable", `
+      return withDiagnostics(env, profilePage(env, "Temporarily unavailable", `
         <h1>We couldn't save that just now</h1>
         <p>Nothing was changed. Please try again in a moment using the same link.</p>
-        <p><a class="back" href="${PROFILE_PATH}">Back to the form</a></p>`, { status: 503 });
+        <p><a class="back" href="${PROFILE_PATH}">Back to the form</a></p>`, { status: 503 }),
+      { "X-MotoTrack-Profile-Denial": claimProbe?.batchError ? "claim_batch_error" : null });
     }
+    const claimHeaders = await claimDiagnostics(env, db, claimProbe);
     if (!outcome || outcome.csrfRejected) {
       // Diagnose BEFORE any mutation, so the reported precondition is the one
       // that actually failed rather than a consequence of our own revocation.
+      // If every enumerated precondition passed yet the save concluded the
+      // claim did not succeed, say exactly that rather than reporting nothing.
       const denial = stagingDiagnostics(env)
-        ? await diagnoseSaveDenial(db, cookieValue, submitted.csrf, cookies[PROFILE_CSRF_COOKIE] ?? null)
+        ? (await diagnoseSaveDenial(db, cookieValue, submitted.csrf, cookies[PROFILE_CSRF_COOKIE] ?? null)
+          ?? (claimProbe?.claimAttempted ? "claim_not_applied" : null))
         : null;
       // A stale tab sends the browser's CURRENT cookie with its OWN older
       // CSRF value. Treating that as an attack used to revoke the LIVE
       // session, so one stale submit killed the good tab too. Identify it
       // first, and leave the live authorization alone.
       if (await isSupersededSubmission(db, cookieValue, submitted.csrf)) {
-        return withDiagnostics(env, profileSupersededPage(env), { "X-MotoTrack-Profile-Denial": denial });
+        return withDiagnostics(env, profileSupersededPage(env), { "X-MotoTrack-Profile-Denial": denial, ...claimHeaders });
       }
       await revokeEditAuthorization(db, cookieValue);
-      return withDiagnostics(env, profileUnavailablePage(env), { "X-MotoTrack-Profile-Denial": denial });
+      return withDiagnostics(env, profileUnavailablePage(env), { "X-MotoTrack-Profile-Denial": denial, ...claimHeaders });
     }
-    return profileSavedPage(env);
+    return withDiagnostics(env, profileSavedPage(env), claimHeaders);
   }
 
   // 3b. WITHDRAW PROFILE CONSENT. Requires the same protected authorization as
