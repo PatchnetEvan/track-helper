@@ -70,7 +70,7 @@ const linkFrom = (text, path) => {
 
 // The form never pre-checks consent and carries the exact consent copy.
 {
-  const html = readFileSync(join(import.meta.dirname, "..", "waitlist.html"), "utf8");
+  const html = readFileSync(join(import.meta.dirname, "..", "public", "waitlist.html"), "utf8");
   assert.ok(html.includes('type="checkbox" required'), "consent checkbox present and required");
   assert.ok(!/checkbox"[^>]*checked/.test(html), "the consent box is NEVER pre-checked");
   assert.ok(html.includes("Yes, add me to the MotoTrack early-access waitlist or regional interest list, based on my current location"), "exact approved v2 consent wording");
@@ -379,7 +379,7 @@ const linkFrom = (text, path) => {
 
 // Privacy notice v2 carries the geographic disclosure and no placeholders.
 {
-  const notice = readFileSync(join(import.meta.dirname, "..", "privacy.html"), "utf8");
+  const notice = readFileSync(join(import.meta.dirname, "..", "public", "privacy.html"), "utf8");
   assert.ok(notice.includes("Version:</strong> 2026-08-05.3"), "notice version bumped");
   assert.ok(notice.includes("Geographic availability"), "geographic section present");
   assert.ok(notice.includes("50 United States, Washington, D.C., and U.S. territories"), "scope stated");
