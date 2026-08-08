@@ -504,9 +504,9 @@ function profileFormPage(env, resolved, csrfValue, { error = null } = {}) {
       <input id="p-primary" name="primary_motorcycle" type="text" maxlength="200" value="${value("primary_motorcycle")}" />
       <label for="p-others">Other motorcycles</label>
       <input id="p-others" name="other_motorcycles" type="text" maxlength="500" value="${value("other_motorcycles")}" />
-      <label for="p-tracks">Tracks and event types</label>
+      <label for="p-tracks">Tracks and organizations you ride with</label>
       <input id="p-tracks" name="tracks_and_events" type="text" maxlength="500" value="${value("tracks_and_events")}" />
-      <label for="p-tools">Current timing or data tools</label>
+      <label for="p-tools">Lap timer, data logger, or other track tools you use</label>
       <input id="p-tools" name="timing_tools" type="text" maxlength="500" value="${value("timing_tools")}" />
       <label for="p-goals">${escapeHtml(GOALS_PROMPT)}</label>
       <textarea id="p-goals" name="goals" rows="5" maxlength="${GOALS_MAX_LENGTH}">${value("goals")}</textarea>
