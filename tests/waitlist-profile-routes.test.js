@@ -1321,6 +1321,109 @@ const CLAIM_HEADERS = ["X-MotoTrack-Profile-Claim-Success", "X-MotoTrack-Profile
 }
 
 // ---------------------------------------------------------------------------
+// Request-source gate: Sec-Fetch-Site first, Origin fallback. The staging bug
+// was Chrome's real shape - Referrer-Policy: no-referrer rewrites a
+// same-origin form POST to Origin: null - being refused by the old
+// origin-equality check before any session or CSRF logic ran. These tests use
+// the REAL browser shape, not an always-correct injected Origin.
+// ---------------------------------------------------------------------------
+{
+  const stagingEnv = { ...env, WAITLIST_ENVIRONMENT: "staging" };
+  // Probe: a cookieless POST that PASSES the gate reaches the diagnosed save
+  // path and reports session_cookie_missing; one refused AT the gate gets the
+  // generic page with no denial header. That difference is the probe.
+  const gate = async (origin, fetchSite) => {
+    const response = await post(PROFILE_PATH, { csrf: "probe" }, {}, origin,
+      fetchSite === undefined ? {} : { "sec-fetch-site": fetchSite }, stagingEnv);
+    assert.equal(response.status, 410);
+    return response.headers.get("X-MotoTrack-Profile-Denial");
+  };
+
+  assert.equal(await gate("null", "same-origin"), "session_cookie_missing",
+    "the real Chrome shape - Origin: null + Sec-Fetch-Site: same-origin - passes the gate");
+  assert.equal(await gate(ORIGIN, "same-origin"), "session_cookie_missing",
+    "same-origin with a correct Origin passes too");
+  for (const refused of ["same-site", "cross-site", "none", "", "Same-Origin", "banana"]) {
+    assert.equal(await gate(ORIGIN, refused), null,
+      `Sec-Fetch-Site ${JSON.stringify(refused)} is refused even alongside a correct Origin`);
+  }
+  // No Sec-Fetch-Site: the existing Origin fallback, unchanged.
+  assert.equal(await gate(ORIGIN, undefined), "session_cookie_missing", "correct Origin still passes");
+  assert.equal(await gate(null, undefined), "session_cookie_missing", "absent Origin is still tolerated");
+  assert.equal(await gate("null", undefined), null,
+    "Origin: null WITHOUT Sec-Fetch-Site stays refused - null is never generally trusted");
+  assert.equal(await gate("https://evil.example", undefined), null, "a foreign Origin stays refused");
+}
+
+// ---------------------------------------------------------------------------
+// PRIMARY REGRESSION for the staging bug: the exact end-to-end Chrome shape.
+// ---------------------------------------------------------------------------
+{
+  const CHROME = { "sec-fetch-site": "same-origin" };
+  seed("s_chrome", "chrome@example.com", "confirmed");
+
+  // First save (grants consent) through the browser shape.
+  const first = await openSession("s_chrome");
+  const created = await post(PROFILE_PATH,
+    { profile_consent: 1, csrf: first.jar[PROFILE_CSRF_COOKIE], display_name: "Chrome Shape" },
+    first.jar, "null", CHROME);
+  assert.equal(created.status, 200);
+  assert.match(await created.text(), /your profile is saved/i, "a first save works from the real browser shape");
+
+  // The staging bug, exactly: valid live authorization, valid CSRF cookie and
+  // form value, Other motorcycles Z800, Origin: null, Sec-Fetch-Site:
+  // same-origin.
+  const second = await openSession("s_chrome");
+  const formHtml = await (await get(PROFILE_PATH, second.jar)).text();
+  assert.ok(!/name="profile_consent"/.test(formHtml), "an ordinary edit shows no repeated consent control");
+  const saved = await post(PROFILE_PATH,
+    { csrf: second.jar[PROFILE_CSRF_COOKIE], display_name: "Chrome Shape", other_motorcycles: "Z800" },
+    second.jar, "null", CHROME);
+  assert.equal(saved.status, 200, "the save that failed on staging succeeds");
+  assert.match(await saved.text(), /your profile is saved/i);
+  assert.equal(row("SELECT other_motorcycles FROM waitlist_profiles WHERE signup_id='s_chrome'").other_motorcycles,
+    "Z800", "Z800 persisted");
+  assert.ok(row(`SELECT consumed_at FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_chrome' ORDER BY issued_at DESC LIMIT 1`).consumed_at,
+  "the authorization is consumed per existing save semantics");
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_invitations
+    WHERE signup_id='s_chrome' AND used_at IS NOT NULL`), 2,
+  "the invitation is consumed per existing save semantics");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_consent_events WHERE signup_id='s_chrome'"), 1,
+    "no duplicate consent grant");
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean");
+
+  // Delete route: a cross-site attempt is refused BEFORE any revocation, so
+  // the live session survives; the browser shape then withdraws normally.
+  const third = await openSession("s_chrome");
+  const refused = await post(`${PROFILE_PATH}/delete`,
+    { csrf: third.jar[PROFILE_CSRF_COOKIE] }, third.jar, ORIGIN, { "sec-fetch-site": "cross-site" });
+  assert.equal(refused.status, 410);
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_chrome' AND consumed_at IS NULL AND revoked_at IS NULL`), 1,
+  "a cross-site delete attempt never revokes the live session");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_chrome'"), 1, "and deletes nothing");
+  const withdrawn = await post(`${PROFILE_PATH}/delete`,
+    { csrf: third.jar[PROFILE_CSRF_COOKIE] }, third.jar, "null", CHROME);
+  assert.equal(withdrawn.status, 200);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_chrome'"), 0,
+    "the browser shape withdraws normally");
+
+  // Request route: refusal is externally the same generic 202, so the email is
+  // the signal - a cross-site request sends nothing, the browser shape sends.
+  const requestForm = await get(PROFILE_REQUEST_PATH);
+  const requestJar = cookiesFrom(requestForm);
+  const requestCsrf = requestJar[PROFILE_REQUEST_CSRF_COOKIE];
+  const sentBefore = sent.length;
+  await post(PROFILE_REQUEST_PATH, { csrf: requestCsrf, email: "chrome@example.com" },
+    requestJar, ORIGIN, { "sec-fetch-site": "cross-site" });
+  assert.equal(sent.length, sentBefore, "a cross-site link request sends no email");
+  await post(PROFILE_REQUEST_PATH, { csrf: requestCsrf, email: "chrome@example.com" },
+    requestJar, "null", CHROME);
+  assert.equal(sent.length, sentBefore + 1, "the browser shape requests a link normally");
+}
+
+// ---------------------------------------------------------------------------
 // PR-scope containment and application-surface token absence.
 // ---------------------------------------------------------------------------
 {

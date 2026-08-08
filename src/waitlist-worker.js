@@ -632,10 +632,19 @@ async function readProfileForm(request) {
   };
 }
 
-function sameOriginRequest(request) {
+// Request-source gate for the profile mutation routes. Sec-Fetch-Site is the
+// authoritative signal when present: the browser sets it, page code cannot,
+// and it survives Referrer-Policy: no-referrer - which rewrites the Origin of
+// a same-origin form POST to the literal string "null" and made the old
+// origin-equality check refuse the site's OWN form. Only the exact value
+// "same-origin" passes; "same-site", "cross-site", "none", and anything
+// unknown are refused. Without Sec-Fetch-Site, the existing Origin fallback
+// applies unchanged: absence tolerated, any foreign value refused - including
+// "null", which is never generally trusted (sandboxed iframes send it too).
+function requestSourceAllowed(request) {
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite !== null) return fetchSite === "same-origin";
   const origin = request.headers.get("origin");
-  // Origin is verified WHERE AVAILABLE: some browsers omit it on same-origin
-  // form posts, so its absence is tolerated while a foreign value is refused.
   return !origin || origin === new URL(request.url).origin;
 }
 
@@ -703,7 +712,7 @@ async function handleProfileRoutes(request, env, url) {
 
   // 3. SAVE: POST only, CSRF + origin checked, then ONE atomic operation.
   if (url.pathname === PROFILE_PATH && request.method === "POST") {
-    if (!sameOriginRequest(request)) return profileUnavailablePage(env);
+    if (!requestSourceAllowed(request)) return profileUnavailablePage(env);
     let submitted;
     try { submitted = await readProfileForm(request); } catch { return profileUnavailablePage(env); }
     const cookieValue = cookies[PROFILE_COOKIE] ?? "";
@@ -771,7 +780,7 @@ async function handleProfileRoutes(request, env, url) {
       <p><a class="back" href="${PROFILE_PATH}">Keep my profile</a></p>`);
   }
   if (url.pathname === `${PROFILE_PATH}/delete` && request.method === "POST") {
-    if (!sameOriginRequest(request)) return profileUnavailablePage(env);
+    if (!requestSourceAllowed(request)) return profileUnavailablePage(env);
     let submitted;
     try { submitted = await readProfileForm(request); } catch { return profileUnavailablePage(env); }
     const cookieValue = cookies[PROFILE_COOKIE] ?? "";
@@ -804,7 +813,7 @@ async function handleProfileRoutes(request, env, url) {
   }
   if (url.pathname === PROFILE_REQUEST_PATH && request.method === "POST") {
     const acknowledged = () => profileRequestPage(env, profileAuthOpaqueValue(), { sent: true });
-    if (!sameOriginRequest(request)) return acknowledged();
+    if (!requestSourceAllowed(request)) return acknowledged();
     let submitted;
     try { submitted = await readProfileForm(request); } catch { submitted = { csrf: null, email: null }; }
     // Double-submit CSRF for this unauthenticated form, read from its OWN
