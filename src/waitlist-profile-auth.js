@@ -3,9 +3,14 @@
 // The emailed invitation NEVER survives past the exchange redirect: it is
 // validated, exchanged for a server-side authorization keyed by an opaque
 // cookie, and left UNCONSUMED. Opening or abandoning the form leaves the email
-// link usable until its 30-day expiry; reopening revokes and replaces the
-// previous authorization (one live edit session) without touching the
-// invitation. The invitation is consumed only by a successful save.
+// link usable until its 30-day expiry. The invariant is at most ONE SUCCESSFUL
+// PROFILE MUTATION per invitation - not one live authorization: multiple
+// unexpired, unconsumed authorizations for the same valid invitation may
+// coexist (a rider's open form, a second device, an unattributed mail-scanner
+// fetch), each opaque, independently random, hashed at rest, bound to the same
+// signup and invitation, and protected by its own CSRF state. The successful
+// mutation is the single serialization point: it consumes the invitation
+// exactly once and invalidates every sibling authorization atomically.
 //
 // The save is ATOMIC, not "recheck then write": one transaction validates the
 // authorization, its signup/invitation binding, confirmed status, suppression
@@ -77,11 +82,12 @@ export function clearedCookie(name, path = PROFILE_PATH) {
 }
 
 /**
- * Exchange: validates the invitation WITHOUT consuming it and mints a fresh
- * edit authorization, revoking any previous one for that invitation so exactly
- * one edit session is live. Returns the raw cookie + CSRF values once, or null
- * for every invalid condition (unknown, expired, used, revoked, superseded,
- * non-confirmed) so the caller renders one generic unavailable page.
+ * Exchange: validates the invitation WITHOUT consuming it and mints an
+ * INDEPENDENT edit authorization - or reuses the one this client already
+ * holds. It never revokes siblings: an unrelated GET must not invalidate a
+ * form already open elsewhere. Returns the raw cookie + CSRF values once, or
+ * null for every invalid condition (unknown, expired, used, revoked,
+ * superseded, non-confirmed) so the caller renders one generic page.
  */
 export async function exchangeInvitationForEditAuthorization(db, rawToken, existingCookie = null) {
   if (typeof rawToken !== "string" || rawToken.length < 20 || rawToken.length > 128) return null;
@@ -98,8 +104,8 @@ export async function exchangeInvitationForEditAuthorization(db, rawToken, exist
   // caller then redirects without touching Set-Cookie, so a half-completed form
   // in another tab still saves.
   //
-  // This does NOT relax the invariant: still at most one live authorization per
-  // invitation, because nothing new was created.
+  // Reuse keeps this client's session exactly as it is - nothing minted,
+  // nothing rotated, nothing revoked.
   if (existingCookie) {
     const current = await resolveEditAuthorization(db, existingCookie);
     if (current
@@ -112,18 +118,16 @@ export async function exchangeInvitationForEditAuthorization(db, rawToken, exist
   const rawCookie = opaqueValue();
   const rawCsrf = opaqueValue();
   const authorizationId = id("wlea");
-  // Rotate: the new authorization is created and every sibling revoked in one
-  // transaction. The INVITATION IS NOT TOUCHED - it stays usable until it is
-  // consumed by a successful save or expires on its own schedule.
-  await db.batch([
-    db.prepare(`INSERT INTO waitlist_profile_edit_authorizations
-        (id, invitation_id, signup_id, cookie_digest, csrf_digest, expires_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now', '+${EDIT_AUTH_TTL_SECONDS} seconds'))`)
-      .bind(authorizationId, invitation.id, invitation.signup_id, await sha256Hex(rawCookie), await sha256Hex(rawCsrf)),
-    db.prepare(`UPDATE waitlist_profile_edit_authorizations SET revoked_at = datetime('now')
-      WHERE invitation_id = ? AND id != ? AND consumed_at IS NULL AND revoked_at IS NULL`)
-      .bind(invitation.id, authorizationId),
-  ]);
+  // Mint an INDEPENDENT authorization and revoke NOTHING. The old behavior
+  // revoked every sibling here, which let any second GET - a mail scanner, a
+  // link preview, a second device - destroy the authorization backing a form a
+  // rider already had open. Siblings are invalidated only by the successful
+  // mutation itself, inside its atomic batch. The INVITATION IS NOT TOUCHED -
+  // it stays usable until consumed by that mutation or expired.
+  await db.prepare(`INSERT INTO waitlist_profile_edit_authorizations
+      (id, invitation_id, signup_id, cookie_digest, csrf_digest, expires_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now', '+${EDIT_AUTH_TTL_SECONDS} seconds'))`)
+    .bind(authorizationId, invitation.id, invitation.signup_id, await sha256Hex(rawCookie), await sha256Hex(rawCsrf)).run();
   return { cookie: rawCookie, csrf: rawCsrf };
 }
 
@@ -252,7 +256,11 @@ export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf,
     db.prepare(`UPDATE waitlist_profile_invitations SET used_at = datetime('now')
       WHERE id = (SELECT invitation_id FROM waitlist_profile_edit_authorizations WHERE claim_marker = ?)
         AND used_at IS NULL`).bind(marker),
-    // 4. Revoke any other live authorization for that invitation.
+    // 4. Revoke any other live authorization for that invitation. With
+    //    coexisting authorizations this is THE serialization point: the
+    //    winning mutation invalidates every sibling in the same transaction
+    //    that consumes the invitation, so a sibling submitting later can
+    //    never produce a second mutation or a duplicate consent event.
     db.prepare(`UPDATE waitlist_profile_edit_authorizations SET revoked_at = datetime('now')
       WHERE invitation_id = (SELECT invitation_id FROM waitlist_profile_edit_authorizations WHERE claim_marker = ?)
         AND claim_marker IS NOT ? AND consumed_at IS NULL AND revoked_at IS NULL`).bind(marker, marker),
