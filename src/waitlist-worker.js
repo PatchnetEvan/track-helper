@@ -19,7 +19,8 @@ import { sweepProfileInvitationBatches } from "./waitlist-profile-batch.js";
 import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
-  revokeEditAuthorization, withdrawProfileWithAuthorization, parseCookies, sessionCookie, clearedCookie,
+  revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission,
+  parseCookies, sessionCookie, clearedCookie,
   PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH, EDIT_AUTH_TTL_SECONDS, profileAuthOpaqueValue,
   PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH,
 } from "./waitlist-profile-auth.js";
@@ -504,9 +505,9 @@ function profileFormPage(env, resolved, csrfValue, { error = null } = {}) {
       <input id="p-primary" name="primary_motorcycle" type="text" maxlength="200" value="${value("primary_motorcycle")}" />
       <label for="p-others">Other motorcycles</label>
       <input id="p-others" name="other_motorcycles" type="text" maxlength="500" value="${value("other_motorcycles")}" />
-      <label for="p-tracks">Tracks and event types</label>
+      <label for="p-tracks">Tracks and organizations you ride with</label>
       <input id="p-tracks" name="tracks_and_events" type="text" maxlength="500" value="${value("tracks_and_events")}" />
-      <label for="p-tools">Current timing or data tools</label>
+      <label for="p-tools">Lap timer, data logger, or other track tools you use</label>
       <input id="p-tools" name="timing_tools" type="text" maxlength="500" value="${value("timing_tools")}" />
       <label for="p-goals">${escapeHtml(GOALS_PROMPT)}</label>
       <textarea id="p-goals" name="goals" rows="5" maxlength="${GOALS_MAX_LENGTH}">${value("goals")}</textarea>
@@ -524,6 +525,17 @@ function profileFormPage(env, resolved, csrfValue, { error = null } = {}) {
       <button type="submit">Save my profile</button>
     </form>
     ${resolved.consent?.active ? `<p class="wl-hint"><a class="back" href="${PROFILE_PATH}/delete">Delete my rider profile</a></p>` : ""}`);
+}
+
+// Shown ONLY when the server can positively identify a submission as coming
+// from a session that a newer one replaced. Every other invalid condition keeps
+// the single generic response, and this page reveals no address, no signup
+// existence, and no account state.
+function profileSupersededPage(env) {
+  return profilePage(env, "Editing session replaced", `
+    <h1>This editing session was replaced by a newer one.</h1>
+    <p>Continue in the most recently opened MotoTrack profile tab, or open your profile link again to start a fresh editing session.</p>`,
+  { status: 409 });
 }
 
 function profileSavedPage(env) {
@@ -618,14 +630,20 @@ async function handleProfileRoutes(request, env, url) {
   //    invitation is delivered as a URL query parameter, it may appear in
   //    browser history and infrastructure-level request telemetry.
   if (url.pathname === `${PROFILE_PATH}/open` && request.method === "GET") {
-    const issued = await exchangeInvitationForEditAuthorization(db, url.searchParams.get("token") ?? "");
+    const issued = await exchangeInvitationForEditAuthorization(
+      db, url.searchParams.get("token") ?? "", cookies[PROFILE_COOKIE] ?? null);
     if (!issued) return profileUnavailablePage(env);
     const headers = new Headers({
       location: PROFILE_PATH,
       ...PROFILE_SECURITY_HEADERS,
     });
-    headers.append("set-cookie", sessionCookie(PROFILE_COOKIE, issued.cookie, EDIT_AUTH_TTL_SECONDS));
-    headers.append("set-cookie", sessionCookie(PROFILE_CSRF_COOKIE, issued.csrf, EDIT_AUTH_TTL_SECONDS));
+    // Reused: the browser already holds a valid authorization for THIS
+    // invitation. Send no Set-Cookie at all, so the cookie and the CSRF state
+    // an open form was rendered with both survive untouched.
+    if (!issued.reused) {
+      headers.append("set-cookie", sessionCookie(PROFILE_COOKIE, issued.cookie, EDIT_AUTH_TTL_SECONDS));
+      headers.append("set-cookie", sessionCookie(PROFILE_CSRF_COOKIE, issued.csrf, EDIT_AUTH_TTL_SECONDS));
+    }
     return new Response(null, { status: 303, headers });
   }
 
@@ -664,6 +682,11 @@ async function handleProfileRoutes(request, env, url) {
         <p><a class="back" href="${PROFILE_PATH}">Back to the form</a></p>`, { status: 503 });
     }
     if (!outcome || outcome.csrfRejected) {
+      // A stale tab sends the browser's CURRENT cookie with its OWN older
+      // CSRF value. Treating that as an attack used to revoke the LIVE
+      // session, so one stale submit killed the good tab too. Identify it
+      // first, and leave the live authorization alone.
+      if (await isSupersededSubmission(db, cookieValue, submitted.csrf)) return profileSupersededPage(env);
       await revokeEditAuthorization(db, cookieValue);
       return profileUnavailablePage(env);
     }
@@ -702,6 +725,7 @@ async function handleProfileRoutes(request, env, url) {
         <p><a class="back" href="${PROFILE_PATH}/delete">Back</a></p>`, { status: 503 });
     }
     if (!outcome || outcome.csrfRejected) {
+      if (await isSupersededSubmission(db, cookieValue, submitted.csrf)) return profileSupersededPage(env);
       await revokeEditAuthorization(db, cookieValue);
       return profileUnavailablePage(env);
     }

@@ -52,6 +52,7 @@ const env = {
 const ORIGIN = "https://mototrack.app";
 const row = (sql, ...args) => db.sqlite.prepare(sql).get(...args);
 const count = (sql, ...args) => row(sql, ...args).n;
+const rows = (sql, ...args) => db.sqlite.prepare(sql).all(...args).map((r) => ({ ...r }));
 const seed = (id, email, status, track = "us_beta_waitlist") =>
   db.sqlite.prepare(`INSERT INTO waitlist_signups (id, email_normalized, country_code, program_track, status,
     consent_at, confirmed_at, consent_copy_version, privacy_notice_version)
@@ -923,6 +924,173 @@ const joinAndConfirm = async (email, country, useEnv = env) => {
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE id='s_life'"), 0, "the signup reached its ceiling");
   assert.equal(events("s_life").length, 0, "consent history cascaded away with its parent");
   assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean after the purge");
+}
+
+// ---------------------------------------------------------------------------
+// Staging-found usability fix: session lifetime, idempotent reopen, and the
+// superseded-session message.
+//
+// Driven through a real browser cookie jar - ONE value per cookie name, updated
+// by Set-Cookie, replayed on every request - because the defect only exists in
+// that model: cookies are per-browser, not per-tab, so a stale tab submits the
+// browser's CURRENT cookie together with the OLDER CSRF value its own page was
+// rendered with.
+// ---------------------------------------------------------------------------
+class Browser {
+  constructor() { this.jar = new Map(); }
+  absorb(response) {
+    for (const header of response.headers.getSetCookie?.() ?? []) {
+      const [pair, ...attrs] = header.split(";");
+      const [name, ...rest] = pair.split("=");
+      const value = rest.join("=");
+      const maxAge = attrs.map((a) => a.trim()).find((a) => a.toLowerCase().startsWith("max-age="));
+      if (maxAge && maxAge.split("=")[1] === "0") this.jar.delete(name.trim());
+      else this.jar.set(name.trim(), value);
+    }
+    return response;
+  }
+  header() {
+    return [...this.jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+  }
+  get(path) {
+    return worker.fetch(new Request(`${ORIGIN}${path}`, {
+      headers: this.jar.size ? { cookie: this.header() } : {},
+    }), env).then((r) => this.absorb(r));
+  }
+  post(path, fields) {
+    const body = new URLSearchParams();
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null) body.append(k, String(v));
+    return worker.fetch(new Request(`${ORIGIN}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: ORIGIN,
+        ...(this.jar.size ? { cookie: this.header() } : {}),
+      },
+      body,
+    }), env).then((r) => this.absorb(r));
+  }
+}
+const csrfIn = (html) => /name="csrf" value="([^"]*)"/.exec(html)?.[1] ?? null;
+
+{
+  seed("s_sess", "session@example.com", "confirmed");
+  const token = await issueProfileInvitation(db, "s_sess", "requested_edit_link");
+  const authRows = () => rows(`SELECT id, csrf_digest, (consumed_at IS NOT NULL) AS consumed,
+    (revoked_at IS NOT NULL) AS revoked, expires_at, issued_at
+    FROM waitlist_profile_edit_authorizations WHERE signup_id='s_sess' ORDER BY issued_at, id`);
+  const live = () => count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_sess' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > datetime('now')`);
+
+  // --- 60-minute authorization TTL, cookie and server agreeing ---
+  const first = new Browser();
+  const exchange = await first.get(`${PROFILE_PATH}/open?token=${token}`);
+  assert.equal(exchange.status, 303);
+  const cookieHeaders = exchange.headers.getSetCookie();
+  for (const header of cookieHeaders) assert.match(header, /Max-Age=3600/, "cookie Max-Age is 60 minutes");
+  const ttlMinutes = Math.round((new Date(authRows()[0].expires_at + "Z") - new Date(authRows()[0].issued_at + "Z")) / 60000);
+  assert.equal(ttlMinutes, 60, "server-side authorization expiry agrees at 60 minutes");
+
+  // The emailed INVITATION expiry is untouched at 30 days.
+  const invitation = row("SELECT issued_at, expires_at FROM waitlist_profile_invitations WHERE signup_id='s_sess'");
+  const invitationDays = Math.round((new Date(invitation.expires_at + "Z") - new Date(invitation.issued_at + "Z")) / 86400000);
+  assert.equal(invitationDays, 30, "invitation still expires after 30 days");
+
+  // --- Same-browser reopen is idempotent ---
+  const formOne = await first.get(PROFILE_PATH);
+  const originalCsrf = csrfIn(await formOne.text());
+  const before = authRows();
+  assert.equal(before.length, 1);
+
+  const reopen = await first.get(`${PROFILE_PATH}/open?token=${token}`);
+  assert.equal(reopen.status, 303, "reopen still redirects to the clean URL");
+  assert.equal(reopen.headers.getSetCookie().length, 0, "reopen sets NO cookie - nothing rotates");
+  const after = authRows();
+  assert.equal(after.length, 1, "no replacement authorization row is created");
+  assert.deepEqual(after, before, "the same authorization is kept, unrevoked and unchanged");
+  assert.equal(live(), 1, "exactly one live authorization");
+
+  const formTwo = await first.get(PROFILE_PATH);
+  assert.equal(formTwo.status, 200, "the active form still resolves after the reopen");
+  assert.equal(csrfIn(await formTwo.text()), originalCsrf, "CSRF state is not rotated");
+
+  // --- A half-completed form still saves after the same link is clicked again ---
+  const saved = await first.post(PROFILE_PATH,
+    { profile_consent: 1, csrf: originalCsrf, display_name: "Half Completed", primary_motorcycle: "Aprilia RS660" });
+  assert.equal(saved.status, 200);
+  assert.match(await saved.text(), /your profile is saved/i, "work in progress survives a repeat click");
+  assert.equal(row("SELECT primary_motorcycle FROM waitlist_profiles WHERE signup_id='s_sess'").primary_motorcycle,
+    "Aprilia RS660");
+}
+
+// --- Cross-browser reopen still rotates, and a stale submit no longer kills
+//     the live session: it gets the exact superseded message instead. ---
+{
+  seed("s_cross", "cross@example.com", "confirmed");
+  const token = await issueProfileInvitation(db, "s_cross", "requested_edit_link");
+  const live = () => count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_cross' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > datetime('now')`);
+
+  const laptop = new Browser();
+  await laptop.get(`${PROFILE_PATH}/open?token=${token}`);
+  const staleCsrf = csrfIn(await (await laptop.get(PROFILE_PATH)).text());
+  const firstAuthId = row(`SELECT id FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_cross' ORDER BY issued_at DESC LIMIT 1`).id;
+
+  const phone = new Browser();
+  const phoneExchange = await phone.get(`${PROFILE_PATH}/open?token=${token}`);
+  assert.equal(phoneExchange.headers.getSetCookie().length, 2, "a different browser DOES get a fresh cookie pair");
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations WHERE signup_id='s_cross'`), 2,
+    "a replacement authorization is created");
+  assert.equal(row("SELECT (revoked_at IS NOT NULL) AS revoked FROM waitlist_profile_edit_authorizations WHERE id=?",
+    firstAuthId).revoked, 1, "the prior authorization is revoked");
+  assert.equal(live(), 1, "still exactly one live authorization - the invariant holds");
+
+  // The laptop tab now submits: browser cookie is stale for that jar, but the
+  // CSRF value identifies the superseded session.
+  const stale = await laptop.post(PROFILE_PATH, { profile_consent: 1, csrf: staleCsrf, display_name: "Stale Tab" });
+  assert.equal(stale.status, 409);
+  const staleBody = await stale.text();
+  assert.match(staleBody, /This editing session was replaced by a newer one\./);
+  assert.match(staleBody, /Continue in the most recently opened MotoTrack profile tab, or open your profile link again to start a fresh editing session\./);
+  for (const leak of ["cross@example.com", "s_cross"]) {
+    assert.ok(!staleBody.includes(leak), "the superseded page reveals no address or signup identity");
+  }
+  assert.equal(live(), 1, "the LIVE session survives a stale submit - it is no longer destroyed");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_cross'"), 0, "and nothing was written");
+
+  // The still-live browser can complete its save.
+  const phoneCsrf = csrfIn(await (await phone.get(PROFILE_PATH)).text());
+  const ok = await phone.post(PROFILE_PATH, { profile_consent: 1, csrf: phoneCsrf, display_name: "Live Session" });
+  assert.equal(ok.status, 200);
+  assert.match(await ok.text(), /your profile is saved/i);
+}
+
+// --- Every other invalid condition keeps the single generic response ---
+{
+  seed("s_generic", "generic@example.com", "confirmed");
+  const expiredToken = await issueProfileInvitation(db, "s_generic", "requested_edit_link");
+  db.sqlite.prepare(`UPDATE waitlist_profile_invitations SET expires_at = datetime('now','-1 day')
+    WHERE signup_id='s_generic'`).run();
+  const bodies = [];
+  for (const path of [`${PROFILE_PATH}/open?token=${expiredToken}`, `${PROFILE_PATH}/open?token=unknown-token-value-12345678`,
+    PROFILE_PATH]) {
+    const response = await get(path);
+    assert.equal(response.status, 410, `${path} keeps the generic unavailable response`);
+    bodies.push(await response.text());
+  }
+  assert.ok(bodies.every((b) => /This link is no longer available/.test(b)), "expired, unknown and revoked all read identically");
+  assert.ok(bodies.every((b) => !/replaced by a newer one/.test(b)), "and never leak the superseded wording");
+
+  // A genuinely bad CSRF value - not a superseded one - is still treated as a
+  // failure, not given the friendly message.
+  seed("s_badcsrf", "badcsrf@example.com", "confirmed");
+  const badToken = await issueProfileInvitation(db, "s_badcsrf", "requested_edit_link");
+  const attacker = new Browser();
+  await attacker.get(`${PROFILE_PATH}/open?token=${badToken}`);
+  const forged = await attacker.post(PROFILE_PATH, { profile_consent: 1, csrf: "forged-value-not-any-session" });
+  assert.equal(forged.status, 410, "a forged CSRF value still gets the generic response");
+  assert.ok(!/replaced by a newer one/.test(await forged.text()));
 }
 
 // ---------------------------------------------------------------------------
