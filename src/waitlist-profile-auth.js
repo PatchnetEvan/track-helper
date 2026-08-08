@@ -208,7 +208,7 @@ function validatedPayload(payload, { consentRequired }) {
  * a stale or replayed authorization can never write. Returns null for any
  * denial - the caller renders the same generic unavailable page.
  */
-export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf, payload = {}) {
+export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf, payload = {}, diagnostics = null) {
   const resolved = await resolveEditAuthorization(db, rawCookie);
   if (!resolved) return null;
   if (!sameValue(await sha256Hex(String(submittedCsrf ?? "")), resolved.authorization.csrf_digest)) return { csrfRejected: true };
@@ -267,7 +267,25 @@ export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf,
         FROM waitlist_profile_edit_authorizations a WHERE a.claim_marker = ?`)
       .bind(PROFILE_CONSENT_VERSION, PROFILE_NOTICE_VERSION, marker));
   }
-  const results = await db.batch(statements);
+  // STAGING DIAGNOSTICS ONLY: record what D1 actually returned for the
+  // CONDITIONAL CLAIM statement - results[0], never another statement in the
+  // batch - without reinterpreting or normalising any of it. The decision
+  // below is unchanged; this only observes it.
+  if (diagnostics) diagnostics.claimAttempted = true;
+  let results;
+  try {
+    results = await db.batch(statements);
+  } catch (error) {
+    if (diagnostics) diagnostics.batchError = true;
+    throw error;
+  }
+  if (diagnostics) {
+    diagnostics.marker = marker;
+    diagnostics.claimSuccess = results?.[0]?.success;
+    diagnostics.claimChanges = results?.[0]?.meta?.changes;
+    diagnostics.claimRowsWritten = results?.[0]?.meta?.rows_written;
+    diagnostics.claimChangedDb = results?.[0]?.meta?.changed_db;
+  }
   const claimed = Number(results?.[0]?.meta?.changes ?? 0);
   if (claimed !== 1) return null;  // nothing else could have written: all conditional on the marker
   return { saved: true, program_track: resolved.authorization.program_track };
@@ -343,6 +361,18 @@ export async function isSupersededSubmission(db, rawCookie, submittedCsrf) {
       AND (revoked_at IS NULL OR consumed_at IS NOT NULL)`)
     .bind(stale.invitation_id, stale.id, stale.issued_at).first();
   return Boolean(newer);
+}
+
+/**
+ * STAGING DIAGNOSTICS ONLY. Answers exactly one question - did this request's
+ * conditional claim actually land on a row? - and nothing else. Read-only: it
+ * mutates nothing, and it returns a boolean, never the marker.
+ */
+export async function claimMarkerLanded(db, marker) {
+  if (typeof marker !== "string" || !marker) return false;
+  const found = await db.prepare(`SELECT 1 AS n FROM waitlist_profile_edit_authorizations
+    WHERE claim_marker = ?`).bind(marker).first();
+  return Boolean(found);
 }
 
 /** Terminal invalidation of an edit session (used on success and on failure). */
