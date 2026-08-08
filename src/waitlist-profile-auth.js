@@ -354,3 +354,39 @@ export async function revokeEditAuthorization(db, rawCookie) {
 }
 
 export { sha256Hex as profileAuthDigest, opaqueValue as profileAuthOpaqueValue, sameValue as profileAuthSameValue };
+
+/**
+ * STAGING DIAGNOSTICS ONLY. Returns the FIRST precondition that actually fails
+ * on the save path, in the order the save path itself evaluates them - never a
+ * later reason inferred after an earlier check already failed.
+ *
+ * Returns a fixed vocabulary string, or null when nothing failed. It never
+ * returns an identifier, value, digest, token, address, or exception text: the
+ * caller puts this straight into a response header, so the vocabulary IS the
+ * privacy boundary.
+ */
+export async function diagnoseSaveDenial(db, rawCookie, submittedCsrf, csrfCookie) {
+  if (typeof rawCookie !== "string" || !rawCookie) return "session_cookie_missing";
+  const found = await db.prepare(`SELECT a.csrf_digest, a.revoked_at, a.consumed_at,
+      (a.expires_at > datetime('now')) AS authorization_unexpired,
+      i.used_at AS invitation_used, i.revoked_at AS invitation_revoked,
+      i.superseded_at AS invitation_superseded, (i.expires_at > datetime('now')) AS invitation_unexpired,
+      s.status AS signup_status, s.unsubscribed_at, s.resubscribed_at
+    FROM waitlist_profile_edit_authorizations a
+    JOIN waitlist_profile_invitations i ON i.id = a.invitation_id
+    JOIN waitlist_signups s ON s.id = a.signup_id
+    WHERE a.cookie_digest = ?`).bind(await sha256Hex(rawCookie)).first();
+  if (!found) return "authorization_not_found";
+  if (found.revoked_at) return "authorization_revoked";
+  if (found.consumed_at) return "authorization_consumed";
+  if (!found.authorization_unexpired) return "authorization_expired";
+  if (found.invitation_used || found.invitation_revoked || found.invitation_superseded
+    || !found.invitation_unexpired) return "invitation_invalid";
+  if (found.signup_status !== "confirmed") return "signup_not_confirmed";
+  if (found.unsubscribed_at && !found.resubscribed_at) return "signup_inactive";
+  if (typeof csrfCookie !== "string" || !csrfCookie) return "csrf_cookie_missing";
+  if (typeof submittedCsrf !== "string" || !submittedCsrf) return "csrf_form_missing";
+  if (csrfCookie !== submittedCsrf) return "csrf_cookie_form_mismatch";
+  if (await sha256Hex(submittedCsrf) !== found.csrf_digest) return "csrf_digest_mismatch";
+  return null;
+}

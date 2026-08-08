@@ -19,7 +19,7 @@ import { sweepProfileInvitationBatches } from "./waitlist-profile-batch.js";
 import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
-  revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission,
+  revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission, diagnoseSaveDenial,
   parseCookies, sessionCookie, clearedCookie,
   PROFILE_COOKIE, PROFILE_CSRF_COOKIE, PROFILE_PATH, EDIT_AUTH_TTL_SECONDS, profileAuthOpaqueValue,
   PROFILE_REQUEST_CSRF_COOKIE, PROFILE_REQUEST_PATH,
@@ -531,6 +531,20 @@ function profileFormPage(env, resolved, csrfValue, { error = null } = {}) {
 // from a session that a newer one replaced. Every other invalid condition keeps
 // the single generic response, and this page reveals no address, no signup
 // existence, and no account state.
+// STAGING-ONLY diagnostics. Gated on the exact string "staging", so
+// production - and any environment with no WAITLIST_ENVIRONMENT at all, or a
+// different value - emits none of these headers. They carry a fixed vocabulary
+// and never an identifier, value, digest, token, address, or exception text,
+// and they are never written to logs, D1, analytics, or email.
+function stagingDiagnostics(env) { return String(env?.WAITLIST_ENVIRONMENT ?? "") === "staging"; }
+
+function withDiagnostics(env, response, headers) {
+  if (!stagingDiagnostics(env)) return response;
+  const marked = new Response(response.body, response);
+  for (const [name, value] of Object.entries(headers)) if (value) marked.headers.set(name, value);
+  return marked;
+}
+
 function profileSupersededPage(env) {
   return profilePage(env, "Editing session replaced", `
     <h1>This editing session was replaced by a newer one.</h1>
@@ -630,13 +644,28 @@ async function handleProfileRoutes(request, env, url) {
   //    invitation is delivered as a URL query parameter, it may appear in
   //    browser history and infrastructure-level request telemetry.
   if (url.pathname === `${PROFILE_PATH}/open` && request.method === "GET") {
+    // Diagnostic only: does this navigation ARRIVE carrying the edit-session
+    // cookie? An Outlook click is cross-site, so a SameSite=Strict cookie may be
+    // withheld - this reports that directly instead of inferring it from later
+    // state. Presence only; never the value or its digest.
+    const editCookieState = cookies[PROFILE_COOKIE] ? "present" : "absent";
     const issued = await exchangeInvitationForEditAuthorization(
       db, url.searchParams.get("token") ?? "", cookies[PROFILE_COOKIE] ?? null);
-    if (!issued) return profileUnavailablePage(env);
+    if (!issued) {
+      return withDiagnostics(env, profileUnavailablePage(env), {
+        "X-MotoTrack-Profile-Exchange": "invitation_rejected",
+        "X-MotoTrack-Profile-Edit-Cookie": editCookieState,
+      });
+    }
     const headers = new Headers({
       location: PROFILE_PATH,
       ...PROFILE_SECURITY_HEADERS,
     });
+    if (stagingDiagnostics(env)) {
+      headers.set("X-MotoTrack-Profile-Exchange",
+        issued.reused ? "reused_existing_authorization" : "rotated_authorization");
+      headers.set("X-MotoTrack-Profile-Edit-Cookie", editCookieState);
+    }
     // Reused: the browser already holds a valid authorization for THIS
     // invitation. Send no Set-Cookie at all, so the cookie and the CSRF state
     // an open form was rendered with both survive untouched.
@@ -682,13 +711,20 @@ async function handleProfileRoutes(request, env, url) {
         <p><a class="back" href="${PROFILE_PATH}">Back to the form</a></p>`, { status: 503 });
     }
     if (!outcome || outcome.csrfRejected) {
+      // Diagnose BEFORE any mutation, so the reported precondition is the one
+      // that actually failed rather than a consequence of our own revocation.
+      const denial = stagingDiagnostics(env)
+        ? await diagnoseSaveDenial(db, cookieValue, submitted.csrf, cookies[PROFILE_CSRF_COOKIE] ?? null)
+        : null;
       // A stale tab sends the browser's CURRENT cookie with its OWN older
       // CSRF value. Treating that as an attack used to revoke the LIVE
       // session, so one stale submit killed the good tab too. Identify it
       // first, and leave the live authorization alone.
-      if (await isSupersededSubmission(db, cookieValue, submitted.csrf)) return profileSupersededPage(env);
+      if (await isSupersededSubmission(db, cookieValue, submitted.csrf)) {
+        return withDiagnostics(env, profileSupersededPage(env), { "X-MotoTrack-Profile-Denial": denial });
+      }
       await revokeEditAuthorization(db, cookieValue);
-      return profileUnavailablePage(env);
+      return withDiagnostics(env, profileUnavailablePage(env), { "X-MotoTrack-Profile-Denial": denial });
     }
     return profileSavedPage(env);
   }

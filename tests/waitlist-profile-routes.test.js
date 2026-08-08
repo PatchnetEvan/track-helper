@@ -1094,6 +1094,135 @@ const csrfIn = (html) => /name="csrf" value="([^"]*)"/.exec(html)?.[1] ?? null;
 }
 
 // ---------------------------------------------------------------------------
+// Staging-only denial diagnostics. Instrumentation, not behaviour: the goal is
+// to identify the FIRST failing precondition on the real Outlook/browser path
+// without exposing any credential material.
+// ---------------------------------------------------------------------------
+const STAGING = { ...env, WAITLIST_ENVIRONMENT: "staging" };
+const DIAGNOSTIC_HEADERS = ["X-MotoTrack-Profile-Denial", "X-MotoTrack-Profile-Exchange",
+  "X-MotoTrack-Profile-Edit-Cookie"];
+const CREDENTIAL_FREE = (response) => {
+  for (const name of DIAGNOSTIC_HEADERS) {
+    const value = response.headers.get(name);
+    if (!value) continue;
+    assert.match(value, /^[a-z_]+$/, `${name} carries only a fixed-vocabulary token`);
+    assert.ok(value.length <= 40, `${name} is short enough to be a code, not data`);
+  }
+};
+
+{
+  seed("s_diag", "diag@example.com", "confirmed");
+  const token = await issueProfileInvitation(db, "s_diag", "requested_edit_link");
+  const browser = new Browser();
+  const stagingGet = (path, jar) => worker.fetch(new Request(`${ORIGIN}${path}`, {
+    headers: jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {},
+  }), STAGING);
+  const stagingPost = (path, fields, jar) => {
+    const body = new URLSearchParams();
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null) body.append(k, String(v));
+    return worker.fetch(new Request(`${ORIGIN}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: ORIGIN,
+        ...(jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
+      },
+      body,
+    }), STAGING);
+  };
+
+  // --- Exchange diagnostics: cookie presence and rotate-vs-reuse ---
+  const firstOpen = browser.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, browser.jar));
+  assert.equal(firstOpen.headers.get("X-MotoTrack-Profile-Edit-Cookie"), "absent",
+    "the first click arrives with no edit-session cookie");
+  assert.equal(firstOpen.headers.get("X-MotoTrack-Profile-Exchange"), "rotated_authorization");
+  CREDENTIAL_FREE(firstOpen);
+
+  const reopen = browser.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, browser.jar));
+  assert.equal(reopen.headers.get("X-MotoTrack-Profile-Edit-Cookie"), "present",
+    "a same-site reopen arrives WITH the cookie");
+  assert.equal(reopen.headers.get("X-MotoTrack-Profile-Exchange"), "reused_existing_authorization");
+
+  const rejected = await stagingGet(`${PROFILE_PATH}/open?token=unknown-token-value-1234567890`);
+  assert.equal(rejected.headers.get("X-MotoTrack-Profile-Exchange"), "invitation_rejected");
+  assert.equal(rejected.headers.get("X-MotoTrack-Profile-Edit-Cookie"), "absent");
+
+  // --- The exact observed browser state: CURRENT session cookie, and a CSRF
+  //     value taken from a form rendered under an EARLIER authorization. ---
+  const staleForm = await stagingGet(PROFILE_PATH, browser.jar);
+  const staleCsrf = csrfIn(await staleForm.text());
+  const other = new Browser();
+  other.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, other.jar));  // rotates
+  browser.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, browser.jar));  // rotates back
+  const currentCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, browser.jar)).text());
+  assert.notEqual(currentCsrf, staleCsrf, "the browser now holds a different CSRF than the stale form");
+
+  const denied = await stagingPost(PROFILE_PATH,
+    { profile_consent: 1, csrf: staleCsrf, display_name: "Stale" }, browser.jar);
+  const reason = denied.headers.get("X-MotoTrack-Profile-Denial");
+  assert.ok(reason, "a denial reports a precondition");
+  assert.equal(reason, "csrf_cookie_form_mismatch",
+    "current session cookie + older form CSRF is reported precisely, not as a generic failure");
+  CREDENTIAL_FREE(denied);
+  for (const secret of [staleCsrf, currentCsrf, ...browser.jar.values()]) {
+    assert.ok(!DIAGNOSTIC_HEADERS.some((h) => (denied.headers.get(h) ?? "").includes(secret)),
+      "no credential material appears in any diagnostic header");
+  }
+
+  // A missing session cookie is reported as such, not as a CSRF problem.
+  const noCookie = await stagingPost(PROFILE_PATH, { profile_consent: 1, csrf: staleCsrf, display_name: "None" });
+  assert.equal(noCookie.headers.get("X-MotoTrack-Profile-Denial"), "session_cookie_missing");
+
+  // A revoked authorization is reported before any CSRF reasoning.
+  const abandoned = new Browser();
+  abandoned.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, abandoned.jar));
+  const abandonedCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, abandoned.jar)).text());
+  const usurper = new Browser();
+  usurper.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, usurper.jar));
+  const revoked = await stagingPost(PROFILE_PATH,
+    { profile_consent: 1, csrf: abandonedCsrf, display_name: "Revoked" }, abandoned.jar);
+  assert.equal(revoked.headers.get("X-MotoTrack-Profile-Denial"), "authorization_revoked",
+    "the FIRST failing precondition wins - not a later CSRF reason");
+
+  // --- A successful save emits no denial header ---
+  const goodCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, usurper.jar)).text());
+  const saved = await stagingPost(PROFILE_PATH,
+    { profile_consent: 1, csrf: goodCsrf, display_name: "Diag Saved" }, usurper.jar);
+  assert.equal(saved.status, 200);
+  assert.match(await saved.text(), /your profile is saved/i);
+  assert.equal(saved.headers.get("X-MotoTrack-Profile-Denial"), null, "a successful save reports no denial");
+}
+
+// --- Every non-staging environment emits NONE of these headers ---
+{
+  seed("s_prod", "prod@example.com", "confirmed");
+  const token = await issueProfileInvitation(db, "s_prod", "requested_edit_link");
+  for (const environment of [{ WAITLIST_ENVIRONMENT: "production" }, {}, { WAITLIST_ENVIRONMENT: "Staging" },
+    { WAITLIST_ENVIRONMENT: "staging-2" }, { WAITLIST_ENVIRONMENT: "" }]) {
+    const quiet = { ...env, ...environment };
+    if (!("WAITLIST_ENVIRONMENT" in environment)) delete quiet.WAITLIST_ENVIRONMENT;
+    const label = JSON.stringify(environment.WAITLIST_ENVIRONMENT ?? "(absent)");
+
+    const opened = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}/open?token=${token}`), quiet);
+    const jar = cookiesFrom(opened);
+    const cookieHeader = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join("; ");
+    const rejectedOpen = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}/open?token=nope-nope-nope-nope-nope`), quiet);
+    const deniedPost = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, cookie: cookieHeader },
+      body: new URLSearchParams({ csrf: "wrong-value", display_name: "x" }),
+    }), quiet);
+
+    for (const response of [opened, rejectedOpen, deniedPost]) {
+      for (const header of DIAGNOSTIC_HEADERS) {
+        assert.equal(response.headers.get(header), null,
+          `${header} is absent when WAITLIST_ENVIRONMENT is ${label}`);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // PR-scope containment and application-surface token absence.
 // ---------------------------------------------------------------------------
 {
