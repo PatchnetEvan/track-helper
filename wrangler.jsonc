@@ -7,7 +7,7 @@
   // Daily retention sweep matching the published privacy-notice schedule.
   "triggers": { "crons": ["17 4 * * *"] },
   "assets": {
-    "directory": "./",
+    "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/waitlist/*"]
   },
@@ -27,7 +27,7 @@
       // so the noindex guard reaches them. Without this, Workers Assets
       // serves them directly and the isolated staging target would be
       // indexable. Production keeps its own asset config untouched.
-      "assets": { "directory": "./", "binding": "ASSETS", "run_worker_first": ["/api/*", "/waitlist/*", "/waitlist.html", "/privacy.html"] },
+      "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*", "/waitlist/*", "/waitlist.html", "/privacy.html"] },
       "triggers": { "crons": ["17 4 * * *"] },
       "vars": { "WAITLIST_ENVIRONMENT": "staging", "WAITLIST_EMAIL_FROM": "MotoTrack Waitlist <waitlist@mototrack.app>" },
       "d1_databases": [
