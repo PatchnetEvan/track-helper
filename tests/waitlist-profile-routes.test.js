@@ -1099,253 +1099,69 @@ const csrfIn = (html) => /name="csrf" value="([^"]*)"/.exec(html)?.[1] ?? null;
 }
 
 // ---------------------------------------------------------------------------
-// Staging-only denial diagnostics. Instrumentation, not behaviour: the goal is
-// to identify the FIRST failing precondition on the real Outlook/browser path
-// without exposing any credential material.
+// Request-source gate: Sec-Fetch-Site first, Origin fallback. Proven by
+// BEHAVIOR, not by diagnostic headers: a shape that passes the gate completes
+// a real save; a refused shape writes nothing. The real Chrome shape -
+// Referrer-Policy: no-referrer rewrites a same-origin form POST to
+// Origin: null - must pass.
 // ---------------------------------------------------------------------------
-const STAGING = { ...env, WAITLIST_ENVIRONMENT: "staging" };
-const DIAGNOSTIC_HEADERS = ["X-MotoTrack-Profile-Denial", "X-MotoTrack-Profile-Exchange",
-  "X-MotoTrack-Profile-Edit-Cookie"];
-const CREDENTIAL_FREE = (response) => {
-  for (const name of DIAGNOSTIC_HEADERS) {
-    const value = response.headers.get(name);
-    if (!value) continue;
-    assert.match(value, /^[a-z_]+$/, `${name} carries only a fixed-vocabulary token`);
-    assert.ok(value.length <= 40, `${name} is short enough to be a code, not data`);
-  }
-};
-
 {
-  seed("s_diag", "diag@example.com", "confirmed");
-  const token = await issueProfileInvitation(db, "s_diag", "requested_edit_link");
-  const browser = new Browser();
-  const stagingGet = (path, jar) => worker.fetch(new Request(`${ORIGIN}${path}`, {
-    headers: jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {},
-  }), STAGING);
-  const stagingPost = (path, fields, jar) => {
-    const body = new URLSearchParams();
-    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null) body.append(k, String(v));
-    return worker.fetch(new Request(`${ORIGIN}${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        origin: ORIGIN,
-        ...(jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
-      },
-      body,
-    }), STAGING);
+  let gateSeq = 0;
+  const gateAttempt = async (origin, fetchSite) => {
+    gateSeq += 1;
+    const signupId = `s_gate_${gateSeq}`;
+    seed(signupId, `gatecase${gateSeq}@example.com`, "confirmed");
+    const session = await openSession(signupId);
+    const response = await post(PROFILE_PATH,
+      { profile_consent: 1, csrf: session.jar[PROFILE_CSRF_COOKIE], display_name: "Gate Case" },
+      session.jar, origin, fetchSite === undefined ? {} : { "sec-fetch-site": fetchSite });
+    const saved = count(`SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='${signupId}'`) === 1;
+    assert.equal(saved, response.status === 200, "the write and the status agree");
+    return saved;
   };
 
-  // --- Exchange diagnostics: cookie presence and rotate-vs-reuse ---
-  const firstOpen = browser.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, browser.jar));
-  assert.equal(firstOpen.headers.get("X-MotoTrack-Profile-Edit-Cookie"), "absent",
-    "the first click arrives with no edit-session cookie");
-  assert.equal(firstOpen.headers.get("X-MotoTrack-Profile-Exchange"), "rotated_authorization");
-  CREDENTIAL_FREE(firstOpen);
-
-  const reopen = browser.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, browser.jar));
-  assert.equal(reopen.headers.get("X-MotoTrack-Profile-Edit-Cookie"), "present",
-    "a same-site reopen arrives WITH the cookie");
-  assert.equal(reopen.headers.get("X-MotoTrack-Profile-Exchange"), "reused_existing_authorization");
-
-  const rejected = await stagingGet(`${PROFILE_PATH}/open?token=unknown-token-value-1234567890`);
-  assert.equal(rejected.headers.get("X-MotoTrack-Profile-Exchange"), "invitation_rejected");
-  assert.equal(rejected.headers.get("X-MotoTrack-Profile-Edit-Cookie"), "absent");
-
-  // --- Precision: a live session cookie with ANOTHER session's CSRF value. ---
-  const other = new Browser();
-  other.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, other.jar));
-  const otherCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, other.jar)).text());
-  const ownCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, browser.jar)).text());
-  assert.notEqual(otherCsrf, ownCsrf, "the two coexisting sessions carry distinct CSRF state");
-
-  const denied = await stagingPost(PROFILE_PATH,
-    { profile_consent: 1, csrf: otherCsrf, display_name: "Mixed" }, browser.jar);
-  const reason = denied.headers.get("X-MotoTrack-Profile-Denial");
-  assert.equal(reason, "csrf_cookie_form_mismatch",
-    "a live session cookie with another session's CSRF is reported precisely");
-  CREDENTIAL_FREE(denied);
-  for (const secret of [otherCsrf, ownCsrf, ...browser.jar.values()]) {
-    assert.ok(!DIAGNOSTIC_HEADERS.some((h) => (denied.headers.get(h) ?? "").includes(secret)),
-      "no credential material appears in any diagnostic header");
-  }
-
-  // A missing session cookie is reported as such, not as a CSRF problem.
-  const noCookie = await stagingPost(PROFILE_PATH, { profile_consent: 1, csrf: ownCsrf, display_name: "None" });
-  assert.equal(noCookie.headers.get("X-MotoTrack-Profile-Denial"), "session_cookie_missing");
-
-  // The OTHER session wins the mutation; a revoked authorization is then
-  // reported before any CSRF reasoning, and the winner reported no denial.
-  const won = await stagingPost(PROFILE_PATH,
-    { profile_consent: 1, csrf: otherCsrf, display_name: "Diag Saved" }, other.jar);
-  assert.equal(won.status, 200);
-  assert.match(await won.text(), /your profile is saved/i);
-  assert.equal(won.headers.get("X-MotoTrack-Profile-Denial"), null, "a successful save reports no denial");
-  const revoked = await stagingPost(PROFILE_PATH, { csrf: ownCsrf, display_name: "Loser" }, browser.jar);
-  assert.equal(revoked.headers.get("X-MotoTrack-Profile-Denial"), "authorization_revoked",
-    "the FIRST failing precondition wins - not a later CSRF reason");
-}
-
-// --- Every non-staging environment emits NONE of these headers ---
-{
-  seed("s_prod", "prod@example.com", "confirmed");
-  const token = await issueProfileInvitation(db, "s_prod", "requested_edit_link");
-  for (const environment of [{ WAITLIST_ENVIRONMENT: "production" }, {}, { WAITLIST_ENVIRONMENT: "Staging" },
-    { WAITLIST_ENVIRONMENT: "staging-2" }, { WAITLIST_ENVIRONMENT: "" }]) {
-    const quiet = { ...env, ...environment };
-    if (!("WAITLIST_ENVIRONMENT" in environment)) delete quiet.WAITLIST_ENVIRONMENT;
-    const label = JSON.stringify(environment.WAITLIST_ENVIRONMENT ?? "(absent)");
-
-    const opened = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}/open?token=${token}`), quiet);
-    const jar = cookiesFrom(opened);
-    const cookieHeader = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join("; ");
-    const rejectedOpen = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}/open?token=nope-nope-nope-nope-nope`), quiet);
-    const deniedPost = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, cookie: cookieHeader },
-      body: new URLSearchParams({ csrf: "wrong-value", display_name: "x" }),
-    }), quiet);
-
-    for (const response of [opened, rejectedOpen, deniedPost]) {
-      for (const header of DIAGNOSTIC_HEADERS) {
-        assert.equal(response.headers.get(header), null,
-          `${header} is absent when WAITLIST_ENVIRONMENT is ${label}`);
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Claim diagnostics. The previous round established that every enumerated
-// precondition passes and the save is still refused, so the remaining unknown
-// is what D1 actually returns for the conditional claim. These report it
-// verbatim, plus a read-only check of whether the claim marker landed.
-// ---------------------------------------------------------------------------
-const CLAIM_HEADERS = ["X-MotoTrack-Profile-Claim-Success", "X-MotoTrack-Profile-Claim-Changes",
-  "X-MotoTrack-Profile-Claim-Rows-Written", "X-MotoTrack-Profile-Claim-Changed-Db",
-  "X-MotoTrack-Profile-Claim-Marker-Present"];
-
-{
-  const stagingEnv = { ...env, WAITLIST_ENVIRONMENT: "staging" };
-  const send = (path, fields, jar, useEnv) => {
-    const body = new URLSearchParams();
-    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null) body.append(k, String(v));
-    return worker.fetch(new Request(`${ORIGIN}${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        origin: ORIGIN,
-        ...(jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
-      },
-      body,
-    }), useEnv);
-  };
-  const load = (path, jar, useEnv) => worker.fetch(new Request(`${ORIGIN}${path}`, {
-    headers: jar && jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {},
-  }), useEnv);
-
-  // --- A claim that lands: reported exactly, and the marker is present ---
-  seed("s_claim_ok", "claimok@example.com", "confirmed");
-  const okToken = await issueProfileInvitation(db, "s_claim_ok", "requested_edit_link");
-  const okBrowser = new Browser();
-  okBrowser.absorb(await load(`${PROFILE_PATH}/open?token=${okToken}`, okBrowser.jar, stagingEnv));
-  const okCsrf = csrfIn(await (await load(PROFILE_PATH, okBrowser.jar, stagingEnv)).text());
-  const okSave = await send(PROFILE_PATH,
-    { profile_consent: 1, csrf: okCsrf, display_name: "Claim Landed" }, okBrowser.jar, stagingEnv);
-  assert.equal(okSave.status, 200);
-  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Denial"), null, "a landed claim reports no denial");
-  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Claim-Success"), "true");
-  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Claim-Changes"), "1", "reported verbatim, not normalised");
-  assert.equal(okSave.headers.get("X-MotoTrack-Profile-Claim-Marker-Present"), "true",
-    "the marker actually landed on the row");
-  for (const header of CLAIM_HEADERS) {
-    assert.match(okSave.headers.get(header) ?? "", /^(true|false|missing|\d+)$/,
-      `${header} carries only a flag, a non-negative integer, or "missing"`);
-  }
-
-  // --- A claim that does NOT land, with every precondition still passing ---
-  seed("s_claim_no", "claimno@example.com", "confirmed");
-  const noToken = await issueProfileInvitation(db, "s_claim_no", "requested_edit_link");
-  const noBrowser = new Browser();
-  noBrowser.absorb(await load(`${PROFILE_PATH}/open?token=${noToken}`, noBrowser.jar, stagingEnv));
-  const noCsrf = csrfIn(await (await load(PROFILE_PATH, noBrowser.jar, stagingEnv)).text());
-  // RAISE(IGNORE) skips the row silently: the statement succeeds and changes 0
-  // rows, which is exactly the shape we are trying to distinguish.
-  db.sqlite.exec(`CREATE TRIGGER tmp_block_claim BEFORE UPDATE OF claim_marker
-    ON waitlist_profile_edit_authorizations BEGIN SELECT RAISE(IGNORE); END`);
-  const noSave = await send(PROFILE_PATH,
-    { profile_consent: 1, csrf: noCsrf, display_name: "Claim Lost" }, noBrowser.jar, stagingEnv);
-  db.sqlite.exec("DROP TRIGGER tmp_block_claim");
-
-  assert.equal(noSave.headers.get("X-MotoTrack-Profile-Denial"), "claim_not_applied",
-    "all preconditions passing plus a claim that did not succeed is named precisely");
-  assert.equal(noSave.headers.get("X-MotoTrack-Profile-Claim-Changes"), "0");
-  assert.equal(noSave.headers.get("X-MotoTrack-Profile-Claim-Marker-Present"), "false",
-    "and the marker genuinely did not land");
-  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_claim_no'"), 0,
-    "nothing was written");
-
-  // The diagnostic read must not mutate anything.
-  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
-    WHERE signup_id='s_claim_no' AND claim_marker IS NOT NULL`), 0,
-  "the marker-presence read leaves the row untouched");
-
-  // --- Production and every other environment stay silent ---
-  seed("s_claim_prod", "claimprod@example.com", "confirmed");
-  const prodToken = await issueProfileInvitation(db, "s_claim_prod", "requested_edit_link");
-  for (const environment of [{ WAITLIST_ENVIRONMENT: "production" }, {}, { WAITLIST_ENVIRONMENT: "Staging" }]) {
-    const quiet = { ...env, ...environment };
-    if (!("WAITLIST_ENVIRONMENT" in environment)) delete quiet.WAITLIST_ENVIRONMENT;
-    const jar = new Map();
-    const opened = await load(`${PROFILE_PATH}/open?token=${prodToken}`, jar, quiet);
-    for (const header of opened.headers.getSetCookie?.() ?? []) {
-      const [pair] = header.split(";");
-      const [n, ...rest] = pair.split("=");
-      jar.set(n.trim(), rest.join("="));
-    }
-    const form = await load(PROFILE_PATH, jar, quiet);
-    const csrf = csrfIn(await form.text());
-    const saved = await send(PROFILE_PATH, { profile_consent: 1, csrf, display_name: "Quiet" }, jar, quiet);
-    for (const header of [...CLAIM_HEADERS, "X-MotoTrack-Profile-Denial"]) {
-      assert.equal(saved.headers.get(header), null,
-        `${header} absent for ${JSON.stringify(environment.WAITLIST_ENVIRONMENT ?? "(absent)")}`);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Request-source gate: Sec-Fetch-Site first, Origin fallback. The staging bug
-// was Chrome's real shape - Referrer-Policy: no-referrer rewrites a
-// same-origin form POST to Origin: null - being refused by the old
-// origin-equality check before any session or CSRF logic ran. These tests use
-// the REAL browser shape, not an always-correct injected Origin.
-// ---------------------------------------------------------------------------
-{
-  const stagingEnv = { ...env, WAITLIST_ENVIRONMENT: "staging" };
-  // Probe: a cookieless POST that PASSES the gate reaches the diagnosed save
-  // path and reports session_cookie_missing; one refused AT the gate gets the
-  // generic page with no denial header. That difference is the probe.
-  const gate = async (origin, fetchSite) => {
-    const response = await post(PROFILE_PATH, { csrf: "probe" }, {}, origin,
-      fetchSite === undefined ? {} : { "sec-fetch-site": fetchSite }, stagingEnv);
-    assert.equal(response.status, 410);
-    return response.headers.get("X-MotoTrack-Profile-Denial");
-  };
-
-  assert.equal(await gate("null", "same-origin"), "session_cookie_missing",
-    "the real Chrome shape - Origin: null + Sec-Fetch-Site: same-origin - passes the gate");
-  assert.equal(await gate(ORIGIN, "same-origin"), "session_cookie_missing",
-    "same-origin with a correct Origin passes too");
+  assert.equal(await gateAttempt("null", "same-origin"), true,
+    "the real Chrome shape - Origin: null + Sec-Fetch-Site: same-origin - passes and saves");
+  assert.equal(await gateAttempt(ORIGIN, "same-origin"), true, "same-origin with a correct Origin passes");
   for (const refused of ["same-site", "cross-site", "none", "", "Same-Origin", "banana"]) {
-    assert.equal(await gate(ORIGIN, refused), null,
+    assert.equal(await gateAttempt(ORIGIN, refused), false,
       `Sec-Fetch-Site ${JSON.stringify(refused)} is refused even alongside a correct Origin`);
   }
-  // No Sec-Fetch-Site: the existing Origin fallback, unchanged.
-  assert.equal(await gate(ORIGIN, undefined), "session_cookie_missing", "correct Origin still passes");
-  assert.equal(await gate(null, undefined), "session_cookie_missing", "absent Origin is still tolerated");
-  assert.equal(await gate("null", undefined), null,
+  assert.equal(await gateAttempt(ORIGIN, undefined), true, "correct Origin still passes without Sec-Fetch-Site");
+  assert.equal(await gateAttempt(null, undefined), true, "absent Origin is still tolerated");
+  assert.equal(await gateAttempt("null", undefined), false,
     "Origin: null WITHOUT Sec-Fetch-Site stays refused - null is never generally trusted");
-  assert.equal(await gate("https://evil.example", undefined), null, "a foreign Origin stays refused");
+  assert.equal(await gateAttempt("https://evil.example", undefined), false, "a foreign Origin stays refused");
+}
+
+// ---------------------------------------------------------------------------
+// The debugging instrumentation is GONE: no response anywhere carries an
+// X-MotoTrack-* header, even with the staging environment set.
+// ---------------------------------------------------------------------------
+{
+  const stagingEnv = { ...env, WAITLIST_ENVIRONMENT: "staging" };
+  seed("s_nodiag", "nodiag@example.com", "confirmed");
+  const token = await issueProfileInvitation(db, "s_nodiag", "requested_edit_link");
+  const opened = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}/open?token=${token}`), stagingEnv);
+  const jar = cookiesFrom(opened);
+  const cookieHeader = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join("; ");
+  const rejected = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}/open?token=unknown-token-value-000000`), stagingEnv);
+  const denied = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, cookie: cookieHeader },
+    body: new URLSearchParams({ csrf: "wrong-value", display_name: "x" }),
+  }), stagingEnv);
+  const noCookiePost = await worker.fetch(new Request(`${ORIGIN}${PROFILE_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN },
+    body: new URLSearchParams({ csrf: "x" }),
+  }), stagingEnv);
+  for (const response of [opened, rejected, denied, noCookiePost]) {
+    for (const [name] of response.headers) {
+      assert.ok(!name.toLowerCase().startsWith("x-mototrack"),
+        `no diagnostic header survives the cleanup (saw ${name})`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -212,7 +212,7 @@ function validatedPayload(payload, { consentRequired }) {
  * a stale or replayed authorization can never write. Returns null for any
  * denial - the caller renders the same generic unavailable page.
  */
-export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf, payload = {}, diagnostics = null) {
+export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf, payload = {}) {
   const resolved = await resolveEditAuthorization(db, rawCookie);
   if (!resolved) return null;
   if (!sameValue(await sha256Hex(String(submittedCsrf ?? "")), resolved.authorization.csrf_digest)) return { csrfRejected: true };
@@ -275,25 +275,7 @@ export async function saveProfileWithAuthorization(db, rawCookie, submittedCsrf,
         FROM waitlist_profile_edit_authorizations a WHERE a.claim_marker = ?`)
       .bind(PROFILE_CONSENT_VERSION, PROFILE_NOTICE_VERSION, marker));
   }
-  // STAGING DIAGNOSTICS ONLY: record what D1 actually returned for the
-  // CONDITIONAL CLAIM statement - results[0], never another statement in the
-  // batch - without reinterpreting or normalising any of it. The decision
-  // below is unchanged; this only observes it.
-  if (diagnostics) diagnostics.claimAttempted = true;
-  let results;
-  try {
-    results = await db.batch(statements);
-  } catch (error) {
-    if (diagnostics) diagnostics.batchError = true;
-    throw error;
-  }
-  if (diagnostics) {
-    diagnostics.marker = marker;
-    diagnostics.claimSuccess = results?.[0]?.success;
-    diagnostics.claimChanges = results?.[0]?.meta?.changes;
-    diagnostics.claimRowsWritten = results?.[0]?.meta?.rows_written;
-    diagnostics.claimChangedDb = results?.[0]?.meta?.changed_db;
-  }
+  const results = await db.batch(statements);
   const claimed = Number(results?.[0]?.meta?.changes ?? 0);
   if (claimed !== 1) return null;  // nothing else could have written: all conditional on the marker
   return { saved: true, program_track: resolved.authorization.program_track };
@@ -371,18 +353,6 @@ export async function isSupersededSubmission(db, rawCookie, submittedCsrf) {
   return Boolean(newer);
 }
 
-/**
- * STAGING DIAGNOSTICS ONLY. Answers exactly one question - did this request's
- * conditional claim actually land on a row? - and nothing else. Read-only: it
- * mutates nothing, and it returns a boolean, never the marker.
- */
-export async function claimMarkerLanded(db, marker) {
-  if (typeof marker !== "string" || !marker) return false;
-  const found = await db.prepare(`SELECT 1 AS n FROM waitlist_profile_edit_authorizations
-    WHERE claim_marker = ?`).bind(marker).first();
-  return Boolean(found);
-}
-
 /** Terminal invalidation of an edit session (used on success and on failure). */
 export async function revokeEditAuthorization(db, rawCookie) {
   if (typeof rawCookie !== "string" || !rawCookie) return 0;
@@ -392,39 +362,3 @@ export async function revokeEditAuthorization(db, rawCookie) {
 }
 
 export { sha256Hex as profileAuthDigest, opaqueValue as profileAuthOpaqueValue, sameValue as profileAuthSameValue };
-
-/**
- * STAGING DIAGNOSTICS ONLY. Returns the FIRST precondition that actually fails
- * on the save path, in the order the save path itself evaluates them - never a
- * later reason inferred after an earlier check already failed.
- *
- * Returns a fixed vocabulary string, or null when nothing failed. It never
- * returns an identifier, value, digest, token, address, or exception text: the
- * caller puts this straight into a response header, so the vocabulary IS the
- * privacy boundary.
- */
-export async function diagnoseSaveDenial(db, rawCookie, submittedCsrf, csrfCookie) {
-  if (typeof rawCookie !== "string" || !rawCookie) return "session_cookie_missing";
-  const found = await db.prepare(`SELECT a.csrf_digest, a.revoked_at, a.consumed_at,
-      (a.expires_at > datetime('now')) AS authorization_unexpired,
-      i.used_at AS invitation_used, i.revoked_at AS invitation_revoked,
-      i.superseded_at AS invitation_superseded, (i.expires_at > datetime('now')) AS invitation_unexpired,
-      s.status AS signup_status, s.unsubscribed_at, s.resubscribed_at
-    FROM waitlist_profile_edit_authorizations a
-    JOIN waitlist_profile_invitations i ON i.id = a.invitation_id
-    JOIN waitlist_signups s ON s.id = a.signup_id
-    WHERE a.cookie_digest = ?`).bind(await sha256Hex(rawCookie)).first();
-  if (!found) return "authorization_not_found";
-  if (found.revoked_at) return "authorization_revoked";
-  if (found.consumed_at) return "authorization_consumed";
-  if (!found.authorization_unexpired) return "authorization_expired";
-  if (found.invitation_used || found.invitation_revoked || found.invitation_superseded
-    || !found.invitation_unexpired) return "invitation_invalid";
-  if (found.signup_status !== "confirmed") return "signup_not_confirmed";
-  if (found.unsubscribed_at && !found.resubscribed_at) return "signup_inactive";
-  if (typeof csrfCookie !== "string" || !csrfCookie) return "csrf_cookie_missing";
-  if (typeof submittedCsrf !== "string" || !submittedCsrf) return "csrf_form_missing";
-  if (csrfCookie !== submittedCsrf) return "csrf_cookie_form_mismatch";
-  if (await sha256Hex(submittedCsrf) !== found.csrf_digest) return "csrf_digest_mismatch";
-  return null;
-}
