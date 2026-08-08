@@ -21,7 +21,10 @@ import {
   ProfileValidationError,
 } from "./waitlist-profile-service.js";
 
-export const EDIT_AUTH_TTL_SECONDS = 20 * 60;
+// One hour. Twenty minutes was not enough to read the consent copy and fill a
+// free-text field, and a rider whose session lapsed mid-form lost their work.
+// The emailed INVITATION expiry is unchanged at 30 days.
+export const EDIT_AUTH_TTL_SECONDS = 60 * 60;
 export const PROFILE_COOKIE = "__Secure-mototrack_profile";
 export const PROFILE_CSRF_COOKIE = "__Secure-mototrack_profile_csrf";
 export const PROFILE_PATH = "/waitlist/profile";
@@ -80,13 +83,31 @@ export function clearedCookie(name, path = PROFILE_PATH) {
  * for every invalid condition (unknown, expired, used, revoked, superseded,
  * non-confirmed) so the caller renders one generic unavailable page.
  */
-export async function exchangeInvitationForEditAuthorization(db, rawToken) {
+export async function exchangeInvitationForEditAuthorization(db, rawToken, existingCookie = null) {
   if (typeof rawToken !== "string" || rawToken.length < 20 || rawToken.length > 128) return null;
   const invitation = await db.prepare(`SELECT i.id, i.signup_id FROM waitlist_profile_invitations i
     JOIN waitlist_signups s ON s.id = i.signup_id
     WHERE i.token_digest = ? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.superseded_at IS NULL
       AND i.expires_at > datetime('now') AND s.status = 'confirmed'`).bind(await sha256Hex(rawToken)).first();
   if (!invitation) return null;
+
+  // IDEMPOTENT REOPEN. Clicking the same emailed link again in the SAME browser
+  // must not destroy work in progress. If the request already carries a valid
+  // authorization bound to this same invitation and signup, keep it exactly as
+  // it is: no new row, no revocation, no cookie rotation, no CSRF change. The
+  // caller then redirects without touching Set-Cookie, so a half-completed form
+  // in another tab still saves.
+  //
+  // This does NOT relax the invariant: still at most one live authorization per
+  // invitation, because nothing new was created.
+  if (existingCookie) {
+    const current = await resolveEditAuthorization(db, existingCookie);
+    if (current
+      && current.authorization.invitation_id === invitation.id
+      && current.authorization.signup_id === invitation.signup_id) {
+      return { reused: true };
+    }
+  }
 
   const rawCookie = opaqueValue();
   const rawCsrf = opaqueValue();
@@ -295,6 +316,33 @@ export async function withdrawProfileWithAuthorization(db, rawCookie, submittedC
   ]);
   if (Number(results?.[0]?.meta?.changes ?? 0) !== 1) return null;
   return { withdrawn: true };
+}
+
+/**
+ * Positively identify a submission that came from a SUPERSEDED editing session.
+ *
+ * Cookies are per-browser, not per-tab, so a stale tab submits the browser's
+ * CURRENT cookie together with the CSRF value its own page was rendered with.
+ * That mismatch used to be treated as an attack and revoked the live
+ * authorization - destroying the good tab as well as the stale one.
+ *
+ * The submitted CSRF value is the discriminator: if it hashes to the csrf_digest
+ * of a REVOKED authorization for the same invitation, and a newer authorization
+ * for that invitation exists, then this is a replaced session and not an attack.
+ * Returns false for everything else, so genuine CSRF failures keep their old
+ * treatment.
+ */
+export async function isSupersededSubmission(db, rawCookie, submittedCsrf) {
+  if (typeof submittedCsrf !== "string" || !submittedCsrf) return false;
+  const submittedDigest = await sha256Hex(submittedCsrf);
+  const stale = await db.prepare(`SELECT id, invitation_id, issued_at FROM waitlist_profile_edit_authorizations
+    WHERE csrf_digest = ? AND revoked_at IS NOT NULL`).bind(submittedDigest).first();
+  if (!stale) return false;
+  const newer = await db.prepare(`SELECT 1 AS n FROM waitlist_profile_edit_authorizations
+    WHERE invitation_id = ? AND id != ? AND issued_at >= ?
+      AND (revoked_at IS NULL OR consumed_at IS NOT NULL)`)
+    .bind(stale.invitation_id, stale.id, stale.issued_at).first();
+  return Boolean(newer);
 }
 
 /** Terminal invalidation of an edit session (used on success and on failure). */
