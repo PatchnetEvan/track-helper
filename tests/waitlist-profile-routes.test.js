@@ -135,15 +135,18 @@ const openSession = async (signupId) => {
   assert.match(form.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.ok(!/<script|analytics|googletagmanager|http:\/\//i.test(html), "no scripts or third-party resources");
 
-  // Abandoning the form leaves the emailed link usable.
+  // Abandoning the form leaves the emailed link usable, and an unrelated
+  // second exchange no longer touches the first session.
   const reopened = await get(`${PROFILE_PATH}/open?token=${token}`);
   assert.equal(reopened.status, 303, "the invitation is still usable after an abandoned session");
   assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
-    WHERE signup_id='s1' AND revoked_at IS NOT NULL`), 1, "reopening revoked the previous authorization only");
+    WHERE signup_id='s1' AND revoked_at IS NOT NULL`), 0, "a second exchange revokes NOTHING");
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s1' AND consumed_at IS NULL AND revoked_at IS NULL`), 2, "the two authorizations coexist");
   assert.equal(row("SELECT used_at, superseded_at FROM waitlist_profile_invitations WHERE signup_id='s1'").superseded_at, null,
     "reopening never supersedes the invitation itself");
-  // The first session's cookie is now dead.
-  assert.equal((await get(PROFILE_PATH, jar)).status, 410, "the replaced authorization no longer works");
+  // The first session keeps working - THE point of the coexistence invariant.
+  assert.equal((await get(PROFILE_PATH, jar)).status, 200, "the original form survives an unrelated exchange");
 }
 
 // ---------------------------------------------------------------------------
@@ -1031,39 +1034,41 @@ const csrfIn = (html) => /name="csrf" value="([^"]*)"/.exec(html)?.[1] ?? null;
   const live = () => count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
     WHERE signup_id='s_cross' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > datetime('now')`);
 
+  // A opens, B opens, C opens: opening alone revokes nothing.
   const laptop = new Browser();
   await laptop.get(`${PROFILE_PATH}/open?token=${token}`);
-  const staleCsrf = csrfIn(await (await laptop.get(PROFILE_PATH)).text());
-  const firstAuthId = row(`SELECT id FROM waitlist_profile_edit_authorizations
-    WHERE signup_id='s_cross' ORDER BY issued_at DESC LIMIT 1`).id;
-
+  const laptopCsrf = csrfIn(await (await laptop.get(PROFILE_PATH)).text());
   const phone = new Browser();
   const phoneExchange = await phone.get(`${PROFILE_PATH}/open?token=${token}`);
-  assert.equal(phoneExchange.headers.getSetCookie().length, 2, "a different browser DOES get a fresh cookie pair");
-  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations WHERE signup_id='s_cross'`), 2,
-    "a replacement authorization is created");
-  assert.equal(row("SELECT (revoked_at IS NOT NULL) AS revoked FROM waitlist_profile_edit_authorizations WHERE id=?",
-    firstAuthId).revoked, 1, "the prior authorization is revoked");
-  assert.equal(live(), 1, "still exactly one live authorization - the invariant holds");
+  assert.equal(phoneExchange.headers.getSetCookie().length, 2, "a different browser gets its own independent cookie pair");
+  const tablet = new Browser();
+  await tablet.get(`${PROFILE_PATH}/open?token=${token}`);
+  assert.equal(live(), 3, "three authorizations coexist - a third open revoked neither A nor B");
+  assert.equal((await laptop.get(PROFILE_PATH)).status, 200, "the first form still works after two more exchanges");
 
-  // The laptop tab now submits: browser cookie is stale for that jar, but the
-  // CSRF value identifies the superseded session.
-  const stale = await laptop.post(PROFILE_PATH, { profile_consent: 1, csrf: staleCsrf, display_name: "Stale Tab" });
-  assert.equal(stale.status, 409);
-  const staleBody = await stale.text();
-  assert.match(staleBody, /This editing session was replaced by a newer one\./);
-  assert.match(staleBody, /Continue in the most recently opened MotoTrack profile tab, or open your profile link again to start a fresh editing session\./);
-  for (const leak of ["cross@example.com", "s_cross"]) {
-    assert.ok(!staleBody.includes(leak), "the superseded page reveals no address or signup identity");
-  }
-  assert.equal(live(), 1, "the LIVE session survives a stale submit - it is no longer destroyed");
-  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_cross'"), 0, "and nothing was written");
-
-  // The still-live browser can complete its save.
+  // The successful mutation is the single serialization point: the phone wins.
   const phoneCsrf = csrfIn(await (await phone.get(PROFILE_PATH)).text());
   const ok = await phone.post(PROFILE_PATH, { profile_consent: 1, csrf: phoneCsrf, display_name: "Live Session" });
   assert.equal(ok.status, 200);
   assert.match(await ok.text(), /your profile is saved/i);
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_invitations
+    WHERE signup_id='s_cross' AND used_at IS NOT NULL`), 1, "the invitation is consumed exactly once");
+  assert.equal(live(), 0, "the winning mutation invalidates every sibling authorization");
+
+  // A sibling submitting after the winning mutation fails safely: no second
+  // mutation, no duplicate consent event, and the specific message.
+  const stale = await laptop.post(PROFILE_PATH, { profile_consent: 1, csrf: laptopCsrf, display_name: "Stale Tab" });
+  assert.equal(stale.status, 409);
+  const staleBody = await stale.text();
+  assert.match(staleBody, /This editing session was replaced by a newer one\./);
+  for (const leak of ["cross@example.com", "s_cross"]) {
+    assert.ok(!staleBody.includes(leak), "the superseded page reveals no address or signup identity");
+  }
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profiles WHERE signup_id='s_cross'"), 1, "no second mutation");
+  assert.equal(row("SELECT display_name FROM waitlist_profiles WHERE signup_id='s_cross'").display_name, "Live Session",
+    "the winning write is untouched");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_consent_events WHERE signup_id='s_cross'"), 1,
+    "no duplicate consent event");
 }
 
 // --- Every other invalid condition keeps the single generic response ---
@@ -1147,50 +1152,38 @@ const CREDENTIAL_FREE = (response) => {
   assert.equal(rejected.headers.get("X-MotoTrack-Profile-Exchange"), "invitation_rejected");
   assert.equal(rejected.headers.get("X-MotoTrack-Profile-Edit-Cookie"), "absent");
 
-  // --- The exact observed browser state: CURRENT session cookie, and a CSRF
-  //     value taken from a form rendered under an EARLIER authorization. ---
-  const staleForm = await stagingGet(PROFILE_PATH, browser.jar);
-  const staleCsrf = csrfIn(await staleForm.text());
+  // --- Precision: a live session cookie with ANOTHER session's CSRF value. ---
   const other = new Browser();
-  other.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, other.jar));  // rotates
-  browser.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, browser.jar));  // rotates back
-  const currentCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, browser.jar)).text());
-  assert.notEqual(currentCsrf, staleCsrf, "the browser now holds a different CSRF than the stale form");
+  other.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, other.jar));
+  const otherCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, other.jar)).text());
+  const ownCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, browser.jar)).text());
+  assert.notEqual(otherCsrf, ownCsrf, "the two coexisting sessions carry distinct CSRF state");
 
   const denied = await stagingPost(PROFILE_PATH,
-    { profile_consent: 1, csrf: staleCsrf, display_name: "Stale" }, browser.jar);
+    { profile_consent: 1, csrf: otherCsrf, display_name: "Mixed" }, browser.jar);
   const reason = denied.headers.get("X-MotoTrack-Profile-Denial");
-  assert.ok(reason, "a denial reports a precondition");
   assert.equal(reason, "csrf_cookie_form_mismatch",
-    "current session cookie + older form CSRF is reported precisely, not as a generic failure");
+    "a live session cookie with another session's CSRF is reported precisely");
   CREDENTIAL_FREE(denied);
-  for (const secret of [staleCsrf, currentCsrf, ...browser.jar.values()]) {
+  for (const secret of [otherCsrf, ownCsrf, ...browser.jar.values()]) {
     assert.ok(!DIAGNOSTIC_HEADERS.some((h) => (denied.headers.get(h) ?? "").includes(secret)),
       "no credential material appears in any diagnostic header");
   }
 
   // A missing session cookie is reported as such, not as a CSRF problem.
-  const noCookie = await stagingPost(PROFILE_PATH, { profile_consent: 1, csrf: staleCsrf, display_name: "None" });
+  const noCookie = await stagingPost(PROFILE_PATH, { profile_consent: 1, csrf: ownCsrf, display_name: "None" });
   assert.equal(noCookie.headers.get("X-MotoTrack-Profile-Denial"), "session_cookie_missing");
 
-  // A revoked authorization is reported before any CSRF reasoning.
-  const abandoned = new Browser();
-  abandoned.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, abandoned.jar));
-  const abandonedCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, abandoned.jar)).text());
-  const usurper = new Browser();
-  usurper.absorb(await stagingGet(`${PROFILE_PATH}/open?token=${token}`, usurper.jar));
-  const revoked = await stagingPost(PROFILE_PATH,
-    { profile_consent: 1, csrf: abandonedCsrf, display_name: "Revoked" }, abandoned.jar);
+  // The OTHER session wins the mutation; a revoked authorization is then
+  // reported before any CSRF reasoning, and the winner reported no denial.
+  const won = await stagingPost(PROFILE_PATH,
+    { profile_consent: 1, csrf: otherCsrf, display_name: "Diag Saved" }, other.jar);
+  assert.equal(won.status, 200);
+  assert.match(await won.text(), /your profile is saved/i);
+  assert.equal(won.headers.get("X-MotoTrack-Profile-Denial"), null, "a successful save reports no denial");
+  const revoked = await stagingPost(PROFILE_PATH, { csrf: ownCsrf, display_name: "Loser" }, browser.jar);
   assert.equal(revoked.headers.get("X-MotoTrack-Profile-Denial"), "authorization_revoked",
     "the FIRST failing precondition wins - not a later CSRF reason");
-
-  // --- A successful save emits no denial header ---
-  const goodCsrf = csrfIn(await (await stagingGet(PROFILE_PATH, usurper.jar)).text());
-  const saved = await stagingPost(PROFILE_PATH,
-    { profile_consent: 1, csrf: goodCsrf, display_name: "Diag Saved" }, usurper.jar);
-  assert.equal(saved.status, 200);
-  assert.match(await saved.text(), /your profile is saved/i);
-  assert.equal(saved.headers.get("X-MotoTrack-Profile-Denial"), null, "a successful save reports no denial");
 }
 
 // --- Every non-staging environment emits NONE of these headers ---
@@ -1421,6 +1414,54 @@ const CLAIM_HEADERS = ["X-MotoTrack-Profile-Claim-Success", "X-MotoTrack-Profile
   await post(PROFILE_REQUEST_PATH, { csrf: requestCsrf, email: "chrome@example.com" },
     requestJar, "null", CHROME);
   assert.equal(sent.length, sentBefore + 1, "the browser shape requests a link normally");
+}
+
+// ---------------------------------------------------------------------------
+// THE staging failure, exactly: an unattributed second GET exchanged the same
+// valid invitation ~16 seconds after the rider's click, and under the old
+// one-live-authorization invariant that revoked the authorization backing the
+// rider's already-open form. Under the coexistence invariant it must not.
+// ---------------------------------------------------------------------------
+{
+  const CHROME = { "sec-fetch-site": "same-origin" };
+  seed("s_shadow", "shadow@example.com", "confirmed");
+
+  // Consent granted through an earlier completed invitation, so the Z800 pass
+  // below is an ORDINARY EDIT and must append no consent event.
+  const first = await openSession("s_shadow");
+  const consented = await post(PROFILE_PATH,
+    { profile_consent: 1, csrf: first.jar[PROFILE_CSRF_COOKIE], display_name: "Shadow Rider" },
+    first.jar, "null", CHROME);
+  assert.equal(consented.status, 200);
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_consent_events WHERE signup_id='s_shadow'"), 1);
+
+  // The rider opens the new invitation (browser A)...
+  const rider = await openSession("s_shadow");
+  // ...and the shadow exchanges the SAME invitation with no cookie (client B).
+  const shadow = await get(`${PROFILE_PATH}/open?token=${rider.token}`);
+  assert.equal(shadow.status, 303, "the second exchange succeeds independently");
+
+  const live = () => count(`SELECT COUNT(*) AS n FROM waitlist_profile_edit_authorizations
+    WHERE signup_id='s_shadow' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > datetime('now')`);
+  assert.equal(live(), 2, "the rider's authorization and the shadow's coexist");
+  assert.equal((await get(PROFILE_PATH, rider.jar)).status, 200,
+    "the rider's form was NOT invalidated by the shadow exchange");
+
+  // The rider saves at leisure - no racing - in the real Chrome shape.
+  const saved = await post(PROFILE_PATH,
+    { csrf: rider.jar[PROFILE_CSRF_COOKIE], display_name: "Shadow Rider", other_motorcycles: "Z800" },
+    rider.jar, "null", CHROME);
+  assert.equal(saved.status, 200, "the save succeeds without beating anything to a deadline");
+  assert.match(await saved.text(), /your profile is saved/i);
+  assert.equal(row("SELECT other_motorcycles FROM waitlist_profiles WHERE signup_id='s_shadow'").other_motorcycles,
+    "Z800", "Z800 persists");
+  assert.equal(count(`SELECT COUNT(*) AS n FROM waitlist_profile_invitations
+    WHERE signup_id='s_shadow' AND used_at IS NOT NULL`), 2,
+  "each completed invitation was consumed exactly once");
+  assert.equal(live(), 0, "the winning save invalidated the rider's AND the shadow's authorizations");
+  assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_profile_consent_events WHERE signup_id='s_shadow'"), 1,
+    "an ordinary edit appended no consent event");
+  assert.equal(count("SELECT COUNT(*) AS n FROM pragma_foreign_key_check()"), 0, "FK clean");
 }
 
 // ---------------------------------------------------------------------------
