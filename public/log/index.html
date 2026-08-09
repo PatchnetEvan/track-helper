@@ -21,7 +21,12 @@
       <strong>Track Agent Pro is invite-only and in development.</strong>
       Explore the rider-controlled paddock workflow &rarr;
     </a>
-    <button type="button" class="feedback-open" id="feedback-open">Feedback</button>
+    <!-- Hidden by default; revealed by app.js ONLY after GET /api/feedback
+         proves the feature is enabled. A build without FEEDBACK_ENABLED never
+         shows this entry, so a rider is never offered a surface whose backend
+         is unavailable, and no new data-collection surface appears before the
+         privacy/legal activation gate is satisfied. -->
+    <button type="button" class="feedback-open" id="feedback-open" hidden>Feedback</button>
   </header>
 
   <!-- Rider feedback (#55/#56 PR 2). One easily reachable entry that opens a

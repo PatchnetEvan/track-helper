@@ -1041,6 +1041,7 @@
     const GENERIC_FAIL = "We couldn't send your feedback right now. Please try again.";
     let captured = { sourceSection: null, sourceRoute: null };
     let lastFocus = null;
+    let csrfToken = null;
 
     function activeSection() {
       const tab = document.querySelector('.tab[aria-selected="true"]');
@@ -1050,8 +1051,25 @@
       statusEl.textContent = msg || "";
       statusEl.className = "feedback-status" + (kind ? " " + kind : "");
     }
+
+    // Fail-closed reveal: the entry stays hidden until this bootstrap proves
+    // the feature is enabled (GET succeeds and returns a CSRF token). The same
+    // call mints the double-submit token, so opening the modal and submitting
+    // need no further fetches.
+    async function bootstrap() {
+      try {
+        const res = await fetch("/api/feedback", { method: "GET", headers: { accept: "application/json" } });
+        if (!res.ok) return; // disabled/unavailable -> entry stays hidden
+        const data = await res.json();
+        if (!data || !data.csrf) return;
+        csrfToken = data.csrf;
+        openBtn.hidden = false; // reveal ONLY after availability is proven
+      } catch (_) { /* stays hidden */ }
+    }
+
     function open() {
-      // Capture the originating context BEFORE showing the dialog.
+      // Capture the originating context BEFORE showing the dialog. Opening is
+      // local only - no fetch, no UI churn.
       captured = { sourceSection: activeSection(), sourceRoute: location.pathname + location.hash };
       setStatus("");
       form.hidden = false;
@@ -1076,13 +1094,10 @@
       e.preventDefault();
       const body = (bodyField.value || "").trim();
       if (body === "") { setStatus("Please enter some feedback first.", "warn"); bodyField.focus(); return; }
+      if (!csrfToken) { setStatus(GENERIC_FAIL, "warn"); return; }
       submitBtn.disabled = true;
       setStatus("Sending…");
       try {
-        // Double-submit CSRF: mint a token (also sets the HttpOnly cookie).
-        const tokenRes = await fetch("/api/feedback", { method: "GET", headers: { accept: "application/json" } });
-        if (!tokenRes.ok) throw new Error("token");
-        const { csrf } = await tokenRes.json();
         const res = await fetch("/api/feedback", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1091,7 +1106,7 @@
             contactEmail: (emailField.value || "").trim() || undefined,
             sourceSection: captured.sourceSection,
             sourceRoute: captured.sourceRoute,
-            csrf,
+            csrf: csrfToken,
           }),
         });
         if (res.status === 201) {
@@ -1115,6 +1130,8 @@
         submitBtn.disabled = false;
       }
     });
+
+    bootstrap();
   })();
 
   // Initial state

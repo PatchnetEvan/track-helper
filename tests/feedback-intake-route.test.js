@@ -81,16 +81,32 @@ function postFeedback(env, { cookie, csrf, body = "some feedback", contactEmail,
 }
 
 // ---------------------------------------------------------------------------
-// Feature gate: fail-closed, persist nothing when absent/false/wrong-case.
+// Feature gate: DISABLED feature is a non-disclosing 404 for BOTH the GET
+// bootstrap and the POST; no CSRF is minted and nothing is persisted. This is
+// what keeps the rider entry hidden in a build shipped without the flag.
 // ---------------------------------------------------------------------------
 for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   const db = freshDb();
   const env = makeEnv(db, { FEEDBACK_ENABLED: flag });
   const token = await mintCsrf(env);
-  assert.notEqual(token.res.status, 200, `GET token refused when flag=${flag}`);
+  assert.equal(token.res.status, 404, `GET is a non-disclosing 404 when flag=${flag}`);
+  assert.equal(token.cookie, null, `no CSRF cookie minted when flag=${flag}`);
+  assert.equal(token.csrf, null, `no CSRF token returned when flag=${flag}`);
   const post = await postFeedback(env, { cookie: "x".repeat(43), csrf: "x".repeat(43) });
-  assert.equal(post.status, 503, `POST refused when flag=${flag}`);
+  assert.equal(post.status, 404, `POST is a non-disclosing 404 when flag=${flag}`);
   assert.equal(feedbackCount(db), 0, `nothing persisted when flag=${flag}`);
+}
+
+// Enabled build: GET succeeds, mints the feedback-scoped CSRF, and a valid
+// POST can persist - so the rider entry becomes eligible to reveal.
+{
+  const db = freshDb();
+  const env = makeEnv(db, { FEEDBACK_ENABLED: "true" });
+  const { res, cookie, csrf } = await mintCsrf(env);
+  assert.equal(res.status, 200, "enabled -> GET succeeds");
+  assert.ok(cookie && csrf === cookie, "enabled -> feedback CSRF minted");
+  assert.equal((await postFeedback(env, { cookie, csrf, body: "enabled path" })).status, 201, "enabled -> POST persists");
+  assert.equal(feedbackCount(db), 1);
 }
 
 // No DB binding -> fail closed even with the flag on.
@@ -331,6 +347,20 @@ for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   assert.ok(html.includes("How can we make MotoTrack better?"), "exact rider prompt");
   assert.ok(html.includes("Send feedback"), "exact submit label");
   assert.ok(html.includes("connect-src 'self'"), "CSP allows the same-origin feedback fetch");
+
+  // Fail-closed client posture: the Feedback entry is HIDDEN by default in the
+  // static markup, and revealed only after a successful availability bootstrap
+  // (never "visible then hidden", which would flash the unavailable feature).
+  assert.match(html, /<button[^>]*id="feedback-open"[^>]*\shidden(\s|>)/, "Feedback entry is hidden by default");
+  assert.ok(appJs.includes("openBtn.hidden = false"), "client reveals the entry only in code");
+  assert.ok(appJs.includes("bootstrap()"), "client runs an availability bootstrap");
+  // The reveal must be gated behind the GET succeeding: hidden=false appears
+  // after the res.ok / csrf check inside bootstrap, not unconditionally.
+  const revealIdx = appJs.indexOf("openBtn.hidden = false");
+  const bootstrapIdx = appJs.indexOf("async function bootstrap");
+  const okCheckIdx = appJs.indexOf("if (!res.ok) return");
+  assert.ok(bootstrapIdx >= 0 && okCheckIdx > bootstrapIdx && revealIdx > okCheckIdx,
+    "reveal happens only after the GET availability check succeeds");
 }
 
 console.log("feedback-intake-route.test.js passed");

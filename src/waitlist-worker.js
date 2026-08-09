@@ -836,6 +836,14 @@ function feedbackUnavailable(status = 503) {
   return json({ error: "feedback_unavailable", message: "We couldn't send your feedback right now. Please try again." }, status);
 }
 
+// Non-disclosing response for a DISABLED feature (flag not exactly "true").
+// Indistinguishable from a route that does not exist, so a build shipped
+// without FEEDBACK_ENABLED presents no feedback surface at all - the client
+// leaves the Feedback entry hidden because this GET does not succeed.
+function feedbackNotFound() {
+  return json({ error: "not_found" }, 404);
+}
+
 function constantTimeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length || a.length === 0) return false;
   let diff = 0;
@@ -847,7 +855,11 @@ function constantTimeEqual(a, b) {
 // the feedback endpoint, and return it for the form to echo (double-submit).
 // This creates NO feedback. Gated so a disabled build hands out nothing usable.
 function handleFeedbackToken(env) {
-  if (!feedbackEnabled(env) || !database(env)) return feedbackUnavailable();
+  // Disabled feature -> non-disclosing 404 (client keeps the entry hidden and
+  // no CSRF is minted). Enabled-but-misconfigured (no DB) -> generic 503, which
+  // the client also treats as "not available", so the entry still stays hidden.
+  if (!feedbackEnabled(env)) return feedbackNotFound();
+  if (!database(env)) return feedbackUnavailable();
   const token = mintToken();
   const res = json({ ok: true, csrf: token });
   res.headers.append("set-cookie",
@@ -860,7 +872,9 @@ function handleFeedbackToken(env) {
 // feedback-only rate limit; then the PR 1 service performs validation +
 // durable insert. Success is returned ONLY after that insert resolves.
 async function handleFeedback(request, env) {
-  if (!feedbackEnabled(env)) return feedbackUnavailable();
+  // Same gate as the bootstrap: a disabled feature is a non-disclosing 404 and
+  // persists nothing; enabled-but-no-DB is the generic 503.
+  if (!feedbackEnabled(env)) return feedbackNotFound();
   const db = database(env);
   if (!db) return feedbackUnavailable();
   if (!requestSourceAllowed(request)) return feedbackUnavailable(403);
