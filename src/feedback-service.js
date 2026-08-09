@@ -30,6 +30,17 @@ export const FEEDBACK_EMAIL_MAX = 254;
 export const FEEDBACK_SECTION_MAX = 64;
 export const FEEDBACK_ROUTE_MAX = 200;
 
+// Rate-limit isolation contract (#56, enforced in PR 2). The public feedback
+// POST will REUSE the shared waitlist_rate_buckets storage/mechanism, but only
+// under this distinct purpose namespace, so a feedback submission never
+// consumes or modifies the rate-limit budget of waitlist signup, confirmation,
+// profile-link request, or any other waitlist operation - and waitlist
+// activity never consumes the feedback budget. PR 2 builds its bucket keys with
+// this prefix; the behavioral independence regression lands in PR 2 alongside
+// the enforcement. No new table is created - the existing bucket abstraction
+// gives safe isolation by key namespace.
+export const FEEDBACK_RATE_BUCKET_PREFIX = "feedback_client:";
+
 // Rider-facing copy pinned here so PR 2's UI and the tests share one source.
 export const FEEDBACK_PROMPT = "How can we make MotoTrack better?";
 export const FEEDBACK_EMAIL_PROMPT = "Want us to follow up? Leave your email if you'd like us to contact you about your feedback.";

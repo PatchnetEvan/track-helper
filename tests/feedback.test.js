@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readdirSync } from "node:fs";
 import { APP_VERSION } from "../src/app-version.js";
 import {
   createFeedback, readFeedback, readFeedbackHistory, listFeedback,
   normalizeText, FeedbackValidationError,
   FEEDBACK_STATES, FEEDBACK_CLOSURE_REASONS, FEEDBACK_BODY_MAX,
-  FEEDBACK_PROMPT, FEEDBACK_EMAIL_PROMPT, FEEDBACK_SUCCESS,
+  FEEDBACK_PROMPT, FEEDBACK_EMAIL_PROMPT, FEEDBACK_SUCCESS, FEEDBACK_RATE_BUCKET_PREFIX,
 } from "../src/feedback-service.js";
 
 // MotoTrack Feedback #55 PR 1: schema + intake service + triage-read contract.
@@ -49,17 +50,34 @@ const count = (sql, ...a) => row(sql, ...a).n;
 // Canonical version + copy constants.
 // ---------------------------------------------------------------------------
 {
-  assert.match(APP_VERSION, /^\d+\.\d+\.\d+$/, "canonical app version is a single semver-shaped constant");
+  // Internal canonical application version - NOT a 1.0 / marketing claim.
+  assert.equal(APP_VERSION, "0.1.0-beta.1", "canonical internal app version, not a declared 1.0");
   assert.deepEqual([...FEEDBACK_STATES], ["new", "reviewing", "actionable", "closed"]);
   assert.deepEqual([...FEEDBACK_CLOSURE_REASONS], ["resolved", "duplicate", "not_actionable", "spam"]);
   assert.equal(FEEDBACK_PROMPT, "How can we make MotoTrack better?");
   assert.ok(FEEDBACK_EMAIL_PROMPT.startsWith("Want us to follow up?"));
   assert.equal(FEEDBACK_SUCCESS, "Thanks for the feedback.");
-  // The canonical version is the ONLY version registry: the service module
-  // imports it and never hard-codes a literal version string of its own.
-  const svc = readFileSync(join(import.meta.dirname, "..", "src", "feedback-service.js"), "utf8");
+
+  // Exactly ONE canonical APP_VERSION definition across src/, and it lives in
+  // app-version.js; the service imports it and never hard-codes its own.
+  const srcDir = join(import.meta.dirname, "..", "src");
+  const definers = readdirSync(srcDir)
+    .filter((f) => f.endsWith(".js"))
+    .filter((f) => /export\s+const\s+APP_VERSION\b/.test(readFileSync(join(srcDir, f), "utf8")));
+  assert.deepEqual(definers, ["app-version.js"], "exactly one canonical APP_VERSION definition, in app-version.js");
+  const svc = readFileSync(join(srcDir, "feedback-service.js"), "utf8");
   assert.ok(svc.includes('from "./app-version.js"'), "service reads the canonical version, not a private copy");
-  assert.ok(!/["'`]\d+\.\d+\.\d+["'`]/.test(svc), "no second version literal in the service");
+  assert.ok(!/APP_VERSION\s*=/.test(svc), "the service never defines its own APP_VERSION");
+
+  // Rate-limit isolation contract for PR 2: feedback has its OWN bucket
+  // namespace, distinct from every waitlist purpose key, so the budgets can
+  // never cross-consume. (Enforcement + behavioral independence proof are PR 2.)
+  assert.equal(FEEDBACK_RATE_BUCKET_PREFIX, "feedback_client:");
+  const worker = readFileSync(join(srcDir, "waitlist-worker.js"), "utf8");
+  for (const waitlistPrefix of ["client:", "email:", "profile_client:"]) {
+    assert.notEqual(FEEDBACK_RATE_BUCKET_PREFIX, waitlistPrefix, "feedback namespace differs from waitlist purposes");
+  }
+  assert.ok(!worker.includes(FEEDBACK_RATE_BUCKET_PREFIX), "PR 1 does not yet wire the feedback rate limit");
 }
 
 // ---------------------------------------------------------------------------
