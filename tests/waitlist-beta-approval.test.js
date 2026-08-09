@@ -359,15 +359,16 @@ const rejects = async (overrides, code) => {
   for (const marker of ["WAITLIST_EMAIL", "EmailMessage", "sendEmail", "waitlist_email_deliveries", "waitlist-tokens"]) {
     assert.ok(!serviceSource.includes(marker), `approval service must not reference ${marker}`);
   }
-  // Since PR 2 the Worker reaches admin READS through the routes module
-  // only; the mutation stays structurally unreachable: neither the Worker
-  // nor the routes module references changeApprovalState.
+  // The Worker reaches admin functionality through the routes module only,
+  // and the routes module mutates approval state ONLY through the service:
+  // it contains no SQL against the approval tables, so no route can write
+  // a decision without the service's transition/reason/atomicity rules.
   const workerSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
   assert.ok(!workerSource.includes("waitlist-admin-service"),
     "the Worker must not import the approval service directly - only the admin routes module may");
   const routesSource = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-admin-routes.js"), "utf8");
-  assert.ok(!routesSource.includes("changeApprovalState"),
-    "PR 2 is read-only: no admin route may reference the approval mutation");
+  assert.ok(!routesSource.includes("waitlist_beta_approval"),
+    "admin routes must never touch the approval tables directly - mutation goes through the service only");
 }
 
 console.log("waitlist-beta-approval.test.js passed");

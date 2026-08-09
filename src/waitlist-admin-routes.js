@@ -1,10 +1,12 @@
-// Read-only Waitlist Admin (#49 PR 2): candidate queue and rider detail.
-// No mutation endpoint exists in this module - the approval-mutation
-// function is deliberately never imported, so no admin route can alter
-// approval state, and nothing here references any email surface, so no
-// admin route can send.
-// PR 3 adds the decision POST behind the SAME authentication layer plus its
-// own CSRF flow; nothing below bypasses or duplicates auth per-route.
+// Waitlist Admin (#49): candidate queue, rider detail (PR 2), and the
+// decision mutation (PR 3). Approval state changes ONLY through the service
+// layer's changeApprovalState - this module contains no SQL against the
+// approval tables - and nothing here references any email surface, so no
+// admin route can send. The single mutation route sits behind the SAME
+// authenticated entry point as the reads, plus its own CSRF flow: the #45
+// request-source gate AND a double-submit token scoped to /admin. The audit
+// actor is exclusively the Access-verified operator email; any actor-shaped
+// value in the request body is ignored.
 //
 // Non-disclosure contract: when the admin feature is unavailable to a
 // request - flag absent/false, missing/invalid auth configuration, no or
@@ -20,10 +22,42 @@
 
 import { authenticateOperator } from "./waitlist-admin-auth.js";
 import {
-  APPROVAL_STATE_LABELS, APPROVAL_STATE_VALUES, CANDIDATE_PAGE_SIZE,
-  listCandidates, readApprovalState, readApprovalHistory, ApprovalValidationError,
+  APPROVAL_STATE_LABELS, APPROVAL_STATE_VALUES, CANDIDATE_PAGE_SIZE, APPROVAL_REASON_MAX_LENGTH,
+  listCandidates, readApprovalState, readApprovalHistory, changeApprovalState, ApprovalValidationError,
 } from "./waitlist-admin-service.js";
 import { escapeHtml, EXPERIENCE_LEVEL_LABELS, TRACK_INVOLVEMENT_LABELS } from "./waitlist-profile-service.js";
+import { parseCookies } from "./waitlist-profile-auth.js";
+
+// --- Mutation protection -----------------------------------------------
+// Same request-source rule the profile flow hardened in #45: Sec-Fetch-Site
+// is authoritative when present (only the exact "same-origin" passes); the
+// Origin fallback tolerates absence but refuses any foreign value including
+// the literal "null", which is never generally trusted.
+const requestSourceAllowed = (request) => {
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite !== null) return fetchSite === "same-origin";
+  const origin = request.headers.get("origin");
+  return !origin || origin === new URL(request.url).origin;
+};
+
+// Double-submit CSRF, scoped to /admin. The cookie is minted on the first
+// authorized page view; every decision form embeds the same value and the
+// POST must present both. Authentication alone is deliberately NOT enough
+// to mutate.
+const ADMIN_CSRF_COOKIE = "__Secure-mototrack_admin_csrf";
+const ADMIN_CSRF_MAX_AGE = 60 * 60 * 24;
+const adminCsrfCookie = (value) =>
+  `${ADMIN_CSRF_COOKIE}=${value}; Path=/admin; Max-Age=${ADMIN_CSRF_MAX_AGE}; HttpOnly; Secure; SameSite=Strict`;
+const opaqueValue = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+const sameValue = (a, b) => {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length || a.length === 0) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
 
 const adminEnabled = (env) => env?.WAITLIST_ADMIN_ENABLED === "true";
 
@@ -74,6 +108,13 @@ const page = (title, body) => new Response(`<!doctype html>
     .panel { border: 1px solid #d8dde3; border-radius: .4rem; padding: .9rem 1.1rem; margin-top: 1rem; }
     .muted { color: #5a6572; }
     a.row-link { text-decoration: none; }
+    .banner { padding: .55rem .8rem; border-radius: .3rem; }
+    .banner-ok { background: #d9f4e0; border: 1px solid #7fc494; }
+    .banner-warn { background: #fdeec9; border: 1px solid #d9b95e; }
+    .error { background: #f6d9d9; border: 1px solid #cd8a8a; padding: .55rem .8rem; border-radius: .3rem; }
+    form.decision label { display: block; margin: .6rem 0 .2rem; }
+    form.decision textarea { width: 100%; max-width: 42rem; }
+    form.decision button { margin-top: .5rem; }
   </style>
 </head>
 <body>
@@ -175,7 +216,42 @@ const PROFILE_FIELD_ROWS = [
   ["Interested in AI coaching", (p) => (p.interest_ai_coaching ? "Yes" : "No")],
 ];
 
-async function renderDetail(db, signupId) {
+// Operator-facing outcome banners. `applied` confirms; the two refusal
+// results are honest about what did NOT happen, per the no-op/conflict
+// rulings on #49.
+const RESULT_BANNERS = Object.freeze({
+  applied: ["ok", "Decision recorded."],
+  no_change: ["warn", "No change: that is already the current approval state. No decision was recorded."],
+  conflict: ["warn", "The approval state changed after you loaded this record - review the current state below and decide again. Nothing was recorded."],
+});
+
+const decisionForm = (signup, approval, csrfToken, priorError) => {
+  const options = APPROVAL_STATE_VALUES.map((value) => {
+    const isCurrent = value === approval.effectiveState;
+    const intlBlocked = signup.program_track === "international_interest" && value === "approved";
+    return `<option value="${escapeHtml(value)}"${isCurrent ? " selected" : ""}${intlBlocked ? " disabled" : ""}>` +
+      `${escapeHtml(APPROVAL_STATE_LABELS[value])}${isCurrent ? " (current)" : ""}${intlBlocked ? " - unavailable for international interest" : ""}</option>`;
+  }).join("");
+  return `
+  <h2>Record a decision</h2>
+  ${priorError ? `<p class="error">${escapeHtml(priorError)}</p>` : ""}
+  <form method="post" action="/admin/waitlist/${escapeHtml(signup.id)}/decision" class="decision">
+    <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}" />
+    <input type="hidden" name="expected_state" value="${escapeHtml(approval.effectiveState)}" />
+    <label>New approval state
+      <select name="new_state">${options}</select>
+    </label>
+    <label>Operational reason
+      <textarea name="reason" maxlength="${APPROVAL_REASON_MAX_LENGTH}" rows="3"
+        placeholder="Required for Hold, Not approved, and when reversing Not approved."></textarea>
+    </label>
+    <p class="muted">State the operational reason only. Do not record medical, financial, or other sensitive
+      information about the rider, or speculation. Maximum ${APPROVAL_REASON_MAX_LENGTH} characters.</p>
+    <button type="submit">Confirm decision</button>
+  </form>`;
+};
+
+async function renderDetail(db, signupId, { csrfToken = "", result = "", priorError = "" } = {}) {
   const signup = await db.prepare(
     `SELECT id, email_normalized, country_code, program_track, status, consent_at,
             confirmed_at, unsubscribed_at, created_at FROM waitlist_signups WHERE id = ?`,
@@ -218,10 +294,12 @@ async function renderDetail(db, signupId) {
 </div>
 <div class="panel">
   <h2>Beta approval</h2>
+  ${RESULT_BANNERS[result] ? `<p class="banner banner-${RESULT_BANNERS[result][0]}">${escapeHtml(RESULT_BANNERS[result][1])}</p>` : ""}
   <p>${approvalBadge(approval.effectiveState, approval.everReviewed)}</p>
   ${approval.everReviewed
     ? `<p class="muted">Last decision by ${escapeHtml(approval.updatedBy ?? "")} at ${escapeHtml(approval.updatedAt ?? "")}.</p>`
     : `<p class="muted">No operator has reviewed this candidate yet.</p>`}
+  ${csrfToken ? decisionForm(signup, approval, csrfToken, priorError) : ""}
   <h2>Decision history</h2>
   ${history.length
     ? `<table><thead><tr><th>When</th><th>Decision</th><th>Operator</th><th>Reason</th></tr></thead><tbody>${historyRows}</tbody></table>`
@@ -235,33 +313,127 @@ ${profile ? `
 </div>` : `<p class="muted">No rider profile submitted.</p>`}`);
 }
 
-// Entry point. Returns a Response for an authorized read, or null so the
-// Worker falls through to static assets (an indistinguishable 404) for
+// A CSRF failure for an ALREADY AUTHENTICATED operator is an actionable
+// error, not a secret - the uniform 404 is only for requests that are not
+// entitled to know Admin exists.
+const csrfRefused = () => new Response(`<!doctype html><meta charset="utf-8"><title>Refused</title>
+<p>The request could not be verified as coming from the Admin page. Go back, reload the record, and decide again.</p>`,
+  { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+
+// The Not approved confirmation interstitial: a second explicit submit
+// carrying the SAME decision plus the confirmation flag. Nothing has been
+// recorded when this page renders.
+const confirmNotApprovedPage = (signupId, email, expectedState, reason, csrfToken) => page("Confirm decision", `
+<p><a href="/admin/waitlist/${escapeHtml(signupId)}">← Back without deciding</a></p>
+<h1>Confirm: mark this rider Not approved</h1>
+<div class="panel">
+  <p>You are about to record <strong>Not approved</strong> for <strong>${escapeHtml(email)}</strong>.</p>
+  <p>Reason: ${escapeHtml(reason)}</p>
+  <p class="muted">Nothing has been recorded yet. This is the only state a rider would experience as a closed
+    door, so it asks once more.</p>
+  <form method="post" action="/admin/waitlist/${escapeHtml(signupId)}/decision">
+    <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}" />
+    <input type="hidden" name="expected_state" value="${escapeHtml(expectedState)}" />
+    <input type="hidden" name="new_state" value="not_approved" />
+    <input type="hidden" name="reason" value="${escapeHtml(reason)}" />
+    <input type="hidden" name="confirm_not_approved" value="yes" />
+    <button type="submit">Confirm: Not approved</button>
+  </form>
+</div>`);
+
+// The one mutation route. Auth happened at the shared entry point; this
+// layer adds the request-source gate and the double-submit check, runs the
+// deliberate-decision workflow, and delegates every business rule to
+// changeApprovalState. The audit actor is the verified operator email and
+// nothing else - the form cannot supply or override it.
+async function handleDecision(db, request, url, signupId, operator, cookieToken) {
+  if (!requestSourceAllowed(request)) return csrfRefused();
+  const form = await request.formData().catch(() => null);
+  if (!form) return csrfRefused();
+  if (!sameValue(cookieToken, String(form.get("csrf") ?? ""))) return csrfRefused();
+
+  const expectedState = String(form.get("expected_state") ?? "");
+  const newState = String(form.get("new_state") ?? "");
+  const reason = form.get("reason") === null ? null : String(form.get("reason"));
+
+  const signup = await db.prepare(
+    "SELECT id, email_normalized FROM waitlist_signups WHERE id = ?").bind(signupId).first();
+  if (!signup) return null;
+
+  if (newState === "not_approved" && form.get("confirm_not_approved") !== "yes") {
+    return confirmNotApprovedPage(signupId, signup.email_normalized, expectedState, reason ?? "", cookieToken);
+  }
+
+  try {
+    const outcome = await changeApprovalState(db, {
+      signupId, expectedState, newState, reason, actor: operator.email,
+    });
+    const result = outcome.ok ? "applied" : outcome.code; // no_change | conflict
+    return new Response(null, {
+      status: 303,
+      headers: { location: `/admin/waitlist/${signupId}?result=${result}` },
+    });
+  } catch (error) {
+    if (error instanceof ApprovalValidationError) {
+      const detail = await renderDetail(db, signupId, { csrfToken: cookieToken, priorError: error.message });
+      if (!detail) return null;
+      return new Response(detail.body, { status: 400, headers: detail.headers });
+    }
+    throw error;
+  }
+}
+
+// Entry point. Returns a Response for an authorized operator, or null so
+// the Worker falls through to static assets (an indistinguishable 404) for
 // everything else - disabled flag, bad config, bad auth, unknown paths, and
-// any non-GET method (no mutation surface exists in PR 2).
+// methods/paths with no route. The only mutation surface is the decision
+// POST below; it cannot be reached without passing the same authentication
+// as every read.
 export async function handleAdminRoutes(request, env, url, deps = {}) {
   if (!(url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) return null;
   if (!adminEnabled(env)) return null;
-  
+
   const db = env?.WAITLIST_DB ?? null;
   if (!db) return null;
   // Test seam, mirroring the worker's existing test-binding pattern: suites
-  // inject a JWKS source so
-  // signature verification runs against synthetic keys. Production simply
-  // never defines it.
+  // inject a JWKS source so signature verification runs against synthetic
+  // keys. Production simply never defines it.
   const operator = await authenticateOperator(request, env, deps.auth ?? env?.ADMIN_AUTH_TEST);
   if (!operator) return null;
-  if (request.method !== "GET") return null;
+
+  // Double-submit CSRF material: reuse the client's token, or mint one for
+  // this response. Set-Cookie rides every authorized HTML response so the
+  // decision form always has a matching pair.
+  const cookies = parseCookies(request);
+  const existingToken = typeof cookies[ADMIN_CSRF_COOKIE] === "string" && cookies[ADMIN_CSRF_COOKIE].length >= 32
+    ? cookies[ADMIN_CSRF_COOKIE] : null;
+  const csrfToken = existingToken ?? opaqueValue();
+  const withCsrfCookie = (response) => {
+    if (response && !existingToken) response.headers.append("set-cookie", adminCsrfCookie(csrfToken));
+    return response;
+  };
 
   try {
-    if (url.pathname === "/admin/waitlist" || url.pathname === "/admin" || url.pathname === "/admin/") {
-      if (url.pathname !== "/admin/waitlist") {
-        return new Response(null, { status: 303, headers: { location: "/admin/waitlist" } });
+    const detailMatch = /^\/admin\/waitlist\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
+    const decisionMatch = /^\/admin\/waitlist\/([A-Za-z0-9_-]{1,64})\/decision$/.exec(url.pathname);
+
+    if (request.method === "GET") {
+      if (url.pathname === "/admin/waitlist" || url.pathname === "/admin" || url.pathname === "/admin/") {
+        if (url.pathname !== "/admin/waitlist") {
+          return new Response(null, { status: 303, headers: { location: "/admin/waitlist" } });
+        }
+        return withCsrfCookie(await renderQueue(db, url));
       }
-      return await renderQueue(db, url);
+      if (detailMatch) {
+        return withCsrfCookie(await renderDetail(db, detailMatch[1], {
+          csrfToken, result: url.searchParams.get("result") ?? "",
+        }));
+      }
     }
-    const detail = /^\/admin\/waitlist\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-    if (detail) return await renderDetail(db, detail[1]);
+    if (request.method === "POST" && decisionMatch) {
+      // A POST without the cookie can never match the double-submit pair.
+      return await handleDecision(db, request, url, decisionMatch[1], operator, existingToken ?? "");
+    }
   } catch (error) {
     if (error instanceof ApprovalValidationError) return null;
     throw error;
