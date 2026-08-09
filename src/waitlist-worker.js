@@ -17,6 +17,7 @@ import {
 } from "./waitlist-profile-service.js";
 import { sweepProfileInvitationBatches } from "./waitlist-profile-batch.js";
 import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js";
+import { handleAdminRoutes } from "./waitlist-admin-routes.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
   revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission,
@@ -820,6 +821,14 @@ export default {
     if (url.pathname === "/waitlist/confirmed" && request.method === "GET") {
       const track = url.searchParams.get("list") === "interest" ? "international_interest" : "us_beta_waitlist";
       return stagingGuard(env, confirmedPage(env, track));
+    }
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+      // Read-only Waitlist Admin (#49 PR 2). Flag-gated and independently
+      // authenticated inside the handler; null means this request is not
+      // entitled to know Admin exists, so it falls through to static assets
+      // where /admin/* has never been a file - the ordinary asset 404.
+      const handled = await handleAdminRoutes(request, env, url);
+      if (handled) return stagingGuard(env, handled);
     }
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/waitlist/")) return json({ error: "not_found" }, 404);
     return stagingGuard(env, await env.ASSETS.fetch(request));

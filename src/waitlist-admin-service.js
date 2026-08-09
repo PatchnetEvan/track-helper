@@ -123,6 +123,93 @@ export async function readApprovalHistory(db, signupId) {
   return results;
 }
 
+export const CANDIDATE_PAGE_SIZE = 50;
+const CANDIDATE_PAGE_MAX = 100;
+const OFFSET_MAX = 10000;
+const PROGRAM_TRACK_VALUES = Object.freeze(["us_beta_waitlist", "international_interest"]);
+const SIGNUP_STATUS_VALUES = Object.freeze(["pending", "confirmed", "unsubscribed"]);
+
+// Read-only queue query (#49 PR 2). One statement, no N+1: approval state and
+// profile presence ride LEFT JOINs. Every filter value is validated against a
+// closed vocabulary or bound as a parameter - nothing user-supplied is ever
+// interpolated into the SQL text. Pagination is bounded; there is no
+// unbounded full-table listing.
+export async function listCandidates(db, {
+  search, approvalState, programTrack, status, country, hasProfile, sort, limit, offset,
+} = {}) {
+  const conditions = [];
+  const bindings = [];
+
+  if (search !== undefined && search !== null && String(search).trim() !== "") {
+    const needle = String(search).trim().toLowerCase();
+    if (needle.length > 254) throw new ApprovalValidationError("search term too long", "invalid_filter");
+    conditions.push(String.raw`s.email_normalized LIKE ? ESCAPE '\'`);
+    bindings.push(`%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  }
+  if (approvalState !== undefined && approvalState !== null && approvalState !== "") {
+    assertKnownState(approvalState, "approvalState");
+    if (approvalState === "awaiting_review") {
+      // Effective state: explicit return-to-queue rows AND never-reviewed rows.
+      conditions.push("COALESCE(a.state, 'awaiting_review') = 'awaiting_review'");
+    } else {
+      conditions.push("a.state = ?");
+      bindings.push(approvalState);
+    }
+  }
+  if (programTrack !== undefined && programTrack !== null && programTrack !== "") {
+    if (!PROGRAM_TRACK_VALUES.includes(programTrack)) {
+      throw new ApprovalValidationError("unknown program track", "invalid_filter");
+    }
+    conditions.push("s.program_track = ?");
+    bindings.push(programTrack);
+  }
+  if (status !== undefined && status !== null && status !== "") {
+    if (!SIGNUP_STATUS_VALUES.includes(status)) {
+      throw new ApprovalValidationError("unknown confirmation state", "invalid_filter");
+    }
+    conditions.push("s.status = ?");
+    bindings.push(status);
+  }
+  if (country !== undefined && country !== null && country !== "") {
+    const code = String(country).trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(code)) throw new ApprovalValidationError("country must be a 2-letter code", "invalid_filter");
+    conditions.push("s.country_code = ?");
+    bindings.push(code);
+  }
+  if (hasProfile === true) conditions.push("p.signup_id IS NOT NULL");
+  if (hasProfile === false) conditions.push("p.signup_id IS NULL");
+
+  const direction = sort === "oldest" ? "ASC" : "DESC";
+  const pageSize = Math.min(Math.max(Number.isInteger(limit) ? limit : CANDIDATE_PAGE_SIZE, 1), CANDIDATE_PAGE_MAX);
+  const pageOffset = Math.min(Math.max(Number.isInteger(offset) ? offset : 0, 0), OFFSET_MAX);
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const { results } = await db.prepare(
+    `SELECT s.id, s.email_normalized, s.country_code, s.program_track, s.status, s.created_at,
+            a.state AS stored_state,
+            CASE WHEN p.signup_id IS NULL THEN 0 ELSE 1 END AS has_profile
+       FROM waitlist_signups s
+       LEFT JOIN waitlist_beta_approvals a ON a.signup_id = s.id
+       LEFT JOIN waitlist_profiles p ON p.signup_id = s.id
+       ${where}
+       ORDER BY s.created_at ${direction}, s.id ${direction}
+       LIMIT ? OFFSET ?`,
+  ).bind(...bindings, pageSize + 1, pageOffset).all();
+
+  const page = results.slice(0, pageSize).map((r) => ({
+    id: r.id,
+    email: r.email_normalized,
+    country: r.country_code,
+    programTrack: r.program_track,
+    status: r.status,
+    createdAt: r.created_at,
+    effectiveState: r.stored_state ?? "awaiting_review",
+    everReviewed: r.stored_state !== null,
+    hasProfile: r.has_profile === 1,
+  }));
+  return { candidates: page, hasMore: results.length > pageSize, limit: pageSize, offset: pageOffset };
+}
+
 // The one mutation. Applies expectedState -> newState for the signup and
 // appends the audit event as a single atomic operation, or does nothing at
 // all.
