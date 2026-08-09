@@ -18,6 +18,7 @@ import {
 import { sweepProfileInvitationBatches } from "./waitlist-profile-batch.js";
 import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js";
 import { handleAdminRoutes } from "./waitlist-admin-routes.js";
+import { createFeedback, FeedbackValidationError, FEEDBACK_RATE_BUCKET_PREFIX, FEEDBACK_SUCCESS } from "./feedback-service.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
   revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission,
@@ -818,10 +819,107 @@ async function handleProfileRoutes(request, env, url) {
   return null;
 }
 
+// Public rider feedback (#55/#56 PR 2). Unauthenticated, fail-closed, and
+// isolated from every waitlist flow: its own feature gate, its own CSRF cookie
+// namespace, and its own rate-limit purpose key. GET mints a double-submit
+// CSRF token (no mutation); POST is the ONLY writer and returns success only
+// after the D1 insert durably succeeds. All business rules live in the PR 1
+// intake service - this handler only guards and delegates.
+const FEEDBACK_CSRF_COOKIE = "__Secure-mototrack_feedback_csrf";
+const FEEDBACK_SEND_LIMIT_PER_HOUR = 5;
+
+function feedbackEnabled(env) { return env?.FEEDBACK_ENABLED === "true"; }
+
+// Generic, non-technical failure - never leaks D1/rate-bucket/CSRF/exception
+// detail. Rate-limited and infrastructure failures share this presentation.
+function feedbackUnavailable(status = 503) {
+  return json({ error: "feedback_unavailable", message: "We couldn't send your feedback right now. Please try again." }, status);
+}
+
+// Non-disclosing response for a DISABLED feature (flag not exactly "true").
+// Indistinguishable from a route that does not exist, so a build shipped
+// without FEEDBACK_ENABLED presents no feedback surface at all - the client
+// leaves the Feedback entry hidden because this GET does not succeed.
+function feedbackNotFound() {
+  return json({ error: "not_found" }, 404);
+}
+
+function constantTimeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length || a.length === 0) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// GET /api/feedback: mint a CSRF token, set it as an HttpOnly cookie scoped to
+// the feedback endpoint, and return it for the form to echo (double-submit).
+// This creates NO feedback. Gated so a disabled build hands out nothing usable.
+function handleFeedbackToken(env) {
+  // Disabled feature -> non-disclosing 404 (client keeps the entry hidden and
+  // no CSRF is minted). Enabled-but-misconfigured (no DB) -> generic 503, which
+  // the client also treats as "not available", so the entry still stays hidden.
+  if (!feedbackEnabled(env)) return feedbackNotFound();
+  if (!database(env)) return feedbackUnavailable();
+  const token = mintToken();
+  const res = json({ ok: true, csrf: token });
+  res.headers.append("set-cookie",
+    `${FEEDBACK_CSRF_COOKIE}=${token}; Path=/api/feedback; Max-Age=3600; HttpOnly; Secure; SameSite=Strict`);
+  return res;
+}
+
+// POST /api/feedback: the one public mutation. Fail-closed on the gate and the
+// DB; #45 request-source gate; double-submit CSRF in the feedback namespace;
+// feedback-only rate limit; then the PR 1 service performs validation +
+// durable insert. Success is returned ONLY after that insert resolves.
+async function handleFeedback(request, env) {
+  // Same gate as the bootstrap: a disabled feature is a non-disclosing 404 and
+  // persists nothing; enabled-but-no-DB is the generic 503.
+  if (!feedbackEnabled(env)) return feedbackNotFound();
+  const db = database(env);
+  if (!db) return feedbackUnavailable();
+  if (!requestSourceAllowed(request)) return feedbackUnavailable(403);
+
+  const cookieToken = parseCookies(request)[FEEDBACK_CSRF_COOKIE] ?? "";
+  let body;
+  try { body = await request.json(); } catch { body = null; }
+  if (!constantTimeEqual(cookieToken, typeof body?.csrf === "string" ? body.csrf : "")) {
+    return feedbackUnavailable(403);
+  }
+
+  const hour = new Date().toISOString().slice(0, 13);
+  const clientKey = await sha256Hex(`${FEEDBACK_RATE_BUCKET_PREFIX}${request.headers.get("cf-connecting-ip") ?? "unknown"}:${String(env.WAITLIST_RATE_PEPPER ?? "")}`);
+  if (!(await underLimit(db, clientKey, hour, FEEDBACK_SEND_LIMIT_PER_HOUR))) return feedbackUnavailable(429);
+
+  try {
+    await createFeedback(db, {
+      body: body?.body,
+      contactEmail: body?.contactEmail,
+      sourceSection: body?.sourceSection,
+      sourceRoute: body?.sourceRoute,
+      // app_version is server-stamped by the service; any client value is ignored.
+    });
+  } catch (error) {
+    if (error instanceof FeedbackValidationError) {
+      // Validation (empty body / malformed email) is actionable by the rider;
+      // return the code so the client can show a targeted message. Still no
+      // internal detail.
+      return json({ error: "invalid_request", code: error.code }, 400);
+    }
+    // Any other failure (e.g. the D1 insert) is NOT a success.
+    return feedbackUnavailable();
+  }
+  return json({ ok: true, message: FEEDBACK_SUCCESS }, 201);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/waitlist" && request.method === "POST") return handleJoin(request, env);
+    if (url.pathname === "/api/feedback") {
+      if (request.method === "GET") return stagingGuard(env, handleFeedbackToken(env));
+      if (request.method === "POST") return stagingGuard(env, await handleFeedback(request, env));
+      return json({ error: "method_not_allowed" }, 405);
+    }
     if (url.pathname === "/waitlist/confirm" && ["GET", "POST"].includes(request.method)) return handleConfirm(request, env, url);
     if (url.pathname === "/waitlist/unsubscribe" && ["GET", "POST"].includes(request.method)) return handleUnsubscribe(request, env, url);
     if (url.pathname === PROFILE_PATH || url.pathname.startsWith(`${PROFILE_PATH}/`)) {

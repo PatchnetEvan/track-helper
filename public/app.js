@@ -1023,6 +1023,117 @@
     renderHistory();
   });
 
+  // --- Rider feedback (#55/#56 PR 2) ---------------------------------------
+  // One entry that opens a dedicated surface. The originating section is
+  // captured from the canonical tab state BEFORE the dialog opens, so it is
+  // never overwritten with a "feedback" pseudo-section. No second section list.
+  (function feedback() {
+    const openBtn = document.getElementById("feedback-open");
+    const overlay = document.getElementById("feedback-overlay");
+    if (!openBtn || !overlay) return;
+    const form = document.getElementById("feedback-form");
+    const bodyField = document.getElementById("feedback-body");
+    const emailField = document.getElementById("feedback-email");
+    const statusEl = document.getElementById("feedback-status");
+    const submitBtn = document.getElementById("feedback-submit");
+    const closeBtn = document.getElementById("feedback-close");
+
+    const GENERIC_FAIL = "We couldn't send your feedback right now. Please try again.";
+    let captured = { sourceSection: null, sourceRoute: null };
+    let lastFocus = null;
+    let csrfToken = null;
+
+    function activeSection() {
+      const tab = document.querySelector('.tab[aria-selected="true"]');
+      return tab ? tab.dataset.tab : null;
+    }
+    function setStatus(msg, kind) {
+      statusEl.textContent = msg || "";
+      statusEl.className = "feedback-status" + (kind ? " " + kind : "");
+    }
+
+    // Fail-closed reveal: the entry stays hidden until this bootstrap proves
+    // the feature is enabled (GET succeeds and returns a CSRF token). The same
+    // call mints the double-submit token, so opening the modal and submitting
+    // need no further fetches.
+    async function bootstrap() {
+      try {
+        const res = await fetch("/api/feedback", { method: "GET", headers: { accept: "application/json" } });
+        if (!res.ok) return; // disabled/unavailable -> entry stays hidden
+        const data = await res.json();
+        if (!data || !data.csrf) return;
+        csrfToken = data.csrf;
+        openBtn.hidden = false; // reveal ONLY after availability is proven
+      } catch (_) { /* stays hidden */ }
+    }
+
+    function open() {
+      // Capture the originating context BEFORE showing the dialog. Opening is
+      // local only - no fetch, no UI churn.
+      captured = { sourceSection: activeSection(), sourceRoute: location.pathname + location.hash };
+      setStatus("");
+      form.hidden = false;
+      overlay.hidden = false;
+      lastFocus = document.activeElement;
+      bodyField.focus();
+    }
+    function close() {
+      overlay.hidden = true;
+      form.reset();
+      setStatus("");
+      submitBtn.disabled = false;
+      if (lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+
+    openBtn.addEventListener("click", open);
+    closeBtn.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !overlay.hidden) close(); });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = (bodyField.value || "").trim();
+      if (body === "") { setStatus("Please enter some feedback first.", "warn"); bodyField.focus(); return; }
+      if (!csrfToken) { setStatus(GENERIC_FAIL, "warn"); return; }
+      submitBtn.disabled = true;
+      setStatus("Sending…");
+      try {
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            body,
+            contactEmail: (emailField.value || "").trim() || undefined,
+            sourceSection: captured.sourceSection,
+            sourceRoute: captured.sourceRoute,
+            csrf: csrfToken,
+          }),
+        });
+        if (res.status === 201) {
+          form.hidden = true;
+          setStatus("Thanks for the feedback.", "ok");
+          return;
+        }
+        if (res.status === 400) {
+          let code = "";
+          try { code = (await res.json()).code; } catch (_) { /* ignore */ }
+          setStatus(code === "invalid_email"
+            ? "That email address doesn't look right. Fix it or leave it blank."
+            : GENERIC_FAIL, "warn");
+          submitBtn.disabled = false;
+          return;
+        }
+        setStatus(GENERIC_FAIL, "warn");
+        submitBtn.disabled = false;
+      } catch (err) {
+        setStatus(GENERIC_FAIL, "warn");
+        submitBtn.disabled = false;
+      }
+    });
+
+    bootstrap();
+  })();
+
   // Initial state
   showStorageWarning();
 })();

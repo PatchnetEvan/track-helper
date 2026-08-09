@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';" />
   <meta name="referrer" content="no-referrer" />
   <meta name="theme-color" content="#121212" />
   <meta name="description" content="MotoTrack — a privacy-first, session-only trackside notebook for club racers and track-day riders." />
@@ -21,7 +21,39 @@
       <strong>Track Agent Pro is invite-only and in development.</strong>
       Explore the rider-controlled paddock workflow &rarr;
     </a>
+    <!-- Hidden by default; revealed by app.js ONLY after GET /api/feedback
+         proves the feature is enabled. A build without FEEDBACK_ENABLED never
+         shows this entry, so a rider is never offered a surface whose backend
+         is unavailable, and no new data-collection surface appears before the
+         privacy/legal activation gate is satisfied. -->
+    <button type="button" class="feedback-open" id="feedback-open" hidden>Feedback</button>
   </header>
+
+  <!-- Rider feedback (#55/#56 PR 2). One easily reachable entry that opens a
+       dedicated surface. It is NOT a tab: opening it must not change the active
+       section, so the originating tab is captured as source_section. -->
+  <div class="feedback-overlay" id="feedback-overlay" hidden>
+    <div class="feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+      <button type="button" class="feedback-close" id="feedback-close" aria-label="Close feedback">&times;</button>
+      <h2 id="feedback-title">How can we make MotoTrack better?</h2>
+      <form id="feedback-form" novalidate>
+        <label class="sr-only" for="feedback-body">Your feedback</label>
+        <textarea id="feedback-body" name="body" rows="6" maxlength="4000"
+          placeholder="Tell us what's on your mind" required></textarea>
+        <fieldset class="feedback-followup">
+          <legend>Want us to follow up?</legend>
+          <p>Leave your email if you'd like us to contact you about your feedback.</p>
+          <label class="sr-only" for="feedback-email">Email (optional)</label>
+          <input id="feedback-email" name="email" type="email" autocomplete="email"
+            inputmode="email" placeholder="you@example.com (optional)" />
+        </fieldset>
+        <p class="feedback-status" id="feedback-status" role="status" aria-live="polite"></p>
+        <div class="feedback-actions">
+          <button type="submit" id="feedback-submit">Send feedback</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" data-tab="setup" aria-selected="true">Setup</button>
