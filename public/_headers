@@ -8,3 +8,15 @@
 
 /waitlist.html
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
+
+# Log pages need to fetch /api/feedback. _headers COMBINES matching rules, so a
+# second Content-Security-Policy line here would be enforced ALONGSIDE the /*
+# one, leaving connect-src 'none' active and still blocking the fetch. Instead
+# DETACH the inherited CSP header (Cloudflare's documented "! <header>" form),
+# leaving the log page's own meta CSP (connect-src 'self') as the single active
+# policy. The other /* security headers (X-Frame-Options: DENY, Referrer-Policy,
+# X-Content-Type-Options, Permissions-Policy, HSTS) are NOT detached and still
+# apply - X-Frame-Options: DENY preserves the anti-framing protection the
+# detached CSP carried via frame-ancestors (which a meta CSP cannot express).
+/log/*
+  ! Content-Security-Policy

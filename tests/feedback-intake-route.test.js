@@ -346,7 +346,33 @@ for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   const html = readFileSync(join(import.meta.dirname, "..", "public", "log", "index.html"), "utf8");
   assert.ok(html.includes("How can we make MotoTrack better?"), "exact rider prompt");
   assert.ok(html.includes("Send feedback"), "exact submit label");
-  assert.ok(html.includes("connect-src 'self'"), "CSP allows the same-origin feedback fetch");
+  assert.ok(html.includes("connect-src 'self'"), "meta CSP allows the same-origin feedback fetch");
+
+  // Deployed CSP contract (public/_headers). _headers COMBINES matching rules,
+  // so a second Content-Security-Policy under /log/* would be enforced
+  // alongside the /* one and leave connect-src 'none' active. The contract is
+  // therefore: /* keeps connect-src 'none'; /log DETACHES the inherited CSP
+  // ("! Content-Security-Policy") and adds none of its own, leaving the log
+  // page's meta CSP (connect-src 'self') as the single active policy; so no
+  // inherited connect-src 'none' can remain effective for /log. (Verified at
+  // the Cloudflare runtime layer via `wrangler dev`, which applies _headers -
+  // the plain static server does not.)
+  const headers = readFileSync(join(import.meta.dirname, "..", "public", "_headers"), "utf8");
+  const bodyLines = (path) => {
+    const blocks = headers.split(/\n\s*\n/);
+    const block = blocks.find((b) => b.split("\n").some((l) => l.trim() === path));
+    assert.ok(block, `_headers has a ${path} rule`);
+    return block.split("\n").filter((l) => l.startsWith("  ")); // indented directive lines only
+  };
+  const starBody = bodyLines("/*");
+  assert.ok(starBody.some((l) => /Content-Security-Policy:.*connect-src 'none'/.test(l)),
+    "default pages stay locked to connect-src 'none'");
+  const logBody = bodyLines("/log/*");
+  assert.ok(logBody.some((l) => l.trim() === "! Content-Security-Policy"),
+    "log pages DETACH the inherited CSP header");
+  assert.ok(!logBody.some((l) => /^\s*Content-Security-Policy:/.test(l)),
+    "log pages add NO second CSP (would combine with /* and re-block the fetch)");
+  assert.match(html, /content="[^"]*connect-src 'self'[^"]*"/, "the log meta CSP - the sole active policy for /log - permits the fetch");
 
   // Fail-closed client posture: the Feedback entry is HIDDEN by default in the
   // static markup, and revealed only after a successful availability bootstrap
