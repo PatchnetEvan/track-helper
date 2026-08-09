@@ -314,14 +314,21 @@ const isAssetNotFound = async (response) => response.status === 404 && (await re
   assert.ok(intlDetail.includes("does not currently represent eligibility for MotoTrack beta access"),
     "international detail states non-eligibility explicitly");
 
-  // Unknown candidate, unknown admin path, and any non-GET: the asset 404.
+  // Unknown candidate, unknown admin path, and method/path pairs with no
+  // route: the asset 404. (PR 3's decision POST exists only at
+  // /admin/waitlist/:id/decision and is exercised in its own suite.)
   assert.ok(await isAssetNotFound(await get("/admin/waitlist/ghost", ADMIN_ENV, valid)));
   assert.ok(await isAssetNotFound(await get("/admin/anything-else", ADMIN_ENV, valid)));
   const post = await worker.fetch(new Request("https://mototrack.app/admin/waitlist/q_us_new", {
     method: "POST", headers: { "cf-access-jwt-assertion": valid, origin: "https://mototrack.app" },
     body: new URLSearchParams({ state: "approved" }),
   }), ADMIN_ENV);
-  assert.ok(await isAssetNotFound(post), "no mutation endpoint exists - POST is not even acknowledged");
+  assert.ok(await isAssetNotFound(post), "POST to a non-decision path has no route");
+  const unauthPost = await worker.fetch(new Request("https://mototrack.app/admin/waitlist/q_us_new/decision", {
+    method: "POST", headers: { origin: "https://mototrack.app" },
+    body: new URLSearchParams({ new_state: "approved" }),
+  }), ADMIN_ENV);
+  assert.ok(await isAssetNotFound(unauthPost), "unauthenticated decision POST is indistinguishable from 404");
 
   // Read-only proof at the data layer: the whole HTTP pass changed nothing
   // and sent nothing.
@@ -344,7 +351,8 @@ const isAssetNotFound = async (response) => response.status === 404 && (await re
 {
   const src = (name) => readFileSync(join(import.meta.dirname, "..", "src", name), "utf8");
   const routes = src("waitlist-admin-routes.js");
-  assert.ok(!routes.includes("changeApprovalState"), "read-only: routes never import the mutation");
+  assert.ok(!routes.includes("waitlist_beta_approval"),
+    "routes never touch the approval tables directly - the mutation exists only through the service");
   for (const marker of ["WAITLIST_EMAIL", "EmailMessage", "waitlist_email_deliveries", "waitlist-tokens"]) {
     assert.ok(!routes.includes(marker), `admin routes must not reference ${marker}`);
   }
