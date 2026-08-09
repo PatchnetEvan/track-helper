@@ -346,7 +346,22 @@ for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   const html = readFileSync(join(import.meta.dirname, "..", "public", "log", "index.html"), "utf8");
   assert.ok(html.includes("How can we make MotoTrack better?"), "exact rider prompt");
   assert.ok(html.includes("Send feedback"), "exact submit label");
-  assert.ok(html.includes("connect-src 'self'"), "CSP allows the same-origin feedback fetch");
+  assert.ok(html.includes("connect-src 'self'"), "meta CSP allows the same-origin feedback fetch");
+
+  // The DEPLOYED HTTP CSP (public/_headers) must ALSO allow the feedback
+  // fetch on the log page. The browser enforces the intersection of the meta
+  // CSP and the header CSP, so a header connect-src 'none' would block the
+  // fetch even with the meta at 'self'. The /log override must grant 'self'
+  // while /* stays locked to 'none' for pages that make no fetches.
+  const headers = readFileSync(join(import.meta.dirname, "..", "public", "_headers"), "utf8");
+  const blockFor = (path) => {
+    const lines = headers.split("\n");
+    const start = lines.findIndex((l) => l.trim() === path);
+    assert.ok(start >= 0, `_headers has a ${path} rule`);
+    return lines.slice(start + 1).find((l) => /Content-Security-Policy/i.test(l)) ?? "";
+  };
+  assert.match(blockFor("/log/*"), /connect-src 'self'/, "log pages allow the same-origin feedback fetch at the HTTP layer");
+  assert.match(blockFor("/*"), /connect-src 'none'/, "default pages stay locked to connect-src 'none'");
 
   // Fail-closed client posture: the Feedback entry is HIDDEN by default in the
   // static markup, and revealed only after a successful availability bootstrap
