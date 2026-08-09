@@ -119,7 +119,7 @@ const page = (title, body) => new Response(`<!doctype html>
   </style>
 </head>
 <body>
-<header><strong>MotoTrack Waitlist Admin</strong> · read-only review</header>
+<header><strong>MotoTrack Waitlist Admin</strong> · beta approvals</header>
 ${body}
 </body>
 </html>`, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex, nofollow", "cache-control": "no-store" } });
@@ -194,7 +194,7 @@ async function renderQueue(db, url) {
   <tbody>${rows || `<tr><td colspan="7" class="muted">No candidates match these filters.</td></tr>`}</tbody>
 </table>
 <p>${pager}</p>
-<p class="muted">Approval review is read-only in this version. International-interest records register interest only — they do not represent U.S. beta eligibility.</p>`);
+<p class="muted">Open a candidate to review and record an approval decision. International-interest records register interest only — they do not represent U.S. beta eligibility.</p>`);
 }
 
 const PROFILE_FIELD_ROWS = [
