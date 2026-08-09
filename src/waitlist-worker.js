@@ -408,6 +408,15 @@ export async function runRetentionSweep(db) {
   const attribution = await db.prepare(`UPDATE waitlist_signups SET attribution = NULL, updated_at = datetime('now')
     WHERE attribution IS NOT NULL AND created_at <= datetime('now', '-12 months')`).bind().run();
   const buckets = await db.prepare("DELETE FROM waitlist_rate_buckets WHERE window_start <= datetime('now', '-2 days')").bind().run();
+  // Feedback retention (#55): active feedback (new/reviewing/actionable) is
+  // kept; closed feedback is purged 12 months after closed_at, taking its
+  // optional contact email and its append-only event history (ON DELETE
+  // CASCADE) with it. A promoted GitHub issue outlives the record - the
+  // minimal non-PII linkage lives in the issue itself, so D1 retention never
+  // depends on GitHub issue lifetime.
+  const feedback = await db.prepare(
+    "DELETE FROM feedback_submissions WHERE triage_state = 'closed' AND closed_at IS NOT NULL AND closed_at <= datetime('now', '-12 months')",
+  ).bind().run();
   // Profile retention: deleted within 30 days after unsubscribe. Profiles of
   // purged signups are removed by purgeSignups above, so nothing can outlive
   // the wait-list retention ceiling. Edit authorizations cascade from their
@@ -426,6 +435,7 @@ export async function runRetentionSweep(db) {
     delivery_logs_purged: Number(logs?.meta?.changes ?? 0),
     attribution_cleared: Number(attribution?.meta?.changes ?? 0),
     rate_buckets_purged: Number(buckets?.meta?.changes ?? 0),
+    feedback_purged: Number(feedback?.meta?.changes ?? 0),
   };
 }
 
