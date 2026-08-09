@@ -24,6 +24,7 @@ import { authenticateOperator } from "./waitlist-admin-auth.js";
 import {
   APPROVAL_STATE_LABELS, APPROVAL_STATE_VALUES, CANDIDATE_PAGE_SIZE, APPROVAL_REASON_MAX_LENGTH,
   listCandidates, readApprovalState, readApprovalHistory, changeApprovalState, ApprovalValidationError,
+  normalizeReason,
 } from "./waitlist-admin-service.js";
 import { escapeHtml, EXPERIENCE_LEVEL_LABELS, TRACK_INVOLVEMENT_LABELS } from "./waitlist-profile-service.js";
 import { parseCookies } from "./waitlist-profile-auth.js";
@@ -294,7 +295,7 @@ async function renderDetail(db, signupId, { csrfToken = "", result = "", priorEr
 </div>
 <div class="panel">
   <h2>Beta approval</h2>
-  ${RESULT_BANNERS[result] ? `<p class="banner banner-${RESULT_BANNERS[result][0]}">${escapeHtml(RESULT_BANNERS[result][1])}</p>` : ""}
+  ${Object.hasOwn(RESULT_BANNERS, result) ? `<p class="banner banner-${RESULT_BANNERS[result][0]}">${escapeHtml(RESULT_BANNERS[result][1])}</p>` : ""}
   <p>${approvalBadge(approval.effectiveState, approval.everReviewed)}</p>
   ${approval.everReviewed
     ? `<p class="muted">Last decision by ${escapeHtml(approval.updatedBy ?? "")} at ${escapeHtml(approval.updatedAt ?? "")}.</p>`
@@ -361,7 +362,10 @@ async function handleDecision(db, request, url, signupId, operator, cookieToken)
   if (!signup) return null;
 
   if (newState === "not_approved" && form.get("confirm_not_approved") !== "yes") {
-    return confirmNotApprovedPage(signupId, signup.email_normalized, expectedState, reason ?? "", cookieToken);
+    // The interstitial shows and carries the NORMALIZED reason - what the
+    // operator confirms is byte-for-byte what the audit event will store.
+    return confirmNotApprovedPage(signupId, signup.email_normalized, expectedState,
+      normalizeReason(reason) ?? "", cookieToken);
   }
 
   try {

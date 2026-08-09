@@ -122,6 +122,17 @@ const armed = await openDetail("m_us");
   assert.ok(armed.html.includes('name="expected_state" value="awaiting_review"'));
   assert.ok(armed.html.includes("Confirm decision"));
   assert.ok(armed.html.includes("Do not record medical, financial"));
+
+  // The cookie's exact attribute contract: HttpOnly, Secure,
+  // SameSite=Strict, scoped to /admin, bounded lifetime, NO Domain
+  // attribute (host-only).
+  const detailResponse = await worker.fetch(new Request(`${ORIGIN}/admin/waitlist/m_us`, {
+    headers: { "cf-access-jwt-assertion": TOKEN },
+  }), ENV);
+  const setCookie = detailResponse.headers.get("set-cookie") ?? "";
+  assert.match(setCookie, /^__Secure-mototrack_admin_csrf=[^;]+; Path=\/admin; Max-Age=86400; HttpOnly; Secure; SameSite=Strict$/,
+    "CSRF cookie attributes are exactly the contract");
+  assert.ok(!/domain=/i.test(setCookie), "no Domain attribute - host-only cookie");
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +276,79 @@ const armed = await openDetail("m_us");
   assert.ok((await refused.text()).includes(
     "International-interest registration does not currently represent eligibility for MotoTrack beta access."));
   assert.equal(events(), before, "the refused international approval leaves no trace");
+}
+
+// ---------------------------------------------------------------------------
+// The result-banner vocabulary is closed on OWN keys only: inherited object
+// keys and arbitrary query text render no banner at all.
+// ---------------------------------------------------------------------------
+{
+  for (const probe of ["constructor", "__proto__", "hasOwnProperty", "zzz-not-a-result", "%3Cscript%3E"]) {
+    const response = await worker.fetch(new Request(`${ORIGIN}/admin/waitlist/m_us?result=${probe}`, {
+      headers: { "cf-access-jwt-assertion": TOKEN, cookie: `__Secure-mototrack_admin_csrf=${armed.cookie}` },
+    }), ENV);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.ok(!html.includes('class="banner'), `?result=${probe} renders no banner element`);
+    assert.ok(!html.includes(">undefined<"), `?result=${probe} leaks nothing`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Two-stage conflict: another operator decides between the Not-approved
+// interstitial and its confirmation. The stale confirmation must return
+// conflict, change nothing, append nothing, and direct a reload. The
+// interstitial also carries the NORMALIZED reason - what is shown is
+// byte-for-byte what would be stored.
+// ---------------------------------------------------------------------------
+{
+  // Bring m_us to approved (currently not_approved; leaving it needs a reason).
+  const reinstate = await postDecision("m_us", {
+    csrf: armed.formToken, expected_state: "not_approved", new_state: "approved",
+    reason: "Reinstated for the two-stage conflict fixture",
+  }, { cookie: armed.cookie });
+  assert.equal(reinstate.headers.get("location"), "/admin/waitlist/m_us?result=applied");
+
+  // Stage 1: operator A submits Not approved with a messy reason - the
+  // interstitial renders it NORMALIZED (CRLF folded, edges trimmed) and
+  // records nothing.
+  const before = events();
+  const stageOne = await postDecision("m_us", {
+    csrf: armed.formToken, expected_state: "approved", new_state: "not_approved",
+    reason: "  needs closing\r\nafter capacity review  ",
+  }, { cookie: armed.cookie });
+  assert.equal(stageOne.status, 200);
+  const interstitial = await stageOne.text();
+  assert.ok(interstitial.includes('name="reason" value="needs closing\nafter capacity review"')
+    || interstitial.includes("needs closing\nafter capacity review"),
+    "the interstitial carries the normalized reason");
+  assert.ok(!interstitial.includes("  needs closing\r"), "the raw un-normalized text is not what gets confirmed");
+  assert.ok(interstitial.includes('name="expected_state" value="approved"'),
+    "the originally observed state rides the confirmation");
+  assert.equal(events(), before, "stage one records nothing");
+
+  // Between the two stages, operator B puts the record on hold.
+  const interloper = await postDecision("m_us", {
+    csrf: armed.formToken, expected_state: "approved", new_state: "hold", reason: "B got there first",
+  }, { cookie: armed.cookie });
+  assert.equal(interloper.headers.get("location"), "/admin/waitlist/m_us?result=applied");
+  const afterB = events();
+
+  // Stage 2: A's confirmation carries the ORIGINAL expected state and must
+  // lose cleanly: conflict, no state change, no stale audit event.
+  const staleConfirm = await postDecision("m_us", {
+    csrf: armed.formToken, expected_state: "approved", new_state: "not_approved",
+    reason: "needs closing\nafter capacity review", confirm_not_approved: "yes",
+  }, { cookie: armed.cookie });
+  assert.equal(staleConfirm.status, 303);
+  assert.equal(staleConfirm.headers.get("location"), "/admin/waitlist/m_us?result=conflict");
+  assert.equal(events(), afterB, "the stale confirmation appends no audit event");
+  assert.equal(lastEvent().new_state, "hold", "operator B's decision stands");
+  const conflictPage = await worker.fetch(new Request(`${ORIGIN}/admin/waitlist/m_us?result=conflict`, {
+    headers: { "cf-access-jwt-assertion": TOKEN, cookie: `__Secure-mototrack_admin_csrf=${armed.cookie}` },
+  }), ENV);
+  assert.ok((await conflictPage.text()).includes("review the current state below and decide again"),
+    "the losing operator is told to reload and review");
 }
 
 // ---------------------------------------------------------------------------
