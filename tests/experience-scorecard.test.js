@@ -378,7 +378,6 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   let s;
   await assert.doesNotReject(async () => { s = await buildScorecard(db, "7d"); }, "does not throw without the pulse table");
   assert.equal(s.pulseAvailable, false, "pulse table detected absent");
-  assert.equal(s.feedbackAvailable, true, "feedback table present");
   for (const w of s.distributionByWindow) assert.equal(w.total, 0, "pulse distribution empty");
   assert.deepEqual(s.bySection, []);
   assert.deepEqual(s.byVersion, []);
@@ -387,16 +386,60 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   // Feedback-based signals STILL work when only the pulse table is missing.
   assert.equal(s.loop.triage.actionable, 1, "feedback loop still computed");
 }
+// ---------------------------------------------------------------------------
+// The compatibility exception is scoped to the PULSE TABLE ALONE. Every other
+// database fault must still surface. Turning a broken database into an empty
+// scorecard would publish a fabricated measurement of real signals, so these
+// paths are asserted to REJECT rather than to degrade.
+// ---------------------------------------------------------------------------
 {
-  // Neither 0009 nor 0010: both absent -> all empty, still no throw.
+  // (a) feedback_submissions (0009) missing: a REQUIRED dependency of this
+  // Admin environment, not a pending activation. It must NOT be reported as
+  // "no recurring requests" and an all-zero triage funnel.
   const db = new LocalD1();
   for (const m of MIGRATIONS.slice(0, 8)) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
-  let s;
-  await assert.doesNotReject(async () => { s = await buildScorecard(db, "24h"); }, "does not throw without either table");
-  assert.equal(s.pulseAvailable, false);
-  assert.equal(s.feedbackAvailable, false);
-  assert.deepEqual(s.recurring, []);
-  assert.deepEqual(s.loop, { triage: { new: 0, reviewing: 0, actionable: 0, closed: 0 }, promoted: 0 });
+  await assert.rejects(
+    () => buildScorecard(db, "24h"),
+    /no such table:\s*feedback_submissions/i,
+    "a missing Feedback table propagates instead of rendering measured-looking zeros",
+  );
+}
+{
+  // (b) Pulse table PRESENT but malformed: presence is not validity, so the
+  // real query error surfaces.
+  const db = new LocalD1();
+  for (const m of MIGRATIONS.slice(0, 9)) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  db.sqlite.exec("CREATE TABLE feedback_experience_pulses (id TEXT PRIMARY KEY)");
+  await assert.rejects(
+    () => buildScorecard(db, "7d"),
+    /no such column/i,
+    "a malformed Pulse table is an error, never an empty scorecard",
+  );
+}
+{
+  // (c) An unrelated database failure (connection/D1 fault) propagates. The
+  // module contains no exception handling, so nothing can absorb it.
+  const failing = { prepare() { throw new Error("D1_ERROR: connection reset by peer"); } };
+  await assert.rejects(
+    () => buildScorecard(failing, "7d"),
+    /connection reset by peer/,
+    "an unrelated D1 failure is never converted into empty data",
+  );
+}
+{
+  // (d) The activated path is unchanged: with 0010 applied, aggregation still
+  // computes normally and the Pulse-absent branch is not taken.
+  const db = freshDb();
+  for (let i = 0; i < 3; i++) seedPulse(db, { value: 3, section: "log" });
+  seedPulse(db, { value: 1, section: "log" });
+  seedFeedback(db, { body: "real", state: "actionable" });
+  const s = await buildScorecard(db, "7d");
+  assert.equal(s.pulseAvailable, true, "pulse table present");
+  const log = s.bySection.find((r) => r.section === "log");
+  assert.deepEqual([log.good, log.notGood, log.total], [3, 1, 4], "normal aggregation intact");
+  assert.equal(pct(log.good, log.total), 75);
+  assert.equal(s.summaries.strongest.section, "log");
+  assert.equal(s.loop.triage.actionable, 1, "feedback signals real on the activated path");
 }
 
 console.log("experience-scorecard.test.js passed");

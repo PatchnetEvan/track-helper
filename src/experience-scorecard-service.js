@@ -71,21 +71,28 @@ export function pct(n, total) {
 
 const emptyDist = () => ({ good: 0, okay: 0, notGood: 0, total: 0 });
 
-// The Scorecard reads two feature tables that are created by migrations applied
-// on their own schedule: feedback_experience_pulses (0010) and
-// feedback_submissions (0009). It is legitimately loaded BEFORE those
-// migrations exist in an environment (Pulse is fail-closed until separately
-// activated), so a missing table must render an HONEST empty / not-active state,
-// never a 500. This checks presence once so the queries are skipped entirely
-// rather than thrown from.
+// The Scorecard reads feedback_experience_pulses (migration 0010), which is
+// applied on its OWN schedule: Pulse is fail-closed until separately activated,
+// so this page is legitimately loaded BEFORE that table exists. That ONE state
+// must render an HONEST not-active state rather than a 500, so its presence is
+// checked once and the Pulse queries are skipped entirely rather than thrown
+// from.
+//
+// This tolerance is scoped to the Pulse table ALONE. feedback_submissions
+// (migration 0009) is an EXISTING REQUIRED DEPENDENCY of this Admin
+// environment, not a pending activation - if it is missing, the database is
+// wrong, and the Feedback-derived queries are left to fail naturally. Reporting
+// "no recurring requests" and an all-zero triage funnel for an absent table
+// would present a fabricated measurement of real signals, so no presence check
+// guards them. Every other failure - a malformed table, a missing column, a SQL
+// error, any other D1 fault - likewise propagates untouched (this module
+// contains no exception handling at all).
 async function tableExists(db, name) {
   const row = await db.prepare(
     "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?",
   ).bind(name).first();
   return !!row;
 }
-
-const emptyLoop = () => ({ triage: { new: 0, reviewing: 0, actionable: 0, closed: 0 }, promoted: 0 });
 
 function addToDist(dist, value, n) {
   const count = Number(n) || 0;
@@ -269,11 +276,11 @@ function evidenceSummaries(sectionRows, versionRows) {
 export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY) {
   const selected = windowByKey(selectedWindowKey);
 
-  // Pre-migration compatibility: the Pulse table (0010) and Feedback table
-  // (0009) may not exist yet in this environment. Skip the queries that depend
-  // on an absent table and render an honest empty state instead of crashing.
+  // Pre-migration compatibility, Pulse table ONLY: 0010 may not be applied in
+  // this environment yet. Skip the Pulse queries and render an honest not-active
+  // state instead of crashing. feedback_submissions (0009) is a required
+  // dependency and is deliberately NOT guarded - see tableExists above.
   const pulseAvailable = await tableExists(db, "feedback_experience_pulses");
-  const feedbackAvailable = await tableExists(db, "feedback_submissions");
 
   const distributionByWindow = [];
   for (const w of SCORECARD_WINDOWS) {
@@ -283,8 +290,8 @@ export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY)
   const sectionMap = pulseAvailable ? await distributionByDimension(db, selected.since, "source_section") : new Map();
   const versionMap = pulseAvailable ? await distributionByDimension(db, selected.since, "app_version") : new Map();
   const order = pulseAvailable ? await versionOrder(db, selected.since) : [];
-  // Friction JOINs pulse -> feedback, so it needs BOTH tables.
-  const linked = (pulseAvailable && feedbackAvailable) ? await linkedFeedbackBySection(db, selected.since) : new Map();
+  // Friction JOINs pulse -> feedback; the Pulse side is what may be absent.
+  const linked = pulseAvailable ? await linkedFeedbackBySection(db, selected.since) : new Map();
 
   // ALL workflows (for the evidence summaries, which must consider every
   // workflow at any sample size) vs the DISPLAY slice (bounded, visibly capped).
@@ -311,12 +318,11 @@ export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY)
     workflowDisplayMax: WORKFLOW_DISPLAY_MAX,
     byVersion,
     friction,
-    recurring: feedbackAvailable ? await recurringRequests(db, selected.since) : [],
-    loop: feedbackAvailable ? await feedbackLoop(db, selected.since) : emptyLoop(),
+    recurring: await recurringRequests(db, selected.since),
+    loop: await feedbackLoop(db, selected.since),
     // Summaries consider EVERY workflow, not just the displayed slice.
     summaries: evidenceSummaries(bySectionAll, byVersion),
     summarySmallSampleMax: SUMMARY_SMALL_SAMPLE_MAX,
     pulseAvailable,
-    feedbackAvailable,
   };
 }
