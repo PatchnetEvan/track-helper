@@ -387,6 +387,36 @@ for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   const okCheckIdx = appJs.indexOf("if (!res.ok) return");
   assert.ok(bootstrapIdx >= 0 && okCheckIdx > bootstrapIdx && revealIdx > okCheckIdx,
     "reveal happens only after the GET availability check succeeds");
+
+  // Success-state visibility contract (the fix). The transition is:
+  //   durable 201 -> form.hidden = true -> "Thanks for the feedback." visible.
+  // Its correctness rests on two pinned facts that together are the mechanism
+  // (the live behavioral confirmation is the post-merge staging submit):
+  //   (1) STRUCTURE: #feedback-status is OUTSIDE the <form>, so hiding the
+  //       form cannot hide the confirmation; and
+  //   (2) COUPLING: the success copy is emitted ONLY in the 201 branch that
+  //       hides the form, and failures neither hide the form nor show it.
+  const formStart = html.indexOf('<form id="feedback-form"');
+  const formEnd = html.indexOf("</form>", formStart);
+  assert.ok(formStart >= 0 && formEnd > formStart, "feedback form present");
+  const statusIdx = html.indexOf('id="feedback-status"');
+  const dialogEnd = html.indexOf("</div>", formEnd);
+  assert.ok(statusIdx > formEnd, "status message is OUTSIDE the form (survives form.hidden = true)");
+  assert.ok(statusIdx < dialogEnd, "status message stays inside the dialog (unchanged visual position)");
+  assert.ok(!html.slice(formStart, formEnd).includes('id="feedback-status"'),
+    "status message is not nested in the form");
+
+  // Success copy appears exactly once and only in the 201 branch that hides
+  // the form; form.hidden = true appears exactly once (success only).
+  assert.equal((appJs.match(/Thanks for the feedback\./g) || []).length, 1, "one success message, one place");
+  assert.equal((appJs.match(/form\.hidden = true/g) || []).length, 1, "the form is hidden only on success");
+  const okBranch = appJs.slice(appJs.indexOf("res.status === 201"), appJs.indexOf("res.status === 400"));
+  assert.ok(/form\.hidden = true/.test(okBranch) && /Thanks for the feedback\./.test(okBranch),
+    "success branch both hides the form and shows the exact confirmation");
+  // Failure copy is the generic message, distinct from the success copy, and
+  // failure paths do not show the success message.
+  assert.ok(appJs.includes("We couldn't send your feedback right now. Please try again."),
+    "failed POST shows the generic failure message, not the success message");
 }
 
 console.log("feedback-intake-route.test.js passed");
