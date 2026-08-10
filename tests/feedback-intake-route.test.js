@@ -346,6 +346,13 @@ for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   const html = readFileSync(join(import.meta.dirname, "..", "public", "log", "index.html"), "utf8");
   assert.ok(html.includes("How can we make MotoTrack better?"), "exact rider prompt");
   assert.ok(html.includes("Send feedback"), "exact submit label");
+  // The optional contact email must not be browser-autofilled: an anonymous
+  // feedback submission must never carry an email the rider didn't deliberately
+  // type. The email input opts out with the standards-defined autocomplete=off.
+  const emailInput = /<input\s[^>]*id="feedback-email"[^>]*>/.exec(html)?.[0] ?? "";
+  assert.ok(emailInput.includes('autocomplete="off"'), "feedback email input disables browser autofill");
+  assert.ok(!emailInput.includes('autocomplete="email"'), "feedback email input no longer requests email autofill");
+  assert.ok(emailInput.includes('type="email"'), "email input keeps type=email (validation/keyboard unchanged)");
   assert.ok(html.includes("connect-src 'self'"), "meta CSP allows the same-origin feedback fetch");
 
   // Deployed CSP contract (public/_headers). _headers COMBINES matching rules,
