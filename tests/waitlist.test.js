@@ -438,4 +438,52 @@ const linkFrom = (text, path) => {
   assert.equal(count("SELECT COUNT(*) AS n FROM waitlist_signups WHERE email_normalized='returning@example.com'"), 1, "no duplicate signup row");
 }
 
+// ---------------------------------------------------------------------------
+// Deployed CSP contract for the signup page (issue #59). _headers COMBINES
+// matching rules, so a waitlist CSP added alongside the /* rule left
+// connect-src 'none' ALSO enforced and the browser's intersection blocked the
+// very /api/waitlist fetch the page needs. The contract is therefore:
+//   * /waitlist.html DETACHES the inherited CSP and RE-ADDS its own in the
+//     same rule, so exactly one policy is enforced. (Unlike /log/*, this page
+//     has NO meta CSP - detach alone would leave it with no CSP at all.)
+//   * that single policy permits connect-src 'self' and keeps frame-ancestors.
+//   * every other page keeps connect-src 'none'.
+// Verified at the Cloudflare runtime layer (`wrangler dev`, which applies
+// _headers); a plain static server does not.
+{
+  const headersFile = readFileSync(join(import.meta.dirname, "..", "public", "_headers"), "utf8");
+  const ruleBody = (path) => {
+    const block = headersFile.split(/\n\s*\n/).find((b) => b.split("\n").some((l) => l.trim() === path));
+    assert.ok(block, `_headers has a ${path} rule`);
+    return block.split("\n").filter((l) => l.startsWith("  "));
+  };
+
+  const waitlistBody = ruleBody("/waitlist.html");
+  assert.ok(waitlistBody.some((l) => l.trim() === "! Content-Security-Policy"),
+    "the waitlist page detaches the inherited /* CSP");
+  const waitlistCsp = waitlistBody.find((l) => /^\s*Content-Security-Policy:/.test(l)) ?? "";
+  assert.ok(waitlistCsp, "the waitlist page re-adds its own CSP (it has no meta CSP to fall back on)");
+  assert.match(waitlistCsp, /connect-src 'self'/, "the signup fetch to /api/waitlist is permitted");
+  assert.ok(!/connect-src 'none'/.test(waitlistCsp), "no inherited connect-src 'none' remains for the waitlist page");
+  assert.match(waitlistCsp, /frame-ancestors 'none'/, "anti-framing protection is preserved in the re-added policy");
+  assert.match(waitlistCsp, /default-src 'none'/, "the restrictive default is preserved");
+  assert.equal(waitlistBody.filter((l) => /^\s*Content-Security-Policy:/.test(l)).length, 1,
+    "exactly one CSP is added for the waitlist page");
+
+  // The waitlist page genuinely needs connect-src: it submits by fetch.
+  const formJs = readFileSync(join(import.meta.dirname, "..", "public", "waitlist-form.js"), "utf8");
+  assert.ok(formJs.includes('fetch("/api/waitlist"'), "the signup form submits via same-origin fetch");
+
+  // Non-waitlist pages keep their locked-down posture.
+  const starCsp = ruleBody("/*").find((l) => /^\s*Content-Security-Policy:/.test(l)) ?? "";
+  assert.match(starCsp, /connect-src 'none'/, "other pages retain connect-src 'none'");
+  assert.match(starCsp, /frame-ancestors 'none'/, "other pages retain frame-ancestors 'none'");
+  // The /* security headers the waitlist rule must NOT strip.
+  for (const header of ["X-Frame-Options: DENY", "Referrer-Policy", "X-Content-Type-Options", "Strict-Transport-Security"]) {
+    assert.ok(ruleBody("/*").some((l) => l.includes(header)), `/* still sets ${header}`);
+    assert.ok(!waitlistBody.some((l) => l.trim() === `! ${header.split(":")[0]}`),
+      `the waitlist rule does not detach ${header.split(":")[0]}`);
+  }
+}
+
 console.log("waitlist.test.js passed");
