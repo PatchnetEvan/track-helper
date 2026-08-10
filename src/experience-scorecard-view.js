@@ -222,9 +222,20 @@ export async function renderExperienceScorecard(db, url) {
   const selectedKey = windowByKey(requested).key;
   const s = await buildScorecard(db, selectedKey);
 
+  // Honest pre-activation states (never a crash): the Pulse and/or Feedback
+  // tables may not exist yet in this environment.
+  const notActive = !s.pulseAvailable
+    ? `<p class="note"><strong>Experience Pulse is not active in this environment yet.</strong> Its data has not been created here, so there are no Pulse responses to summarize — every Pulse signal below is empty until Pulse is activated. This is expected before the Pulse migration is applied.</p>`
+    : "";
+  const noFeedback = !s.feedbackAvailable
+    ? `<p class="note">Written Feedback is not active in this environment yet, so the friction, recurring-request, and improvement-loop signals are empty.</p>`
+    : "";
+
   const body = `
 <h1>Beta Experience Scorecard</h1>
 <p class="muted">Read-only evidence from the Experience Pulse and linked written Feedback. It summarizes; it does not decide.</p>
+${notActive}
+${noFeedback}
 ${distributionSection(s.distributionByWindow)}
 ${windowSwitcher(s.selectedWindow.key)}
 ${summariesSection(s.summaries)}

@@ -364,4 +364,39 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   assert.equal((await buildScorecard(db, "bogus")).selectedWindow.key, "7d", "unknown window -> default");
 }
 
+// ---------------------------------------------------------------------------
+// Pre-migration compatibility: buildScorecard must NOT throw when the Pulse
+// table (0010) or Feedback table (0009) is absent - it renders an honest empty
+// / not-active state (the legitimate staging/prod state before activation).
+// ---------------------------------------------------------------------------
+{
+  // 0009 applied, 0010 NOT: Pulse absent, Feedback present.
+  const db = new LocalD1();
+  for (const m of MIGRATIONS.slice(0, 9)) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name='feedback_experience_pulses'").get().n, 0, "pulse table truly absent");
+  db.sqlite.prepare("INSERT INTO feedback_submissions (id, body, app_version, triage_state) VALUES ('fb_pm', 'x', ?, 'actionable')").run(APP_VERSION);
+  let s;
+  await assert.doesNotReject(async () => { s = await buildScorecard(db, "7d"); }, "does not throw without the pulse table");
+  assert.equal(s.pulseAvailable, false, "pulse table detected absent");
+  assert.equal(s.feedbackAvailable, true, "feedback table present");
+  for (const w of s.distributionByWindow) assert.equal(w.total, 0, "pulse distribution empty");
+  assert.deepEqual(s.bySection, []);
+  assert.deepEqual(s.byVersion, []);
+  assert.deepEqual(s.friction, []);
+  assert.deepEqual(s.summaries, { strongest: null, needsAttention: null, improving: null });
+  // Feedback-based signals STILL work when only the pulse table is missing.
+  assert.equal(s.loop.triage.actionable, 1, "feedback loop still computed");
+}
+{
+  // Neither 0009 nor 0010: both absent -> all empty, still no throw.
+  const db = new LocalD1();
+  for (const m of MIGRATIONS.slice(0, 8)) db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  let s;
+  await assert.doesNotReject(async () => { s = await buildScorecard(db, "24h"); }, "does not throw without either table");
+  assert.equal(s.pulseAvailable, false);
+  assert.equal(s.feedbackAvailable, false);
+  assert.deepEqual(s.recurring, []);
+  assert.deepEqual(s.loop, { triage: { new: 0, reviewing: 0, actionable: 0, closed: 0 }, promoted: 0 });
+}
+
 console.log("experience-scorecard.test.js passed");
