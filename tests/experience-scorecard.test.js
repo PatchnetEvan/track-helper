@@ -249,6 +249,52 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
 }
 
 // ---------------------------------------------------------------------------
+// [EXPERIENCE] acceptance: SUMMARY_SMALL_SAMPLE_MAX is PURELY presentation. It
+// must never leak into aggregation, filtering, ranking, or whether an
+// evidence-summary exists. A 3-response and an 11-response workflow are BOTH
+// visible and BOTH eligible to be summarized; only the TAG differs; neither is
+// auto-promoted to a priority.
+// ---------------------------------------------------------------------------
+{
+  const db = freshDb();
+  // 3 responses, all Good -> strongest by rate (small).
+  for (let i = 0; i < 3; i += 1) seedPulse(db, { value: 3, section: "trackside" });
+  // 11 responses, mostly Not good -> needs attention (NOT small).
+  seedPulse(db, { value: 3, section: "garage" });
+  for (let i = 0; i < 10; i += 1) seedPulse(db, { value: 1, section: "garage" });
+
+  const s = await buildScorecard(db, "7d");
+  // Both visible at their true size (nothing filtered by sample).
+  assert.ok(s.bySection.some((r) => r.section === "trackside" && r.total === 3), "3-response workflow visible");
+  assert.ok(s.bySection.some((r) => r.section === "garage" && r.total === 11), "11-response workflow visible");
+  // Both eligible for evidence-summary presentation (ranked by RATE, not size).
+  assert.equal(s.summaries.strongest.section, "trackside", "3-response workflow can be strongest");
+  assert.equal(s.summaries.needsAttention.section, "garage", "11-response workflow summarized too");
+  // Only the TAG differs.
+  assert.equal(isSmallSample(s.summaries.strongest.total), true, "3 responses -> Small sample tag");
+  assert.equal(isSmallSample(s.summaries.needsAttention.total), false, "11 responses -> no Small sample tag");
+}
+
+// ---------------------------------------------------------------------------
+// Structural leak-guard: the aggregation module must NEVER apply the small-
+// sample size in a decision. It exports the constant + helper for the view, but
+// never CALLS isSmallSample, and SUMMARY_SMALL_SAMPLE_MAX appears only in its
+// declaration, the helper's definition, and the returned display metadata.
+// ---------------------------------------------------------------------------
+{
+  const src = readFileSync(join(import.meta.dirname, "..", "src", "experience-scorecard-service.js"), "utf8");
+  assert.ok(!src.includes("isSmallSample("), "aggregation never CALLS isSmallSample");
+  assert.equal((src.match(/SUMMARY_SMALL_SAMPLE_MAX/g) || []).length, 3,
+    "SUMMARY_SMALL_SAMPLE_MAX only in its declaration, the helper, and the returned metadata — never in a filter/rank");
+  // The evidence-summary computation must not reference the small-sample size.
+  const fnStart = src.indexOf("function evidenceSummaries");
+  const fnEnd = src.indexOf("\n}", fnStart);
+  const fn = src.slice(fnStart, fnEnd);
+  assert.ok(!fn.includes("SUMMARY_SMALL_SAMPLE_MAX") && !fn.includes("isSmallSample"),
+    "evidenceSummaries ranks/selects without any small-sample gate");
+}
+
+// ---------------------------------------------------------------------------
 // Evidence summaries: NO sample floor. A tiny 100%-Good workflow IS shown as
 // strongest (never suppressed), carrying its exact count so it reads as small;
 // a larger workflow is not flagged small. Priority is never inferred from this.
