@@ -28,6 +28,7 @@ import {
 } from "./waitlist-admin-service.js";
 import { escapeHtml, EXPERIENCE_LEVEL_LABELS, TRACK_INVOLVEMENT_LABELS } from "./waitlist-profile-service.js";
 import { parseCookies } from "./waitlist-profile-auth.js";
+import { renderExperienceScorecard } from "./experience-scorecard-view.js";
 
 // --- Mutation protection -----------------------------------------------
 // Same request-source rule the profile flow hardened in #45: Sec-Fetch-Site
@@ -178,6 +179,7 @@ async function renderQueue(db, url) {
   ].filter(Boolean).join(" · ");
 
   return page("Waitlist queue", `
+<p><a href="/admin/experience">Experience Scorecard →</a></p>
 <h1>Candidate queue</h1>
 <form class="filters" method="get" action="/admin/waitlist">
   <label>search<input type="search" name="search" value="${escapeHtml(f.search)}" placeholder="email contains…" maxlength="254" /></label>
@@ -432,6 +434,11 @@ export async function handleAdminRoutes(request, env, url, deps = {}) {
         return withCsrfCookie(await renderDetail(db, detailMatch[1], {
           csrfToken, result: url.searchParams.get("result") ?? "",
         }));
+      }
+      // Experience Scorecard (#55 PR3B): read-only aggregation. Behind the SAME
+      // authentication as every other admin read; no form, no CSRF, no mutation.
+      if (url.pathname === "/admin/experience") {
+        return await renderExperienceScorecard(db, url);
       }
     }
     if (request.method === "POST" && decisionMatch) {
