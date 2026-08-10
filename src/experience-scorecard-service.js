@@ -71,6 +71,22 @@ export function pct(n, total) {
 
 const emptyDist = () => ({ good: 0, okay: 0, notGood: 0, total: 0 });
 
+// The Scorecard reads two feature tables that are created by migrations applied
+// on their own schedule: feedback_experience_pulses (0010) and
+// feedback_submissions (0009). It is legitimately loaded BEFORE those
+// migrations exist in an environment (Pulse is fail-closed until separately
+// activated), so a missing table must render an HONEST empty / not-active state,
+// never a 500. This checks presence once so the queries are skipped entirely
+// rather than thrown from.
+async function tableExists(db, name) {
+  const row = await db.prepare(
+    "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?",
+  ).bind(name).first();
+  return !!row;
+}
+
+const emptyLoop = () => ({ triage: { new: 0, reviewing: 0, actionable: 0, closed: 0 }, promoted: 0 });
+
 function addToDist(dist, value, n) {
   const count = Number(n) || 0;
   if (value === 3) dist.good += count;
@@ -253,15 +269,22 @@ function evidenceSummaries(sectionRows, versionRows) {
 export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY) {
   const selected = windowByKey(selectedWindowKey);
 
+  // Pre-migration compatibility: the Pulse table (0010) and Feedback table
+  // (0009) may not exist yet in this environment. Skip the queries that depend
+  // on an absent table and render an honest empty state instead of crashing.
+  const pulseAvailable = await tableExists(db, "feedback_experience_pulses");
+  const feedbackAvailable = await tableExists(db, "feedback_submissions");
+
   const distributionByWindow = [];
   for (const w of SCORECARD_WINDOWS) {
-    distributionByWindow.push({ key: w.key, label: w.label, ...(await overallDistribution(db, w.since)) });
+    distributionByWindow.push({ key: w.key, label: w.label, ...(pulseAvailable ? await overallDistribution(db, w.since) : emptyDist()) });
   }
 
-  const sectionMap = await distributionByDimension(db, selected.since, "source_section");
-  const versionMap = await distributionByDimension(db, selected.since, "app_version");
-  const order = await versionOrder(db, selected.since);
-  const linked = await linkedFeedbackBySection(db, selected.since);
+  const sectionMap = pulseAvailable ? await distributionByDimension(db, selected.since, "source_section") : new Map();
+  const versionMap = pulseAvailable ? await distributionByDimension(db, selected.since, "app_version") : new Map();
+  const order = pulseAvailable ? await versionOrder(db, selected.since) : [];
+  // Friction JOINs pulse -> feedback, so it needs BOTH tables.
+  const linked = (pulseAvailable && feedbackAvailable) ? await linkedFeedbackBySection(db, selected.since) : new Map();
 
   // ALL workflows (for the evidence summaries, which must consider every
   // workflow at any sample size) vs the DISPLAY slice (bounded, visibly capped).
@@ -288,10 +311,12 @@ export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY)
     workflowDisplayMax: WORKFLOW_DISPLAY_MAX,
     byVersion,
     friction,
-    recurring: await recurringRequests(db, selected.since),
-    loop: await feedbackLoop(db, selected.since),
+    recurring: feedbackAvailable ? await recurringRequests(db, selected.since) : [],
+    loop: feedbackAvailable ? await feedbackLoop(db, selected.since) : emptyLoop(),
     // Summaries consider EVERY workflow, not just the displayed slice.
     summaries: evidenceSummaries(bySectionAll, byVersion),
     summarySmallSampleMax: SUMMARY_SMALL_SAMPLE_MAX,
+    pulseAvailable,
+    feedbackAvailable,
   };
 }

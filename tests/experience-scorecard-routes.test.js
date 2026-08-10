@@ -165,4 +165,18 @@ const isAsset404 = async (res) => res.status === 404 && (await res.text()) === A
   assert.ok(html.includes('href="/admin/experience?window=7d"'), "other windows are switch links");
 }
 
+// ---------------------------------------------------------------------------
+// Pre-migration: with 0010 not applied (the legitimate state before Pulse
+// activation), the page renders an honest not-active state (200), never a 500.
+// ---------------------------------------------------------------------------
+{
+  const pmDb = new LocalD1();
+  for (const m of MIGRATIONS.slice(0, 9)) pmDb.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  const res = await get("/admin/experience", { ...ADMIN_ENV, WAITLIST_DB: pmDb }, await signToken());
+  assert.equal(res.status, 200, "renders (does not 500) before the pulse migration is applied");
+  const html = await res.text();
+  assert.ok(html.includes("Experience Pulse is not active in this environment yet"), "honest not-active note shown");
+  assert.ok(html.includes("Beta Experience Scorecard"), "still the scorecard page");
+}
+
 console.log("experience-scorecard-routes.test.js passed");
