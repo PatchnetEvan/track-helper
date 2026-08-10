@@ -47,11 +47,13 @@
           <input id="feedback-email" name="email" type="email" autocomplete="email"
             inputmode="email" placeholder="you@example.com (optional)" />
         </fieldset>
-        <p class="feedback-status" id="feedback-status" role="status" aria-live="polite"></p>
         <div class="feedback-actions">
           <button type="submit" id="feedback-submit">Send feedback</button>
         </div>
       </form>
+      <!-- Status lives OUTSIDE the form so the success confirmation stays
+           visible after a successful submit sets form.hidden = true. -->
+      <p class="feedback-status" id="feedback-status" role="status" aria-live="polite"></p>
     </div>
   </div>
 
