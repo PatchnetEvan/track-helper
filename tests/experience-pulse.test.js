@@ -205,6 +205,44 @@ const pulseCount = (db) => db.sqlite.prepare("SELECT COUNT(*) AS n FROM feedback
 }
 
 // ---------------------------------------------------------------------------
+// ...and tolerating the missing table is not enough: with 0010 absent (the
+// shape staging and production run TODAY, exercised daily by cron) the REST of
+// the sweep must still do its job. A guard that returned early or swallowed too
+// much would silently stop purging real retention-bearing data.
+// ---------------------------------------------------------------------------
+{
+  const db = makeDb(THROUGH_0009);
+  db.sqlite.prepare(
+    `INSERT INTO feedback_submissions (id, body, app_version, triage_state, closure_reason, closed_at)
+     VALUES (?, 'aged closed feedback', ?, 'closed', 'resolved', datetime('now','-13 months'))`,
+  ).run("fb_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", APP_VERSION);
+  const { runRetentionSweep } = await import("../src/waitlist-worker.js");
+  const swept = await runRetentionSweep(db);
+  assert.equal(swept.experience_pulses_purged, 0, "still no pulses to purge");
+  assert.equal(swept.feedback_purged, 1, "feedback retention STILL runs when the pulse table is absent");
+  assert.equal(
+    db.sqlite.prepare("SELECT COUNT(*) AS n FROM feedback_submissions").get().n, 0,
+    "the aged closed feedback row was actually deleted",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The missing-table guard must be NARROW. If the pulse table exists but the
+// purge fails for any OTHER reason, that error must propagate - a blanket catch
+// would hide a genuine retention failure behind a daily-cron "success".
+// ---------------------------------------------------------------------------
+{
+  const db = makeDb(THROUGH_0009);
+  db.sqlite.exec("CREATE TABLE feedback_experience_pulses (id TEXT PRIMARY KEY)"); // present, wrong shape
+  const { runRetentionSweep } = await import("../src/waitlist-worker.js");
+  await assert.rejects(
+    () => runRetentionSweep(db),
+    /no such column|created_at/i,
+    "a real pulse-purge error is NOT swallowed by the missing-table guard",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Structural separation: the service holds no email/GitHub/identity surface,
 // and the schema couples to nothing but feedback_submissions (SET NULL), never
 // a signup or profile.
