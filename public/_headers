@@ -16,6 +16,17 @@
 # policy with two deliberate differences: connect-src 'self' (the signup fetch)
 # and form-action 'self'; frame-ancestors 'none' is preserved here, and the
 # other /* security headers are untouched.
+#
+# BOTH paths are listed deliberately. Workers Assets serves this page at the
+# EXTENSIONLESS canonical URL /waitlist (a request for /waitlist.html 307s to
+# it), and _headers matches the REQUEST path - so a rule on /waitlist.html
+# alone never applies to the page a rider actually renders. /waitlist carries
+# the policy for the real page; /waitlist.html keeps it for the redirect and
+# for any direct .html request.
+/waitlist
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
+
 /waitlist.html
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';

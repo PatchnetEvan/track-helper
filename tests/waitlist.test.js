@@ -458,17 +458,24 @@ const linkFrom = (text, path) => {
     return block.split("\n").filter((l) => l.startsWith("  "));
   };
 
-  const waitlistBody = ruleBody("/waitlist.html");
-  assert.ok(waitlistBody.some((l) => l.trim() === "! Content-Security-Policy"),
-    "the waitlist page detaches the inherited /* CSP");
-  const waitlistCsp = waitlistBody.find((l) => /^\s*Content-Security-Policy:/.test(l)) ?? "";
-  assert.ok(waitlistCsp, "the waitlist page re-adds its own CSP (it has no meta CSP to fall back on)");
-  assert.match(waitlistCsp, /connect-src 'self'/, "the signup fetch to /api/waitlist is permitted");
-  assert.ok(!/connect-src 'none'/.test(waitlistCsp), "no inherited connect-src 'none' remains for the waitlist page");
-  assert.match(waitlistCsp, /frame-ancestors 'none'/, "anti-framing protection is preserved in the re-added policy");
-  assert.match(waitlistCsp, /default-src 'none'/, "the restrictive default is preserved");
-  assert.equal(waitlistBody.filter((l) => /^\s*Content-Security-Policy:/.test(l)).length, 1,
-    "exactly one CSP is added for the waitlist page");
+  // BOTH paths must carry the policy. Workers Assets serves this page at the
+  // EXTENSIONLESS canonical URL /waitlist (/waitlist.html 307s to it) and
+  // _headers matches the REQUEST path - so a rule on /waitlist.html alone
+  // never reaches the page a rider actually renders.
+  for (const rulePath of ["/waitlist", "/waitlist.html"]) {
+    const waitlistBody = ruleBody(rulePath);
+    assert.ok(waitlistBody.some((l) => l.trim() === "! Content-Security-Policy"),
+      `${rulePath} detaches the inherited /* CSP`);
+    const waitlistCsp = waitlistBody.find((l) => /^\s*Content-Security-Policy:/.test(l)) ?? "";
+    assert.ok(waitlistCsp, `${rulePath} re-adds its own CSP (the page has no meta CSP to fall back on)`);
+    assert.match(waitlistCsp, /connect-src 'self'/, `${rulePath}: the signup fetch to /api/waitlist is permitted`);
+    assert.ok(!/connect-src 'none'/.test(waitlistCsp), `${rulePath}: no inherited connect-src 'none' remains`);
+    assert.match(waitlistCsp, /frame-ancestors 'none'/, `${rulePath}: anti-framing protection preserved`);
+    assert.match(waitlistCsp, /default-src 'none'/, `${rulePath}: the restrictive default is preserved`);
+    assert.equal(waitlistBody.filter((l) => /^\s*Content-Security-Policy:/.test(l)).length, 1,
+      `${rulePath}: exactly one CSP is added`);
+  }
+  const waitlistBody = ruleBody("/waitlist");
 
   // The waitlist page genuinely needs connect-src: it submits by fetch.
   const formJs = readFileSync(join(import.meta.dirname, "..", "public", "waitlist-form.js"), "utf8");
