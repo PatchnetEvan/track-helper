@@ -399,4 +399,63 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   assert.deepEqual(s.loop, { triage: { new: 0, reviewing: 0, actionable: 0, closed: 0 }, promoted: 0 });
 }
 
+// ---------------------------------------------------------------------------
+// INVARIANT (pinned regression, salvaged from the superseded parallel PR #67 and
+// adapted to the merged sqlite_master-presence guard): the pre-0010 tolerance is
+// NARROW. The three states must stay distinct so a BROKEN database is never
+// laundered into a fabricated "zero responses" reading.
+//   pulse table ABSENT              -> honest inactive/empty; Feedback stays real
+//   pulse table PRESENT + VALID     -> normal scorecard
+//   pulse table PRESENT + MALFORMED -> error PROPAGATES, never fake zero/no-data
+// ---------------------------------------------------------------------------
+const dbThrough = (lastFile) => {
+  const db = new LocalD1();
+  for (const m of MIGRATIONS.slice(0, MIGRATIONS.indexOf(lastFile) + 1)) {
+    db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  }
+  return db;
+};
+
+// State 1 - ABSENT: honest no-source state; Feedback-derived signals stay REAL.
+{
+  const db = dbThrough("0009_feedback.sql");
+  seedFeedback(db, { body: "brakes vague", state: "reviewing" });
+  seedFeedback(db, { body: "promoted a", issue: 42 });
+  seedFeedback(db, { body: "promoted b", issue: 42 });
+  const s = await buildScorecard(db, "7d");
+  assert.equal(s.pulseAvailable, false, "absent source is REPORTED, not hidden");
+  assert.ok(s.distributionByWindow.every((w) => w.total === 0), "no fabricated pulse counts");
+  assert.deepEqual([s.bySection, s.byVersion, s.friction, s.workflowCount], [[], [], [], 0]);
+  assert.deepEqual(s.summaries, { strongest: null, needsAttention: null, improving: null }, "no summary invented from an absent source");
+  assert.equal(s.loop.triage.reviewing, 1, "real triage count survives");
+  assert.equal(s.loop.promoted, 2, "real promotion count survives");
+  assert.equal(s.recurring.length, 1, "real recurring evidence survives");
+}
+
+// State 2 - PRESENT + VALID: aggregation is exactly the normal scorecard.
+{
+  const db = freshDb();
+  for (let i = 0; i < 3; i += 1) seedPulse(db, { value: 3, section: "log" });
+  seedPulse(db, { value: 1, section: "log" });
+  const s = await buildScorecard(db, "7d");
+  assert.equal(s.pulseAvailable, true);
+  const log = s.bySection.find((r) => r.section === "log");
+  assert.deepEqual([log.good, log.notGood, log.total], [3, 1, 4], "normal math intact");
+  assert.equal(pct(log.good, log.total), 75);
+  assert.equal(s.summaries.strongest.section, "log");
+}
+
+// State 3 - PRESENT + MALFORMED: a broken table must FAIL LOUDLY, never be
+// laundered into an empty-but-valid scorecard. The presence guard skips ONLY on
+// genuine absence, so a table that exists but is the wrong shape still throws.
+{
+  const db = dbThrough("0009_feedback.sql");
+  db.sqlite.exec("CREATE TABLE feedback_experience_pulses (id TEXT PRIMARY KEY)"); // exists, wrong shape
+  await assert.rejects(
+    () => buildScorecard(db, "7d"),
+    /no such column|value|created_at/i,
+    "a malformed Pulse table surfaces as an error, not a fake zero",
+  );
+}
+
 console.log("experience-scorecard.test.js passed");
