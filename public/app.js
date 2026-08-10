@@ -1149,84 +1149,87 @@
   // read shown after a successful save (after_save) or a built review summary
   // (after_review), inside the existing result region - never a modal, never a
   // persistent card, never blocking. Fail-closed: nothing renders unless the
-  // gated endpoint confirms availability. Cadence mirrors the tested contract in
-  // src/experience-pulse-cooldown.js: <=1 automatic prompt per app session AND
-  // <=1 per app_version in a rolling 7-day window, and never right after a
-  // written Feedback submission. It NEVER opens the Feedback form (including for
-  // "1 - Not good") and never treats "1" differently. `manual` stays reserved in
-  // the data vocabulary with no manual UI in v1. Defined after the Feedback
-  // controller and referenced from the save/review handlers above, which run on
-  // user interaction (after this initializes).
+  // gated endpoint confirms availability AND the cadence engine allows it. The
+  // cadence ceiling (<=1/session, <=1/app_version/7d, none right after written
+  // Feedback) lives in the shared, separately-tested engine
+  // window.MotoTrackPulseCadence (public/experience-pulse-cadence.js) - this
+  // controller owns only the DOM + network, so there is no hand-mirrored cadence
+  // copy to drift. It NEVER opens the Feedback form (including for "1 - Not
+  // good") and never treats "1" differently. `manual` stays reserved with no v1
+  // UI. Defined after the Feedback controller and referenced from the save/
+  // review handlers above, which run on user interaction (after this inits).
   const pulseClient = (function experiencePulse() {
     const ENDPOINT = "/api/experience-pulse";
-    const SESSION_KEY = "mototrack_pulse_session_v1";
-    const VERSION_KEY = "mototrack_pulse_versions_v1";
-    const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    const cadence = window.MotoTrackPulseCadence || null;
+    const stores = () => ({ sessionStorage: window.sessionStorage, localStorage: window.localStorage });
     let available = false;
     let csrfToken = null;
     let appVersion = null;
-
-    function safeGet(store, key) { try { return store ? store.getItem(key) : null; } catch (_) { return null; } }
-    function safeSet(store, key, val) { try { if (store) { store.setItem(key, val); } } catch (_) { /* disabled/full: accepted limitation */ } }
-    function parseObj(raw) {
-      if (typeof raw !== "string" || raw === "") return {};
-      try { const v = JSON.parse(raw); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch (_) { return {}; }
-    }
-    const session = () => parseObj(safeGet(window.sessionStorage, SESSION_KEY));
-    const versionsSeen = () => parseObj(safeGet(window.localStorage, VERSION_KEY));
-
-    // The whole cadence ceiling, mirrored from the tested contract.
-    function allowed() {
-      if (!appVersion) return false;
-      const s = session();
-      if (s.shown === true) return false;             // <=1 automatic prompt / session
-      if (s.feedbackSubmitted === true) return false; // never right after written Feedback
-      const last = versionsSeen()[appVersion];
-      if (typeof last === "string") {
-        const at = Date.parse(last);
-        if (Number.isFinite(at) && (Date.now() - at) < WINDOW_MS) return false; // <=1 / version / 7d
-      }
-      return true;
-    }
-    function markPrompted() {
-      const s = session(); s.shown = true; safeSet(window.sessionStorage, SESSION_KEY, JSON.stringify(s));
-      const v = versionsSeen(); v[appVersion] = new Date().toISOString(); safeSet(window.localStorage, VERSION_KEY, JSON.stringify(v));
-    }
-    // Suppression hook, called from the written-Feedback success path.
-    function recordFeedbackSubmitted() {
-      const s = session(); s.feedbackSubmitted = true; safeSet(window.sessionStorage, SESSION_KEY, JSON.stringify(s));
-    }
 
     function activeSection() {
       const tab = document.querySelector('.tab[aria-selected="true"]');
       return tab ? tab.dataset.tab : null;
     }
 
+    // Fail-closed availability + double-submit token. Returns false (and leaves
+    // the pulse hidden) unless the gated GET succeeds and returns a token +
+    // canonical appVersion. Re-callable to re-mint an expired token.
+    async function fetchToken() {
+      const res = await fetch(ENDPOINT, { method: "GET", headers: { accept: "application/json" } });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data || !data.csrf || !data.appVersion) return false;
+      csrfToken = data.csrf;
+      appVersion = data.appVersion;
+      available = true;
+      return true;
+    }
+
+    function postPulse(value, ctx) {
+      return fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          value,
+          sourceSection: ctx.sourceSection,
+          sourceRoute: ctx.sourceRoute,
+          actionContext: ctx.actionContext,
+          csrf: csrfToken,
+        }),
+      });
+    }
+
+    function acknowledge(block) {
+      block.textContent = "";
+      const p = document.createElement("p");
+      p.className = "pulse-ack";
+      p.textContent = "Thanks.";
+      block.appendChild(p);
+    }
+
     async function submit(block, value, ctx) {
       block.querySelectorAll(".pulse-opt").forEach((b) => { b.disabled = true; });
       try {
-        const res = await fetch(ENDPOINT, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            value,
-            sourceSection: ctx.sourceSection,
-            sourceRoute: ctx.sourceRoute,
-            actionContext: ctx.actionContext,
-            csrf: csrfToken,
-          }),
-        });
-        if (res.status === 201) { block.textContent = ""; const ack = document.createElement("p"); ack.className = "pulse-ack"; ack.textContent = "Thanks."; block.appendChild(ack); return; }
+        let res = await postPulse(value, ctx);
+        if (res.status !== 201) {
+          // The double-submit cookie/token can expire on a long-open tab; re-mint
+          // once and retry so a genuine tap is not silently lost.
+          await fetchToken();
+          res = await postPulse(value, ctx);
+        }
+        if (res.status === 201) { acknowledge(block); return; }
       } catch (_) { /* fire-and-forget: a pulse never blocks continuation */ }
-      // Any non-success: quietly remove the control. No nagging, no error text,
-      // no workflow change - the cadence already recorded it as prompted.
+      // Any non-success after the retry: quietly remove the control. No nagging,
+      // no error text, no workflow change - cadence already recorded the prompt.
       block.remove();
     }
 
     // Show an inline pulse in `target` (an existing .result region) if available
-    // and cadence allows. Appends below the region's existing message; one tap.
+    // and the cadence engine allows. Appends below the region's existing
+    // message; one tap.
     function maybePrompt(target, actionContext) {
-      if (!available || !target || !allowed()) return;
+      if (!available || !cadence || !target) return;
+      if (!cadence.shouldAutoPrompt({ now: Date.now(), appVersion, ...stores() }).allowed) return;
       const ctx = { actionContext, sourceSection: activeSection(), sourceRoute: location.pathname + location.hash };
       const block = document.createElement("div");
       block.className = "pulse";
@@ -1249,21 +1252,18 @@
       block.appendChild(q);
       block.appendChild(opts);
       target.appendChild(block);
-      markPrompted();
+      // Record the SHOWN prompt (session cap + version window) so a prompt the
+      // rider dismisses without answering still counts against the ceiling.
+      cadence.recordPulsePrompted({ now: Date.now(), appVersion, ...stores() });
     }
 
-    async function bootstrap() {
-      try {
-        const res = await fetch(ENDPOINT, { method: "GET", headers: { accept: "application/json" } });
-        if (!res.ok) return; // disabled/unavailable -> the pulse never shows
-        const data = await res.json();
-        if (!data || !data.csrf || !data.appVersion) return;
-        csrfToken = data.csrf;
-        appVersion = data.appVersion;
-        available = true;
-      } catch (_) { /* stays unavailable */ }
+    // Called from the written-Feedback success path so no automatic pulse
+    // follows in this session.
+    function recordFeedbackSubmitted() {
+      if (cadence) cadence.recordFeedbackSubmitted({ sessionStorage: window.sessionStorage });
     }
-    bootstrap();
+
+    fetchToken().catch(() => { /* stays unavailable */ });
 
     return { maybePrompt, recordFeedbackSubmitted };
   })();

@@ -97,15 +97,26 @@ function cleanActionContext(raw) {
 }
 
 // Optional link to the written feedback this pulse accompanied. Shape-guard to
-// the feedback id form (fb_<32 hex>), then confirm the row still exists so the
-// FK insert can never fail and lose the pulse. A malformed OR unknown id ->
-// null (the pulse records, unlinked). Never fatal, never a signup/profile link.
+// the feedback id form (fb_<32 hex>), then confirm the row exists so the FK
+// insert normally succeeds. A malformed OR unknown id -> null (the pulse
+// records, unlinked). Never fatal, never a signup/profile link. NOTE: existence
+// is checked before the insert but a concurrent retention purge could still
+// delete the row in between; createExperiencePulse handles that by dropping the
+// link rather than losing the pulse.
 async function resolveFeedbackId(db, raw) {
   if (typeof raw !== "string") return null;
   const v = raw.trim();
   if (!/^fb_[0-9a-f]{32}$/.test(v)) return null;
   const found = await db.prepare("SELECT 1 AS ok FROM feedback_submissions WHERE id = ?").bind(v).first();
   return found ? v : null;
+}
+
+async function insertPulse(db, id, value, sourceSection, sourceRoute, actionContext, feedbackId) {
+  await db.prepare(
+    `INSERT INTO feedback_experience_pulses
+       (id, value, source_section, source_route, action_context, app_version, feedback_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, value, sourceSection, sourceRoute, actionContext, APP_VERSION, feedbackId).run();
 }
 
 // Create one experience pulse. Returns the stored record's identity + context.
@@ -120,11 +131,19 @@ export async function createExperiencePulse(db, input = {}) {
   const feedbackId = await resolveFeedbackId(db, input.feedbackId);
   const id = newId();
 
-  await db.prepare(
-    `INSERT INTO feedback_experience_pulses
-       (id, value, source_section, source_route, action_context, app_version, feedback_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, value, sourceSection, sourceRoute, actionContext, APP_VERSION, feedbackId).run();
+  try {
+    await insertPulse(db, id, value, sourceSection, sourceRoute, actionContext, feedbackId);
+  } catch (error) {
+    // A pulse must never be lost. The ONLY failure the optional feedback link
+    // can introduce is a foreign-key violation if the referenced feedback was
+    // purged between the existence check above and this insert (e.g. a
+    // concurrent retention sweep). Drop the link and retry once so the still-
+    // anonymous pulse is recorded. If there was no link, or the retry also
+    // fails, it is a genuine DB failure - rethrow so the route returns 503.
+    if (feedbackId === null) throw error;
+    await insertPulse(db, id, value, sourceSection, sourceRoute, actionContext, null);
+    return { id, value, sourceSection, sourceRoute, actionContext, appVersion: APP_VERSION, feedbackId: null };
+  }
 
   return { id, value, sourceSection, sourceRoute, actionContext, appVersion: APP_VERSION, feedbackId };
 }

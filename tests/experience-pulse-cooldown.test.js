@@ -1,27 +1,33 @@
 import assert from "node:assert/strict";
-import {
-  pulseAutoPromptDecision, shouldAutoPrompt, recordPulsePrompted, recordFeedbackSubmitted,
-  readCadenceState, PULSE_VERSION_WINDOW_MS, PULSE_VERSION_WINDOW_DAYS,
-  PULSE_SESSION_STORAGE_KEY, PULSE_VERSION_STORAGE_KEY,
-} from "../src/experience-pulse-cooldown.js";
+import vm from "node:vm";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-// MotoTrack Experience Pulse #55 PR3A: the CLIENT cadence/cooldown contract,
-// proven as pure logic. The frozen ceiling: <=1 automatic prompt per app
-// session AND <=1 per app_version in a rolling 7-day window, and never
-// immediately after a written Feedback submission. Cleared/disabled storage is
-// an accepted limitation and must never throw.
+// MotoTrack Experience Pulse #55: the CLIENT cadence/cooldown engine, tested by
+// executing THE ACTUAL SHIPPED FILE (public/experience-pulse-cadence.js) in a
+// node:vm sandbox. There is no separate "reference" module that could drift from
+// the browser code - the bytes the browser runs are the bytes asserted here.
+// The frozen ceiling: <=1 automatic prompt per app session AND <=1 per
+// app_version in a rolling 7-day window, and never right after a written
+// Feedback submission. Cleared/disabled storage is an accepted limitation and
+// must never throw.
+
+const code = readFileSync(join(import.meta.dirname, "..", "public", "experience-pulse-cadence.js"), "utf8");
+const sandbox = {};
+vm.createContext(sandbox);
+vm.runInContext(code, sandbox);
+const cadence = sandbox.MotoTrackPulseCadence;
+assert.ok(cadence, "the shipped cadence file attaches its API to the global");
 
 const VERSION = "0.1.0-beta.1";
 const T0 = Date.parse("2026-08-10T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
 
-// A Storage-like backed by a Map (matches getItem/setItem semantics).
 class FakeStorage {
   constructor() { this.map = new Map(); }
   getItem(k) { return this.map.has(k) ? this.map.get(k) : null; }
   setItem(k, v) { this.map.set(k, String(v)); }
 }
-// A hostile Storage that throws on every access (private mode / disabled).
 const throwingStorage = {
   getItem() { throw new Error("storage disabled"); },
   setItem() { throw new Error("storage disabled"); },
@@ -29,32 +35,33 @@ const throwingStorage = {
 const stores = () => ({ sessionStorage: new FakeStorage(), localStorage: new FakeStorage() });
 
 // ---------------------------------------------------------------------------
-// Window constant is exactly 7 days.
+// Constants exactly as the spec requires.
 // ---------------------------------------------------------------------------
 {
-  assert.equal(PULSE_VERSION_WINDOW_DAYS, 7);
-  assert.equal(PULSE_VERSION_WINDOW_MS, 7 * DAY);
+  assert.equal(cadence.VERSION_WINDOW_DAYS, 7);
+  assert.equal(cadence.VERSION_WINDOW_MS, 7 * DAY);
+  assert.equal(cadence.SESSION_STORAGE_KEY, "mototrack_pulse_session_v1");
+  assert.equal(cadence.VERSION_STORAGE_KEY, "mototrack_pulse_versions_v1");
 }
 
 // ---------------------------------------------------------------------------
 // Pure decision: each constraint, in isolation and by precedence.
 // ---------------------------------------------------------------------------
 {
-  assert.deepEqual(pulseAutoPromptDecision({ now: T0, appVersion: VERSION }), { allowed: true, reason: "ok" });
+  // Note: objects returned from the vm sandbox have the sandbox realm's
+  // prototype, so compare fields rather than deepEqual across realms.
+  const fresh = cadence.pulseAutoPromptDecision({ now: T0, appVersion: VERSION });
+  assert.equal(fresh.allowed, true);
+  assert.equal(fresh.reason, "ok");
+  assert.equal(cadence.pulseAutoPromptDecision({ now: T0, appVersion: VERSION, sessionShown: true }).reason, "session_cap");
+  assert.equal(cadence.pulseAutoPromptDecision({ now: T0, appVersion: VERSION, feedbackSubmittedThisSession: true }).reason, "feedback_suppression");
+  assert.equal(cadence.pulseAutoPromptDecision({ now: T0, appVersion: "" }).reason, "no_version");
 
-  assert.equal(pulseAutoPromptDecision({ now: T0, appVersion: VERSION, sessionShown: true }).reason, "session_cap");
-  assert.equal(pulseAutoPromptDecision({ now: T0, appVersion: VERSION, feedbackSubmittedThisSession: true }).reason, "feedback_suppression");
-  assert.equal(pulseAutoPromptDecision({ now: T0, appVersion: "" }).reason, "no_version");
-
-  // version window: within 7 days blocks; at/after 7 days allows; a different
-  // version is independent.
   const shownIso = new Date(T0).toISOString();
-  assert.equal(pulseAutoPromptDecision({ now: T0 + 6 * DAY, appVersion: VERSION, lastShownByVersion: { [VERSION]: shownIso } }).reason, "version_window");
-  assert.equal(pulseAutoPromptDecision({ now: T0 + 7 * DAY, appVersion: VERSION, lastShownByVersion: { [VERSION]: shownIso } }).allowed, true, "at exactly 7 days the window has elapsed");
-  assert.equal(pulseAutoPromptDecision({ now: T0 + 6 * DAY, appVersion: "0.2.0", lastShownByVersion: { [VERSION]: shownIso } }).allowed, true, "cooldown is per-version");
-
-  // session cap takes precedence over an otherwise-open window.
-  assert.equal(pulseAutoPromptDecision({ now: T0 + 30 * DAY, appVersion: VERSION, sessionShown: true, lastShownByVersion: {} }).reason, "session_cap");
+  assert.equal(cadence.pulseAutoPromptDecision({ now: T0 + 6 * DAY, appVersion: VERSION, lastShownByVersion: { [VERSION]: shownIso } }).reason, "version_window");
+  assert.equal(cadence.pulseAutoPromptDecision({ now: T0 + 7 * DAY, appVersion: VERSION, lastShownByVersion: { [VERSION]: shownIso } }).allowed, true, "at exactly 7 days the window has elapsed");
+  assert.equal(cadence.pulseAutoPromptDecision({ now: T0 + 6 * DAY, appVersion: "0.2.0", lastShownByVersion: { [VERSION]: shownIso } }).allowed, true, "cooldown is per-version");
+  assert.equal(cadence.pulseAutoPromptDecision({ now: T0 + 30 * DAY, appVersion: VERSION, sessionShown: true, lastShownByVersion: {} }).reason, "session_cap", "session cap takes precedence");
 }
 
 // ---------------------------------------------------------------------------
@@ -62,33 +69,21 @@ const stores = () => ({ sessionStorage: new FakeStorage(), localStorage: new Fak
 // ---------------------------------------------------------------------------
 {
   const s = stores();
-  assert.equal(shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).allowed, true, "first prompt allowed");
-  recordPulsePrompted({ now: T0, appVersion: VERSION, ...s });
-  assert.equal(shouldAutoPrompt({ now: T0 + 60000, appVersion: VERSION, ...s }).reason, "session_cap", "no second automatic prompt this session");
+  assert.equal(cadence.shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).allowed, true, "first prompt allowed");
+  cadence.recordPulsePrompted({ now: T0, appVersion: VERSION, ...s });
+  assert.equal(cadence.shouldAutoPrompt({ now: T0 + 60000, appVersion: VERSION, ...s }).reason, "session_cap", "no second automatic prompt this session");
 }
 
 // ---------------------------------------------------------------------------
-// <=1 per app_version in a rolling 7-day window, ACROSS sessions (shared
-// localStorage, fresh sessionStorage each session).
+// <=1 per app_version / rolling 7 days, ACROSS sessions (shared localStorage,
+// fresh sessionStorage each session).
 // ---------------------------------------------------------------------------
 {
   const local = new FakeStorage();
-  // Session A shows a prompt at T0.
-  const a = { sessionStorage: new FakeStorage(), localStorage: local };
-  recordPulsePrompted({ now: T0, appVersion: VERSION, ...a });
-
-  // Session B, 6 days later: the version window still blocks despite a fresh
-  // session.
-  const b = { sessionStorage: new FakeStorage(), localStorage: local };
-  assert.equal(shouldAutoPrompt({ now: T0 + 6 * DAY, appVersion: VERSION, ...b }).reason, "version_window");
-
-  // Session C, 7 days later: the window has elapsed - allowed again.
-  const c = { sessionStorage: new FakeStorage(), localStorage: local };
-  assert.equal(shouldAutoPrompt({ now: T0 + 7 * DAY, appVersion: VERSION, ...c }).allowed, true);
-
-  // A different app_version is never blocked by another version's window.
-  const d = { sessionStorage: new FakeStorage(), localStorage: local };
-  assert.equal(shouldAutoPrompt({ now: T0 + 1 * DAY, appVersion: "0.2.0-beta.1", ...d }).allowed, true);
+  cadence.recordPulsePrompted({ now: T0, appVersion: VERSION, sessionStorage: new FakeStorage(), localStorage: local });
+  assert.equal(cadence.shouldAutoPrompt({ now: T0 + 6 * DAY, appVersion: VERSION, sessionStorage: new FakeStorage(), localStorage: local }).reason, "version_window");
+  assert.equal(cadence.shouldAutoPrompt({ now: T0 + 7 * DAY, appVersion: VERSION, sessionStorage: new FakeStorage(), localStorage: local }).allowed, true);
+  assert.equal(cadence.shouldAutoPrompt({ now: T0 + 1 * DAY, appVersion: "0.2.0-beta.1", sessionStorage: new FakeStorage(), localStorage: local }).allowed, true, "another version is independent");
 }
 
 // ---------------------------------------------------------------------------
@@ -96,44 +91,45 @@ const stores = () => ({ sessionStorage: new FakeStorage(), localStorage: new Fak
 // ---------------------------------------------------------------------------
 {
   const s = stores();
-  assert.equal(shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).allowed, true);
-  recordFeedbackSubmitted(s);
-  assert.equal(shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).reason, "feedback_suppression", "no pulse right after written feedback");
+  assert.equal(cadence.shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).allowed, true);
+  cadence.recordFeedbackSubmitted(s);
+  assert.equal(cadence.shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).reason, "feedback_suppression");
 }
 
 // ---------------------------------------------------------------------------
-// recordPulsePrompted persists both the session cap and the version stamp, and
-// readCadenceState reflects them.
+// recordPulsePrompted persists the cap + version stamp AND prunes stale version
+// entries so localStorage stays bounded (the behavior the old inline mirror
+// lacked). readCadenceState reflects the persisted state.
 // ---------------------------------------------------------------------------
 {
   const s = stores();
-  const { shownAt } = recordPulsePrompted({ now: T0, appVersion: VERSION, ...s });
-  const state = readCadenceState(s);
+  const { shownAt } = cadence.recordPulsePrompted({ now: T0, appVersion: VERSION, ...s });
+  assert.equal(shownAt, new Date(T0).toISOString());
+  const state = cadence.readCadenceState(s);
   assert.equal(state.sessionShown, true);
   assert.equal(state.lastShownByVersion[VERSION], shownAt);
-  assert.equal(shownAt, new Date(T0).toISOString());
-  // The persisted JSON is bounded to the safe keys - no identity is stored.
-  const session = JSON.parse(s.sessionStorage.getItem(PULSE_SESSION_STORAGE_KEY));
-  assert.deepEqual(Object.keys(session).sort(), ["shown"]);
-  const versions = JSON.parse(s.localStorage.getItem(PULSE_VERSION_STORAGE_KEY));
-  assert.deepEqual(Object.keys(versions), [VERSION]);
+  const session = JSON.parse(s.sessionStorage.getItem(cadence.SESSION_STORAGE_KEY));
+  assert.deepEqual(Object.keys(session).sort(), ["shown"], "no identity persisted, just the cap flag");
+
+  // Record a newer version 10 days later: the old (out-of-window) version entry
+  // is pruned; only the current one remains.
+  cadence.recordPulsePrompted({ now: T0 + 10 * DAY, appVersion: "0.2.0-beta.1", ...s });
+  const versions = JSON.parse(s.localStorage.getItem(cadence.VERSION_STORAGE_KEY));
+  assert.deepEqual(Object.keys(versions), ["0.2.0-beta.1"], "stale version entry pruned; storage bounded");
 }
 
 // ---------------------------------------------------------------------------
-// Resilience: disabled/throwing storage is an accepted limitation, never a
-// crash. Decisions degrade to "no history" (allowed) and writes are no-ops.
+// Resilience: disabled/throwing/missing storage never crashes.
 // ---------------------------------------------------------------------------
 {
   const s = { sessionStorage: throwingStorage, localStorage: throwingStorage };
-  assert.equal(shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).allowed, true, "unreadable storage -> treated as no history");
+  assert.equal(cadence.shouldAutoPrompt({ now: T0, appVersion: VERSION, ...s }).allowed, true, "unreadable storage -> treated as no history");
   let shownAt;
-  assert.doesNotThrow(() => { ({ shownAt } = recordPulsePrompted({ now: T0, appVersion: VERSION, ...s })); }, "recording never throws");
-  assert.equal(shownAt, new Date(T0).toISOString(), "still reports the intended stamp");
-  assert.equal(recordFeedbackSubmitted(s), false, "unwritable storage reports it could not persist, without throwing");
-
-  // Missing storages entirely (undefined) also never throw.
-  assert.equal(shouldAutoPrompt({ now: T0, appVersion: VERSION }).allowed, true);
-  assert.doesNotThrow(() => recordPulsePrompted({ now: T0, appVersion: VERSION }));
+  assert.doesNotThrow(() => { ({ shownAt } = cadence.recordPulsePrompted({ now: T0, appVersion: VERSION, ...s })); });
+  assert.equal(shownAt, new Date(T0).toISOString());
+  assert.equal(cadence.recordFeedbackSubmitted(s), false, "unwritable storage reports it could not persist, no throw");
+  assert.equal(cadence.shouldAutoPrompt({ now: T0, appVersion: VERSION }).allowed, true, "missing storages -> no throw");
+  assert.doesNotThrow(() => cadence.recordPulsePrompted({ now: T0, appVersion: VERSION }));
 }
 
 console.log("experience-pulse-cooldown.test.js passed");

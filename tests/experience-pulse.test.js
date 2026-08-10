@@ -161,6 +161,42 @@ const pulseCount = (db) => db.sqlite.prepare("SELECT COUNT(*) AS n FROM feedback
 }
 
 // ---------------------------------------------------------------------------
+// A pulse is never lost: if the FK insert fails because the linked feedback was
+// purged between the existence check and the insert (concurrent retention
+// sweep), the link is dropped and the insert retried, so the anonymous pulse
+// still records. A genuine failure with NO link is not masked - it rethrows.
+// ---------------------------------------------------------------------------
+{
+  const db = makeDb();
+  const fb = await createFeedback(db, { body: "vanishes mid-insert" });
+  const realPrepare = db.prepare.bind(db);
+  let insertCalls = 0;
+  db.prepare = (sql) => {
+    if (/INSERT INTO feedback_experience_pulses/i.test(sql)) {
+      insertCalls += 1;
+      if (insertCalls === 1) return { bind: () => ({ run: async () => { throw new Error("FOREIGN KEY constraint failed"); } }) };
+    }
+    return realPrepare(sql);
+  };
+  const p = await createExperiencePulse(db, { value: 2, feedbackId: fb.id });
+  db.prepare = realPrepare;
+  assert.equal(insertCalls, 2, "insert retried exactly once after the FK failure");
+  assert.equal(p.feedbackId, null, "the optional link was dropped, not the pulse");
+  const row = await readExperiencePulse(db, p.id);
+  assert.ok(row && row.feedback_id === null, "pulse recorded despite the FK failure, unlinked");
+}
+{
+  // No link -> a genuine insert failure is a real 503, never silently swallowed.
+  const db = makeDb();
+  const realPrepare = db.prepare.bind(db);
+  db.prepare = (sql) => (/INSERT INTO feedback_experience_pulses/i.test(sql)
+    ? { bind: () => ({ run: async () => { throw new Error("d1 down"); } }) }
+    : realPrepare(sql));
+  await assert.rejects(() => createExperiencePulse(db, { value: 3 }), /d1 down/, "unlinked insert failure rethrows");
+  db.prepare = realPrepare;
+}
+
+// ---------------------------------------------------------------------------
 // Feedback deletion SET NULLs the pulse link; the anonymous pulse survives.
 // ---------------------------------------------------------------------------
 {

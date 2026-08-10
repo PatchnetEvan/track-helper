@@ -36,6 +36,7 @@ for (const [envName, envConfig] of Object.entries(wrangler.env ?? {})) {
 const APPROVED_PUBLIC_FILES = [
   "_headers", // platform header config — consumed by Workers Assets, never served
   "app.js",
+  "experience-pulse-cadence.js", // Experience Pulse cadence engine (#55), loaded by /log
   "homepage.css",
   "index.html",
   "investor-preview.css",
