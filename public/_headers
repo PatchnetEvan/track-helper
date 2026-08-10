@@ -6,7 +6,18 @@
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 
+# The waitlist page fetches /api/waitlist. _headers COMBINES matching rules, so
+# adding a CSP here alone left the /* connect-src 'none' ALSO enforced and the
+# browser applied the intersection - blocking the very fetch this rule intends
+# to allow. DETACH the inherited CSP first, then re-add the waitlist policy in
+# this same rule, so exactly ONE policy is enforced. (Unlike /log/*, this page
+# has NO meta CSP, so the header must carry the full policy - detach alone
+# would leave the page with no CSP at all.) The re-added policy is the /*
+# policy with two deliberate differences: connect-src 'self' (the signup fetch)
+# and form-action 'self'; frame-ancestors 'none' is preserved here, and the
+# other /* security headers are untouched.
 /waitlist.html
+  ! Content-Security-Policy
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
 
 # Log pages need to fetch /api/feedback. _headers COMBINES matching rules, so a
