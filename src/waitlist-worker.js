@@ -19,6 +19,8 @@ import { sweepProfileInvitationBatches } from "./waitlist-profile-batch.js";
 import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js";
 import { handleAdminRoutes } from "./waitlist-admin-routes.js";
 import { createFeedback, FeedbackValidationError, FEEDBACK_RATE_BUCKET_PREFIX, FEEDBACK_SUCCESS } from "./feedback-service.js";
+import { createExperiencePulse, PulseValidationError, PULSE_RATE_BUCKET_PREFIX } from "./experience-pulse-service.js";
+import { APP_VERSION } from "./app-version.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
   revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission,
@@ -418,6 +420,22 @@ export async function runRetentionSweep(db) {
   const feedback = await db.prepare(
     "DELETE FROM feedback_submissions WHERE triage_state = 'closed' AND closed_at IS NOT NULL AND closed_at <= datetime('now', '-12 months')",
   ).bind().run();
+  // Experience Pulse retention (#55): anonymous one-tap signals are raw-retained
+  // 13 months, then purged - there is no analytics warehouse; the Scorecard
+  // reads the live window. A purged linked feedback has already SET NULL the
+  // pulse's feedback_id, so this is a plain age sweep. Under the staged rollout
+  // this worker can be reviewed/deployed BEFORE migration 0010 is applied to a
+  // given database, so a not-yet-created table must not abort the rest of the
+  // sweep - it simply means there are no pulses to purge yet.
+  let pulsesPurged = 0;
+  try {
+    const pulses = await db.prepare(
+      "DELETE FROM feedback_experience_pulses WHERE created_at <= datetime('now', '-13 months')",
+    ).bind().run();
+    pulsesPurged = Number(pulses?.meta?.changes ?? 0);
+  } catch (error) {
+    if (!/no such table/i.test(String(error?.message ?? error))) throw error;
+  }
   // Profile retention: deleted within 30 days after unsubscribe. Profiles of
   // purged signups are removed by purgeSignups above, so nothing can outlive
   // the wait-list retention ceiling. Edit authorizations cascade from their
@@ -437,6 +455,7 @@ export async function runRetentionSweep(db) {
     attribution_cleared: Number(attribution?.meta?.changes ?? 0),
     rate_buckets_purged: Number(buckets?.meta?.changes ?? 0),
     feedback_purged: Number(feedback?.meta?.changes ?? 0),
+    experience_pulses_purged: pulsesPurged,
   };
 }
 
@@ -911,6 +930,92 @@ async function handleFeedback(request, env) {
   return json({ ok: true, message: FEEDBACK_SUCCESS }, 201);
 }
 
+// ---------------------------------------------------------------------------
+// Experience Pulse intake (#55, PR3A). A one-tap, anonymous experience-instance
+// signal on its OWN public endpoint, fail-closed behind a DEDICATED flag
+// (EXPERIENCE_PULSE_ENABLED === "true") so it can never ride on FEEDBACK_ENABLED
+// or the DB binding alone. Same proven public-form controls as Feedback:
+// POST-only mutation, #45 request-source gate, purpose-specific double-submit
+// CSRF, a pulse-namespaced rate limit that shares no budget with any other
+// form, and generic safe failures. Success is returned ONLY after the D1 insert
+// resolves. Prompt cadence (<=1/session, <=1/version/7d, none right after
+// written Feedback) is a CLIENT concern (experience-pulse-cooldown.js); the
+// server enforces only the abuse backstop below.
+const PULSE_CSRF_COOKIE = "__Secure-mototrack_pulse_csrf";
+const PULSE_SEND_LIMIT_PER_HOUR = 10;
+
+function pulseEnabled(env) { return env?.EXPERIENCE_PULSE_ENABLED === "true"; }
+
+// Generic, non-technical failure - never leaks D1/rate-bucket/CSRF/exception
+// detail. Rate-limited and infrastructure failures share this presentation.
+function pulseUnavailable(status = 503) {
+  return json({ error: "pulse_unavailable", message: "We couldn't record that right now." }, status);
+}
+
+// Non-disclosing response for a DISABLED feature (flag not exactly "true").
+// Indistinguishable from a route that does not exist, so a build shipped
+// without EXPERIENCE_PULSE_ENABLED presents no pulse surface at all.
+function pulseNotFound() {
+  return json({ error: "not_found" }, 404);
+}
+
+// GET /api/experience-pulse: mint a pulse-scoped CSRF token + HttpOnly cookie
+// (double-submit) and return it. Creates NO pulse. Gated so a disabled build
+// hands out nothing usable and the client keeps the surface hidden.
+function handlePulseToken(env) {
+  if (!pulseEnabled(env)) return pulseNotFound();
+  if (!database(env)) return pulseUnavailable();
+  const token = mintToken();
+  // appVersion is returned as the client's per-version cooldown BUCKET KEY only.
+  // The stored pulse's app_version is still stamped server-side on POST from the
+  // same canonical source; a client value is never trusted for the record.
+  const res = json({ ok: true, csrf: token, appVersion: APP_VERSION });
+  res.headers.append("set-cookie",
+    `${PULSE_CSRF_COOKIE}=${token}; Path=/api/experience-pulse; Max-Age=3600; HttpOnly; Secure; SameSite=Strict`);
+  return res;
+}
+
+// POST /api/experience-pulse: fail-closed on the gate and the DB; #45
+// request-source gate; double-submit CSRF in the pulse namespace; pulse-only
+// rate limit; then the intake service validates (value must be 1|2|3) and
+// performs the durable insert. Success is returned ONLY after that insert.
+async function handlePulse(request, env) {
+  if (!pulseEnabled(env)) return pulseNotFound();
+  const db = database(env);
+  if (!db) return pulseUnavailable();
+  if (!requestSourceAllowed(request)) return pulseUnavailable(403);
+
+  const cookieToken = parseCookies(request)[PULSE_CSRF_COOKIE] ?? "";
+  let body;
+  try { body = await request.json(); } catch { body = null; }
+  if (!constantTimeEqual(cookieToken, typeof body?.csrf === "string" ? body.csrf : "")) {
+    return pulseUnavailable(403);
+  }
+
+  const hour = new Date().toISOString().slice(0, 13);
+  const clientKey = await sha256Hex(`${PULSE_RATE_BUCKET_PREFIX}${request.headers.get("cf-connecting-ip") ?? "unknown"}:${String(env.WAITLIST_RATE_PEPPER ?? "")}`);
+  if (!(await underLimit(db, clientKey, hour, PULSE_SEND_LIMIT_PER_HOUR))) return pulseUnavailable(429);
+
+  try {
+    await createExperiencePulse(db, {
+      value: body?.value,
+      sourceSection: body?.sourceSection,
+      sourceRoute: body?.sourceRoute,
+      actionContext: body?.actionContext,
+      feedbackId: body?.feedbackId,
+      // app_version is server-stamped by the service; any client value is ignored.
+    });
+  } catch (error) {
+    if (error instanceof PulseValidationError) {
+      // The only rider-actionable validation is a missing/invalid value.
+      return json({ error: "invalid_request", code: error.code }, 400);
+    }
+    // Any other failure (e.g. the D1 insert) is NOT a success.
+    return pulseUnavailable();
+  }
+  return json({ ok: true }, 201);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -918,6 +1023,11 @@ export default {
     if (url.pathname === "/api/feedback") {
       if (request.method === "GET") return stagingGuard(env, handleFeedbackToken(env));
       if (request.method === "POST") return stagingGuard(env, await handleFeedback(request, env));
+      return json({ error: "method_not_allowed" }, 405);
+    }
+    if (url.pathname === "/api/experience-pulse") {
+      if (request.method === "GET") return stagingGuard(env, handlePulseToken(env));
+      if (request.method === "POST") return stagingGuard(env, await handlePulse(request, env));
       return json({ error: "method_not_allowed" }, 405);
     }
     if (url.pathname === "/waitlist/confirm" && ["GET", "POST"].includes(request.method)) return handleConfirm(request, env, url);

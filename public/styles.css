@@ -550,3 +550,21 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
   padding: 9px 18px; font-size: 1rem; font-weight: 600; cursor: pointer;
 }
 #feedback-submit:disabled { opacity: .6; cursor: default; }
+
+/* Experience Pulse (#55): a one-tap, optional experience-instance read shown
+   INLINE inside an existing .result region (after a save, after a review). It
+   is never a modal, never a persistent card or nav element, never blocks
+   continuation, and is replaced by a minimal acknowledgement after one tap. */
+.pulse { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.pulse-q { margin: 0 0 8px; font-size: .92rem; color: var(--text-dim); }
+.pulse-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.pulse-opt {
+  flex: 1 1 0; min-width: 96px; min-height: var(--tap);
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--bg-elev); color: var(--text); border: 1px solid var(--border);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.pulse-opt:active { background: var(--bg-elev-2); }
+.pulse-opt:focus-visible { outline: 2px solid var(--accent); }
+.pulse-opt:disabled { opacity: .6; cursor: default; }
+.pulse-ack { margin: 0; font-size: .92rem; color: var(--good); }

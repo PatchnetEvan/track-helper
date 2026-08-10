@@ -544,6 +544,8 @@
       return;
     }
     el.innerHTML = body + `<p class="hint">This summary is only in your browser tab. Refresh or reset to clear it.</p>`;
+    // after_review: the review summary meaningfully completed (non-empty).
+    pulseClient.maybePrompt(el, "after_review");
   });
 
   // --- Reset ----------------------------------------------------------------
@@ -729,7 +731,13 @@
 
   document.getElementById("save-session").addEventListener("click", () => {
     const r = doSave();
-    if (r.ok) r.out.innerHTML = `<p class="good">Saved locally. Open the History tab any time.</p>`;
+    if (r.ok) {
+      r.out.innerHTML = `<p class="good">Saved locally. Open the History tab any time.</p>`;
+      // after_save: a session was saved and the result stays visible here.
+      // (Save & next intentionally does not prompt - it navigates onward to the
+      // next session, so the prompt would be unseen and the flow is mid-task.)
+      pulseClient.maybePrompt(r.out, "after_save");
+    }
   });
 
   function bumpSessionLabel(label) {
@@ -1112,6 +1120,9 @@
         if (res.status === 201) {
           form.hidden = true;
           setStatus("Thanks for the feedback.", "ok");
+          // Suppress any automatic Experience Pulse for the rest of this session
+          // - a rider who just explained in full sentences is not asked to pulse.
+          pulseClient.recordFeedbackSubmitted();
           return;
         }
         if (res.status === 400) {
@@ -1132,6 +1143,129 @@
     });
 
     bootstrap();
+  })();
+
+  // --- Experience Pulse (#55): a one-tap, optional, INLINE experience-instance
+  // read shown after a successful save (after_save) or a built review summary
+  // (after_review), inside the existing result region - never a modal, never a
+  // persistent card, never blocking. Fail-closed: nothing renders unless the
+  // gated endpoint confirms availability AND the cadence engine allows it. The
+  // cadence ceiling (<=1/session, <=1/app_version/7d, none right after written
+  // Feedback) lives in the shared, separately-tested engine
+  // window.MotoTrackPulseCadence (public/experience-pulse-cadence.js) - this
+  // controller owns only the DOM + network, so there is no hand-mirrored cadence
+  // copy to drift. It NEVER opens the Feedback form (including for "1 - Not
+  // good") and never treats "1" differently. `manual` stays reserved with no v1
+  // UI. Defined after the Feedback controller and referenced from the save/
+  // review handlers above, which run on user interaction (after this inits).
+  const pulseClient = (function experiencePulse() {
+    const ENDPOINT = "/api/experience-pulse";
+    const cadence = window.MotoTrackPulseCadence || null;
+    const stores = () => ({ sessionStorage: window.sessionStorage, localStorage: window.localStorage });
+    let available = false;
+    let csrfToken = null;
+    let appVersion = null;
+
+    function activeSection() {
+      const tab = document.querySelector('.tab[aria-selected="true"]');
+      return tab ? tab.dataset.tab : null;
+    }
+
+    // Fail-closed availability + double-submit token. Returns false (and leaves
+    // the pulse hidden) unless the gated GET succeeds and returns a token +
+    // canonical appVersion. Re-callable to re-mint an expired token.
+    async function fetchToken() {
+      const res = await fetch(ENDPOINT, { method: "GET", headers: { accept: "application/json" } });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data || !data.csrf || !data.appVersion) return false;
+      csrfToken = data.csrf;
+      appVersion = data.appVersion;
+      available = true;
+      return true;
+    }
+
+    function postPulse(value, ctx) {
+      return fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          value,
+          sourceSection: ctx.sourceSection,
+          sourceRoute: ctx.sourceRoute,
+          actionContext: ctx.actionContext,
+          csrf: csrfToken,
+        }),
+      });
+    }
+
+    function acknowledge(block) {
+      block.textContent = "";
+      const p = document.createElement("p");
+      p.className = "pulse-ack";
+      p.textContent = "Thanks.";
+      block.appendChild(p);
+    }
+
+    async function submit(block, value, ctx) {
+      block.querySelectorAll(".pulse-opt").forEach((b) => { b.disabled = true; });
+      try {
+        let res = await postPulse(value, ctx);
+        if (res.status !== 201) {
+          // The double-submit cookie/token can expire on a long-open tab; re-mint
+          // once and retry so a genuine tap is not silently lost.
+          await fetchToken();
+          res = await postPulse(value, ctx);
+        }
+        if (res.status === 201) { acknowledge(block); return; }
+      } catch (_) { /* fire-and-forget: a pulse never blocks continuation */ }
+      // Any non-success after the retry: quietly remove the control. No nagging,
+      // no error text, no workflow change - cadence already recorded the prompt.
+      block.remove();
+    }
+
+    // Show an inline pulse in `target` (an existing .result region) if available
+    // and the cadence engine allows. Appends below the region's existing
+    // message; one tap.
+    function maybePrompt(target, actionContext) {
+      if (!available || !cadence || !target) return;
+      if (!cadence.shouldAutoPrompt({ now: Date.now(), appVersion, ...stores() }).allowed) return;
+      const ctx = { actionContext, sourceSection: activeSection(), sourceRoute: location.pathname + location.hash };
+      const block = document.createElement("div");
+      block.className = "pulse";
+      block.setAttribute("role", "group");
+      block.setAttribute("aria-label", "Experience pulse");
+      const q = document.createElement("p");
+      q.className = "pulse-q";
+      q.textContent = "How was this experience?";
+      const opts = document.createElement("div");
+      opts.className = "pulse-options";
+      [[1, "1 — Not good"], [2, "2 — Okay"], [3, "3 — Good"]].forEach(([value, label]) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "pulse-opt";
+        b.dataset.value = String(value);
+        b.textContent = label;
+        b.addEventListener("click", () => submit(block, value, ctx));
+        opts.appendChild(b);
+      });
+      block.appendChild(q);
+      block.appendChild(opts);
+      target.appendChild(block);
+      // Record the SHOWN prompt (session cap + version window) so a prompt the
+      // rider dismisses without answering still counts against the ceiling.
+      cadence.recordPulsePrompted({ now: Date.now(), appVersion, ...stores() });
+    }
+
+    // Called from the written-Feedback success path so no automatic pulse
+    // follows in this session.
+    function recordFeedbackSubmitted() {
+      if (cadence) cadence.recordFeedbackSubmitted({ sessionStorage: window.sessionStorage });
+    }
+
+    fetchToken().catch(() => { /* stays unavailable */ });
+
+    return { maybePrompt, recordFeedbackSubmitted };
   })();
 
   // Initial state
