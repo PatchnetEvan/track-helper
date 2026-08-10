@@ -20,6 +20,7 @@ import { mintAndStoreToken, activeUnsubscribeToken } from "./waitlist-tokens.js"
 import { handleAdminRoutes } from "./waitlist-admin-routes.js";
 import { createFeedback, FeedbackValidationError, FEEDBACK_RATE_BUCKET_PREFIX, FEEDBACK_SUCCESS } from "./feedback-service.js";
 import { createExperiencePulse, PulseValidationError, PULSE_RATE_BUCKET_PREFIX } from "./experience-pulse-service.js";
+import { APP_VERSION } from "./app-version.js";
 import {
   exchangeInvitationForEditAuthorization, resolveEditAuthorization, saveProfileWithAuthorization,
   revokeEditAuthorization, withdrawProfileWithAuthorization, isSupersededSubmission,
@@ -965,7 +966,10 @@ function handlePulseToken(env) {
   if (!pulseEnabled(env)) return pulseNotFound();
   if (!database(env)) return pulseUnavailable();
   const token = mintToken();
-  const res = json({ ok: true, csrf: token });
+  // appVersion is returned as the client's per-version cooldown BUCKET KEY only.
+  // The stored pulse's app_version is still stamped server-side on POST from the
+  // same canonical source; a client value is never trusted for the record.
+  const res = json({ ok: true, csrf: token, appVersion: APP_VERSION });
   res.headers.append("set-cookie",
     `${PULSE_CSRF_COOKIE}=${token}; Path=/api/experience-pulse; Max-Age=3600; HttpOnly; Secure; SameSite=Strict`);
   return res;
