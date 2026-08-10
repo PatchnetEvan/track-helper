@@ -216,21 +216,42 @@ function summariesSection(summaries) {
 </div>`;
 }
 
+// Pre-0010: the Pulse table does not exist in this environment yet. Say so
+// PLAINLY. Rendering the usual tables full of zeros would assert a MEASUREMENT
+// ("nobody responded") that was never taken - an absent SOURCE and a zero
+// READING are different facts, and the operator is told which one this is.
+const PULSE_SOURCE_ABSENT = `<p class="note"><strong>No Pulse data source in this environment yet.</strong> The Experience Pulse table has not been created here, so signals 1–4 have nothing to read. This is <em>not</em> a measurement of zero responses — no responses have been collected or counted. Signals 5–6 below are drawn from written Feedback and are unaffected.</p>`;
+
+const pulseAbsentSection = (heading) =>
+  `<h2>${escapeHtml(heading)}</h2><p class="empty">No Pulse data source in this environment yet.</p>`;
+
 // Render the whole Experience Scorecard for the selected window. Read-only.
 export async function renderExperienceScorecard(db, url) {
   const requested = url.searchParams.get("window");
   const selectedKey = windowByKey(requested).key;
   const s = await buildScorecard(db, selectedKey);
 
-  const body = `
-<h1>Beta Experience Scorecard</h1>
-<p class="muted">Read-only evidence from the Experience Pulse and linked written Feedback. It summarizes; it does not decide.</p>
-${distributionSection(s.distributionByWindow)}
+  // Signals 1-4 and the evidence summaries are Pulse-derived; 5-6 are
+  // Feedback-derived and render normally either way.
+  const pulseSignals = s.pulseAvailable
+    ? `${distributionSection(s.distributionByWindow)}
 ${windowSwitcher(s.selectedWindow.key)}
 ${summariesSection(s.summaries)}
 ${byWorkflowSection(s.bySection, s.workflowCount)}
 ${byVersionSection(s.byVersion)}
-${frictionSection(s.friction, s.workflowCount)}
+${frictionSection(s.friction, s.workflowCount)}`
+    : `${PULSE_SOURCE_ABSENT}
+${windowSwitcher(s.selectedWindow.key)}
+${pulseAbsentSection("Evidence summaries")}
+${pulseAbsentSection("1 · Experience distribution")}
+${pulseAbsentSection("2 · By workflow")}
+${pulseAbsentSection("3 · By app version")}
+${pulseAbsentSection("4 · Friction clusters")}`;
+
+  const body = `
+<h1>Beta Experience Scorecard</h1>
+<p class="muted">Read-only evidence from the Experience Pulse and linked written Feedback. It summarizes; it does not decide.</p>
+${pulseSignals}
 ${recurringSection(s.recurring)}
 ${loopSection(s.loop)}
 `;

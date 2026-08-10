@@ -165,4 +165,60 @@ const isAsset404 = async (res) => res.status === 404 && (await res.text()) === A
   assert.ok(html.includes('href="/admin/experience?window=7d"'), "other windows are switch links");
 }
 
+// ---------------------------------------------------------------------------
+// PRE-0010 COMPATIBILITY (the merged-main defect). Migration 0010 is a separate
+// authorized step, so "migrations through 0009, Pulse table absent" is a
+// LEGITIMATE environment. An authenticated operator following the queue's
+// "Experience Scorecard" link must get an honest page, never a 500/1101.
+// ---------------------------------------------------------------------------
+{
+  const pre = new LocalD1();
+  for (const m of MIGRATIONS.filter((f) => f !== "0010_experience_pulse.sql")) {
+    pre.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  }
+  // Feedback-derived signals (5-6) MUST stay real: 0009 IS applied.
+  pre.sqlite.prepare(
+    `INSERT INTO feedback_submissions (id, body, source_section, app_version, triage_state)
+     VALUES ('fb_pre0010', 'brakes feel vague', 'review', '0.1.0-beta.1', 'reviewing')`,
+  ).run();
+  const PRE_ENV = { ...ADMIN_ENV, WAITLIST_DB: pre };
+
+  assert.equal(
+    pre.sqlite.prepare(
+      `SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='feedback_experience_pulses'`,
+    ).get().n, 0, "precondition: the Pulse table really is absent");
+
+  const res = await get("/admin/experience", PRE_ENV, await signToken());
+  assert.equal(res.status, 200, "pre-0010 must NOT 500 for an authenticated operator");
+  const html = await res.text();
+  assert.ok(html.includes("Beta Experience Scorecard"), "normal scorecard shell still renders");
+
+  // Honest no-data state: an absent SOURCE is stated as such, and is explicitly
+  // distinguished from a measured zero. No fabricated Pulse data.
+  assert.ok(html.includes("No Pulse data source in this environment yet"), "absent source stated plainly");
+  assert.ok(html.includes("not</em> a measurement of zero responses"), "absence is NOT presented as a zero reading");
+  // The zero-filled distribution table must not be rendered as if measured.
+  assert.ok(!/\d+ <span class="pctnote">\(\d+%\)/.test(html), "no fabricated count/percentage cells");
+  assert.ok(!html.includes("Small sample"), "no evidence summary is manufactured from an absent source");
+
+  // Feedback-derived signals are unaffected and REAL.
+  assert.ok(html.includes("Recurring rider requests"), "signal 5 still rendered");
+  assert.ok(html.includes("improvement loop"), "signal 6 still rendered");
+  assert.match(html, /Reviewing<\/th>/, "triage funnel rendered");
+  assert.ok(html.includes(">1</td>") , "the real 'reviewing' feedback count is reported, not blanked");
+
+  // Every window is reachable without a 500.
+  for (const w of ["24h", "7d", "30d"]) {
+    assert.equal((await get(`/admin/experience?window=${w}`, PRE_ENV, await signToken())).status, 200, `window ${w} pre-0010`);
+  }
+
+  // Access + non-disclosure are UNCHANGED in the pre-0010 state.
+  assert.ok(await isAsset404(await get("/admin/experience", PRE_ENV, null)), "pre-0010 unauthenticated is still the asset 404");
+  assert.ok(await isAsset404(await get("/admin/experience", PRE_ENV, await signToken({ payload: { email: "outsider@example.test" } }))),
+    "pre-0010 non-allowlisted is still the asset 404");
+  assert.ok(await isAsset404(await get("/admin/experience", { ...PRE_ENV, WAITLIST_ADMIN_ENABLED: "false" }, await signToken())),
+    "pre-0010 flag-off is still the asset 404");
+  assert.ok(await isAsset404(await get("/admin/experience", PRE_ENV, await signToken(), "POST")), "pre-0010 still read-only");
+}
+
 console.log("experience-scorecard-routes.test.js passed");

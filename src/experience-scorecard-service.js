@@ -59,6 +59,53 @@ export const isSmallSample = (total) => (Number(total) || 0) <= SUMMARY_SMALL_SA
 // truncation, and it does NOT limit the aggregation the evidence summaries see.
 export const WORKFLOW_DISPLAY_MAX = 50;
 
+// --- Pre-0010 compatibility (narrow) -----------------------------------
+// The Scorecard reads the LIVE Pulse table. Applying migration 0010 is a
+// SEPARATE, later, explicitly-authorized step, so "the Pulse table does not
+// exist yet" is a LEGITIMATE state of a correctly-configured environment - not
+// a fault - and must not 500 an authenticated operator.
+//
+// This tolerance is deliberately the NARROWEST possible: the ONE condition
+// "no such table: feedback_experience_pulses". It is NOT a blanket database
+// try/catch. A malformed Pulse table, a missing column, a SQL syntax error, or
+// any other D1 failure MUST still propagate, because turning a broken database
+// into a silent "zero responses" would be a fabricated reading - exactly the
+// dishonesty this module exists to avoid. Absence of the SOURCE is reported as
+// `pulseAvailable: false` and rendered as "no data source", never as a real
+// measurement of zero.
+const PULSE_TABLE = "feedback_experience_pulses";
+const MISSING_PULSE_TABLE = new RegExp(
+  // Optional schema qualifier ("main."); D1 wraps the SQLite text as
+  // "D1_ERROR: ... : SQLITE_ERROR", so match the phrase, not the whole string.
+  String.raw`no such table:\s*(?:[A-Za-z_][\w$]*\.)?${PULSE_TABLE}\b`,
+  "i",
+);
+export const isMissingPulseTableError = (error) =>
+  MISSING_PULSE_TABLE.test(String(error?.message ?? error ?? ""));
+
+// Single probe, so the tolerated condition is handled in exactly ONE place
+// rather than scattered per-query catches. A bare `SELECT 1 ... LIMIT 1` names
+// no column, so a table that EXISTS but is malformed passes this probe and then
+// fails loudly in the real aggregation below - which is the intent.
+async function pulseSourceAvailable(db) {
+  try {
+    await db.prepare(`SELECT 1 FROM ${PULSE_TABLE} LIMIT 1`).bind().all();
+    return true;
+  } catch (error) {
+    if (isMissingPulseTableError(error)) return false;
+    throw error;
+  }
+}
+
+// Display-only metadata echoed to the view, identical on every return path so
+// the two thresholds are named in exactly ONE place. Neither value is used in
+// any query, filter, ranking, or inclusion decision - see the structural
+// leak-guard test that pins how often they may appear in this module.
+const DISPLAY_META = Object.freeze({
+  workflowDisplayMax: WORKFLOW_DISPLAY_MAX,
+  summarySmallSampleMax: SUMMARY_SMALL_SAMPLE_MAX,
+});
+
 export function windowByKey(key) {
   return SCORECARD_WINDOWS.find((w) => w.key === key) ?? SCORECARD_WINDOWS.find((w) => w.key === DEFAULT_WINDOW_KEY);
 }
@@ -253,6 +300,24 @@ function evidenceSummaries(sectionRows, versionRows) {
 export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY) {
   const selected = windowByKey(selectedWindowKey);
 
+  // Pre-0010: the Pulse SOURCE does not exist yet. Report that as an absent
+  // source and skip only the Pulse-derived reads. The Feedback-derived signals
+  // (recurring requests, the improvement loop) come from feedback_submissions
+  // in 0009, which IS applied, so they stay REAL rather than being blanked out.
+  if (!(await pulseSourceAvailable(db))) {
+    return {
+      selectedWindow: { key: selected.key, label: selected.label },
+      pulseAvailable: false,
+      distributionByWindow: SCORECARD_WINDOWS.map((w) => ({ key: w.key, label: w.label, ...emptyDist() })),
+      bySection: [], workflowCount: 0,
+      byVersion: [], friction: [],
+      recurring: await recurringRequests(db, selected.since),
+      loop: await feedbackLoop(db, selected.since),
+      summaries: { strongest: null, needsAttention: null, improving: null },
+      ...DISPLAY_META,
+    };
+  }
+
   const distributionByWindow = [];
   for (const w of SCORECARD_WINDOWS) {
     distributionByWindow.push({ key: w.key, label: w.label, ...(await overallDistribution(db, w.since)) });
@@ -282,16 +347,16 @@ export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY)
 
   return {
     selectedWindow: { key: selected.key, label: selected.label },
+    pulseAvailable: true,
     distributionByWindow,
     bySection,
     workflowCount,
-    workflowDisplayMax: WORKFLOW_DISPLAY_MAX,
     byVersion,
     friction,
     recurring: await recurringRequests(db, selected.since),
     loop: await feedbackLoop(db, selected.since),
     // Summaries consider EVERY workflow, not just the displayed slice.
     summaries: evidenceSummaries(bySectionAll, byVersion),
-    summarySmallSampleMax: SUMMARY_SMALL_SAMPLE_MAX,
+    ...DISPLAY_META,
   };
 }

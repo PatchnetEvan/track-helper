@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { APP_VERSION } from "../src/app-version.js";
 import {
   buildScorecard, pct, SCORECARD_WINDOWS, DEFAULT_WINDOW_KEY, SUMMARY_SMALL_SAMPLE_MAX, isSmallSample,
-  WORKFLOW_DISPLAY_MAX, windowByKey,
+  WORKFLOW_DISPLAY_MAX, windowByKey, isMissingPulseTableError,
 } from "../src/experience-scorecard-service.js";
 
 // Beta Experience Scorecard v1 #55 PR3B: the read/aggregation contract. No
@@ -362,6 +362,93 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   seedPulse(db, { value: 3, ageMin: 60 * 5 }); // 5h old
   assert.equal((await buildScorecard(db, "24h")).selectedWindow.key, "24h");
   assert.equal((await buildScorecard(db, "bogus")).selectedWindow.key, "7d", "unknown window -> default");
+}
+
+// ---------------------------------------------------------------------------
+// PRE-0010 COMPATIBILITY, and the NARROWNESS of the guard.
+// Applying 0010 is a separate authorized step, so an absent Pulse table is a
+// legitimate state and must degrade honestly. Everything else must still fail
+// loudly: a broken database must NEVER be reported as "zero responses".
+// ---------------------------------------------------------------------------
+const dbThrough = (last) => {
+  const db = new LocalD1();
+  for (const m of MIGRATIONS.slice(0, MIGRATIONS.indexOf(last) + 1)) {
+    db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", m), "utf8"));
+  }
+  return db;
+};
+
+// (a) Pulse table absent -> honest no-source state, and Feedback signals stay REAL.
+{
+  const db = dbThrough("0009_feedback.sql");
+  seedFeedback(db, { body: "brakes vague", state: "reviewing" });
+  seedFeedback(db, { body: "promoted one", issue: 42 });
+  seedFeedback(db, { body: "promoted two", issue: 42 });
+
+  const s = await buildScorecard(db, "7d");
+  assert.equal(s.pulseAvailable, false, "absence of the source is REPORTED, not hidden");
+  assert.equal(s.distributionByWindow.length, SCORECARD_WINDOWS.length, "shell keeps all windows");
+  assert.ok(s.distributionByWindow.every((w) => w.total === 0), "no fabricated pulse counts");
+  assert.deepEqual([s.bySection, s.byVersion, s.friction, s.workflowCount], [[], [], [], 0]);
+  assert.deepEqual(s.summaries, { strongest: null, needsAttention: null, improving: null },
+    "no evidence summary is invented from an absent source");
+  // 0009 IS applied, so Feedback-derived signals must be genuine, not blanked.
+  assert.equal(s.loop.triage.reviewing, 1, "real triage count survives");
+  assert.equal(s.loop.promoted, 2, "real promotion count survives");
+  assert.equal(s.recurring.length, 1, "real recurring evidence survives");
+  assert.equal(s.recurring[0].count, 2);
+}
+
+// (b) With 0010 applied, aggregation is completely unchanged.
+{
+  const db = freshDb();
+  for (let i = 0; i < 3; i++) seedPulse(db, { value: 3, section: "log" });
+  seedPulse(db, { value: 1, section: "log" });
+  const s = await buildScorecard(db, "7d");
+  assert.equal(s.pulseAvailable, true);
+  const log = s.bySection.find((r) => r.section === "log");
+  assert.deepEqual([log.good, log.notGood, log.total], [3, 1, 4], "normal math intact");
+  assert.equal(pct(log.good, log.total), 75);
+  assert.equal(s.summaries.strongest.section, "log");
+  assert.equal(s.summaries.strongest.total, 4);
+}
+
+// (c) MALFORMED Pulse table (exists, wrong shape) MUST propagate. A broken
+// database must not be laundered into an empty-but-valid scorecard.
+{
+  const db = dbThrough("0009_feedback.sql");
+  db.sqlite.exec(`CREATE TABLE feedback_experience_pulses (id TEXT PRIMARY KEY)`);
+  await assert.rejects(
+    () => buildScorecard(db, "7d"),
+    /no such column|value|created_at/i,
+    "a malformed Pulse table surfaces as an error",
+  );
+}
+
+// (d) The guard is TABLE-SPECIFIC: a different missing table still propagates.
+{
+  const db = new LocalD1();
+  db.sqlite.exec(readFileSync(join(import.meta.dirname, "..", "migrations", "0010_experience_pulse.sql"), "utf8"));
+  await assert.rejects(
+    () => buildScorecard(db, "7d"),
+    /no such table:\s*feedback_submissions/i,
+    "missing feedback_submissions is NOT swallowed by the Pulse guard",
+  );
+}
+
+// (e) The predicate itself: only the one expected condition is tolerated.
+{
+  assert.equal(isMissingPulseTableError(new Error("no such table: feedback_experience_pulses")), true);
+  assert.equal(isMissingPulseTableError(new Error("no such table: main.feedback_experience_pulses")), true);
+  assert.equal(isMissingPulseTableError(
+    new Error("D1_ERROR: no such table: feedback_experience_pulses: SQLITE_ERROR")), true, "D1 wrapping");
+  assert.equal(isMissingPulseTableError(new Error("no such table: feedback_submissions")), false);
+  assert.equal(isMissingPulseTableError(new Error("no such column: value")), false);
+  assert.equal(isMissingPulseTableError(new Error('near "SELCT": syntax error')), false);
+  assert.equal(isMissingPulseTableError(new Error("D1_ERROR: network failure")), false);
+  assert.equal(isMissingPulseTableError(new Error("no such table: feedback_experience_pulses_archive")), false,
+    "a similarly-named table is not the tolerated condition");
+  assert.equal(isMissingPulseTableError(null), false);
 }
 
 console.log("experience-scorecard.test.js passed");
