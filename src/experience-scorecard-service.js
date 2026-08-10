@@ -9,9 +9,12 @@
 //     is never shown without the count behind it. Small samples are allowed but
 //     must remain visibly small - so nothing here hides a count.
 //   * The labels "Strongest experience" / "Needs attention" / "Improving" are
-//     EVIDENCE SUMMARIES, never automated priorities. They are guarded by a
-//     modest internal sample floor so a 1-2 response workflow is never crowned,
-//     and the view presents them as summaries, not actions.
+//     EVIDENCE SUMMARIES, never automated priorities. There is NO sample floor:
+//     a summary is shown at ANY sample size (a 1-2 response workflow CAN be the
+//     strongest by rate), never suppressed - but it carries its exact response
+//     count and the view marks a small sample "Small sample" so it is never
+//     portrayed as strong evidence. The only frozen numeric publication
+//     threshold, n>=25, is PUBLIC-only and is never applied here.
 //   * NO AI clustering, NO churn scoring, NO happiness labels, NO behavioral
 //     profiling, NO new telemetry, NO additional Pulse metrics. "By version"
 //     may report that experience differs after a version, but NEVER claims
@@ -47,6 +50,14 @@ export const DEFAULT_WINDOW_KEY = "7d";
 // number to keep the two from being conflated).
 export const SUMMARY_SMALL_SAMPLE_MAX = 10;
 export const isSmallSample = (total) => (Number(total) || 0) <= SUMMARY_SMALL_SAMPLE_MAX;
+
+// source_section is rider-chosen free-shape text (bounded but not an enum), so
+// the number of distinct workflows is technically unbounded. The by-workflow
+// and friction lists render at most this many rows to keep an operator page
+// from being inflated by a flood of one-off section values. This is a VISIBLE
+// cap - the view shows "top N of M workflows" with the true M - never a silent
+// truncation, and it does NOT limit the aggregation the evidence summaries see.
+export const WORKFLOW_DISPLAY_MAX = 50;
 
 export function windowByKey(key) {
   return SCORECARD_WINDOWS.find((w) => w.key === key) ?? SCORECARD_WINDOWS.find((w) => w.key === DEFAULT_WINDOW_KEY);
@@ -99,28 +110,49 @@ async function distributionByDimension(db, since, dim) {
 // Chronological version order (earliest pulse first) so "improving" can compare
 // consecutive versions without inventing a release calendar.
 async function versionOrder(db, since) {
+  // Secondary key app_version ASC makes the order deterministic when two
+  // versions share a first-seen second (otherwise the "improving" pair - the
+  // two most-recent versions - would be engine-dependent).
   const { results } = await db.prepare(
     `SELECT app_version AS k, MIN(created_at) AS first_seen FROM feedback_experience_pulses
-       WHERE created_at >= datetime('now', ?) GROUP BY app_version ORDER BY first_seen ASC`,
+       WHERE created_at >= datetime('now', ?) GROUP BY app_version ORDER BY first_seen ASC, app_version ASC`,
   ).bind(since).all();
   return results.map((r) => ({ version: String(r.k), firstSeen: r.first_seen }));
 }
 
-// Written feedback LINKED to a pulse (the "why" behind the "where"). Empty
-// until pulses carry a feedback_id. Bodies are UNTRUSTED - returned raw, escaped
-// by the view; only a bounded snippet is read.
+// Max snippets shown per workflow in the friction panel. The COUNT is always
+// accurate (a separate aggregate); this only bounds how many example snippets
+// are rendered, and the view shows "and N more" when the count exceeds it.
+const FRICTION_SNIPPETS_PER_SECTION = 5;
+
+// Written feedback LINKED to a pulse (the "why" behind the "where"). Empty until
+// pulses carry a feedback_id. Returns, per section, the ACCURATE linked count
+// plus a bounded list of example snippets (bodies are UNTRUSTED - returned raw,
+// escaped by the view). The count is never derived from the (capped) snippet
+// list, so a section's linked total is never silently under-reported.
 async function linkedFeedbackBySection(db, since) {
-  const { results } = await db.prepare(
+  const counts = await db.prepare(
+    `SELECT p.source_section AS section, COUNT(*) AS n
+       FROM feedback_experience_pulses p JOIN feedback_submissions f ON f.id = p.feedback_id
+       WHERE p.created_at >= datetime('now', ?) GROUP BY p.source_section`,
+  ).bind(since).all();
+  const { results: snippetRows } = await db.prepare(
     `SELECT p.source_section AS section, f.id AS id, substr(f.body, 1, 140) AS snippet, f.created_at AS created_at
        FROM feedback_experience_pulses p JOIN feedback_submissions f ON f.id = p.feedback_id
        WHERE p.created_at >= datetime('now', ?)
-       ORDER BY f.created_at DESC LIMIT 100`,
+       ORDER BY f.created_at DESC LIMIT 500`,
   ).bind(since).all();
+
   const map = new Map();
-  for (const r of results) {
-    const key = r.section === null || r.section === undefined ? null : String(r.section);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push({ id: String(r.id), snippet: r.snippet ?? "", createdAt: r.created_at });
+  const keyOf = (s) => (s === null || s === undefined ? null : String(s));
+  for (const r of counts.results) map.set(keyOf(r.section), { count: Number(r.n) || 0, snippets: [] });
+  for (const r of snippetRows) {
+    const key = keyOf(r.section);
+    const entry = map.get(key) ?? { count: 0, snippets: [] };
+    if (entry.snippets.length < FRICTION_SNIPPETS_PER_SECTION) {
+      entry.snippets.push({ id: String(r.id), snippet: r.snippet ?? "", createdAt: r.created_at });
+    }
+    if (!map.has(key)) map.set(key, entry);
   }
   return map;
 }
@@ -129,11 +161,15 @@ async function linkedFeedbackBySection(db, since) {
 // promoted to the SAME GitHub issue. No AI similarity inference. Empty until the
 // promotion PR exists, and that emptiness is honest, not a failure.
 async function recurringRequests(db, since) {
+  // An issue's IDENTITY is (repo, issue_number). github_issue_url is NOT part of
+  // the promotion-coherence CHECK in 0009, so it can be NULL or differ for the
+  // same issue; grouping by it would split one recurrence into singletons that
+  // HAVING COUNT>1 then drops. Group by identity only; take any URL for display.
   const { results } = await db.prepare(
-    `SELECT github_repo AS repo, github_issue_number AS issue_number, github_issue_url AS issue_url, COUNT(*) AS n
+    `SELECT github_repo AS repo, github_issue_number AS issue_number, MAX(github_issue_url) AS issue_url, COUNT(*) AS n
        FROM feedback_submissions
        WHERE github_issue_number IS NOT NULL AND created_at >= datetime('now', ?)
-       GROUP BY github_repo, github_issue_number, github_issue_url
+       GROUP BY github_repo, github_issue_number
        HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 50`,
   ).bind(since).all();
   return results.map((r) => ({
@@ -227,25 +263,35 @@ export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY)
   const order = await versionOrder(db, selected.since);
   const linked = await linkedFeedbackBySection(db, selected.since);
 
-  const bySection = distMapToRows(sectionMap, "section", "total");
+  // ALL workflows (for the evidence summaries, which must consider every
+  // workflow at any sample size) vs the DISPLAY slice (bounded, visibly capped).
+  const bySectionAll = distMapToRows(sectionMap, "section", "total");
+  const bySection = bySectionAll.slice(0, WORKFLOW_DISPLAY_MAX);
+  const workflowCount = bySectionAll.length;
   // Versions in chronological order, distribution attached.
   const byVersion = order.map((o) => ({ version: o.version, firstSeen: o.firstSeen, ...(versionMap.get(o.version) ?? emptyDist()) }));
 
-  const friction = bySection.map((s) => ({
-    section: s.section,
-    good: s.good, okay: s.okay, notGood: s.notGood, total: s.total,
-    linked: linked.get(s.section) ?? [],
-  }));
+  const friction = bySection.map((s) => {
+    const l = linked.get(s.section) ?? { count: 0, snippets: [] };
+    return {
+      section: s.section,
+      good: s.good, okay: s.okay, notGood: s.notGood, total: s.total,
+      linkedCount: l.count, linked: l.snippets,
+    };
+  });
 
   return {
     selectedWindow: { key: selected.key, label: selected.label },
     distributionByWindow,
     bySection,
+    workflowCount,
+    workflowDisplayMax: WORKFLOW_DISPLAY_MAX,
     byVersion,
     friction,
     recurring: await recurringRequests(db, selected.since),
     loop: await feedbackLoop(db, selected.since),
-    summaries: evidenceSummaries(bySection, byVersion),
+    // Summaries consider EVERY workflow, not just the displayed slice.
+    summaries: evidenceSummaries(bySectionAll, byVersion),
     summarySmallSampleMax: SUMMARY_SMALL_SAMPLE_MAX,
   };
 }

@@ -124,7 +124,21 @@ const isAsset404 = async (res) => res.status === 404 && (await res.text()) === A
   // The seeded data is tiny, so the evidence summaries must carry the small-
   // sample indicator and exact response counts (no hidden floor suppresses them).
   assert.ok(html.includes("Small sample"), "tiny-sample summaries carry the Small sample indicator");
-  assert.ok(html.includes("responses"), "evidence summaries show the exact response count");
+  // The NUMERIC response count actually renders in a summary line (not just the
+  // word "responses"): "<n> responses".
+  assert.match(html, /\b\d+ responses\b/, "evidence summaries show the exact numeric response count");
+  // Counts are ALWAYS paired with percentages in the distribution cells: a
+  // number immediately followed by its (NN%). A bare % would not match.
+  assert.match(html, /\d+ <span class="pctnote">\(\d+%\)/, "counts are shown paired with percentages");
+
+  // Anti-causation (the spec's hardest prohibition): the version section states
+  // the difference is evidence, not proof of cause, and the page never claims a
+  // change CAUSED an outcome.
+  assert.ok(html.includes("not proof that any change caused it"), "version section carries the not-causation disclaimer");
+  // After removing the single allowed disclaimer phrase, NO causation language
+  // may remain anywhere on the page.
+  assert.ok(!/caused|because of|due to/i.test(html.replace("not proof that any change caused it", "")),
+    "the scorecard never asserts causation");
 }
 
 // ---------------------------------------------------------------------------

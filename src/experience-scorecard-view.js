@@ -84,8 +84,19 @@ function windowSwitcher(selectedKey) {
 
 const sectionLabel = (section) => (section === null ? '<span class="muted">(unspecified)</span>' : escapeHtml(section));
 
+// Only render a link for an https URL; anything else (javascript:, data:, a bare
+// scheme, etc.) is shown as inert text. github_issue_url is operator-set, but a
+// value is never trusted into an href without a scheme check.
+const safeHttpUrl = (u) => (typeof u === "string" && /^https:\/\//i.test(u) ? u : null);
+
+// A VISIBLE cap notice (never a silent truncation) when more workflows exist
+// than are displayed.
+const capNote = (shown, total) => (total > shown
+  ? `<p class="note">Showing the ${shown} busiest workflows of ${total} in this window (raw counts for all are aggregated; the list is capped only for readability).</p>`
+  : "");
+
 // Signal 2 — By workflow (source_section). source_section is UNTRUSTED -> escaped.
-function byWorkflowSection(bySection) {
+function byWorkflowSection(bySection, workflowCount) {
   if (!bySection.length) return `<h2>2 · By workflow</h2><p class="empty">No responses in this window yet.</p>`;
   const rows = bySection.map((s) => `<tr>
     <td>${sectionLabel(s.section)}</td>${distCells(s)}
@@ -93,6 +104,7 @@ function byWorkflowSection(bySection) {
   return `
 <h2>2 · By workflow</h2>
 <p class="note">Aggregated by the workflow the response came from.</p>
+${capNote(bySection.length, workflowCount)}
 <table>
   <thead><tr><th>Workflow</th>${DIST_VALUE_HEAD}</tr></thead>
   <tbody>${rows}</tbody>
@@ -115,23 +127,28 @@ function byVersionSection(byVersion) {
 }
 
 // Signal 4 — Friction clusters. Pulse = where; Feedback = why. No AI clustering.
-function frictionSection(friction) {
+// linkedCount is the ACCURATE per-workflow linked total; only a bounded set of
+// example snippets is rendered, with "and N more" when the count exceeds them.
+function frictionSection(friction, workflowCount) {
   if (!friction.length) return `<h2>4 · Friction clusters</h2><p class="empty">No responses in this window yet.</p>`;
   const blocks = friction.map((f) => {
-    const linked = f.linked.length
+    const shown = f.linked.length;
+    const more = f.linkedCount > shown ? `<li class="muted">…and ${f.linkedCount - shown} more</li>` : "";
+    const linked = shown
       ? `<ul class="small">${f.linked.map((l) =>
-          `<li>${escapeHtml(l.snippet)}${l.snippet.length >= 140 ? "…" : ""} <span class="muted">(${escapeHtml(l.createdAt ?? "")})</span></li>`).join("")}</ul>`
+          `<li>${escapeHtml(l.snippet)}${l.snippet.length >= 140 ? "…" : ""} <span class="muted">(${escapeHtml(l.createdAt ?? "")})</span></li>`).join("")}${more}</ul>`
       : `<p class="empty small">No linked written feedback in this window.</p>`;
     return `<div class="panel">
       <strong>${sectionLabel(f.section)}</strong>
       <table><thead><tr>${DIST_HEAD}</tr></thead><tbody><tr><th class="muted">Pulse</th>${distCells(f)}</tr></tbody></table>
-      <p class="small muted">Linked written feedback (${f.linked.length}):</p>
+      <p class="small muted">Linked written feedback (${f.linkedCount}):</p>
       ${linked}
     </div>`;
   }).join("\n");
   return `
 <h2>4 · Friction clusters</h2>
 <p class="note">The Pulse tells us <strong>where</strong>; written Feedback tells us <strong>why</strong>. Only feedback a rider explicitly linked to a pulse is shown here — no automated clustering.</p>
+${capNote(friction.length, workflowCount)}
 ${blocks}`;
 }
 
@@ -142,10 +159,14 @@ function recurringSection(recurring) {
 <h2>5 · Recurring rider requests</h2>
 <p class="empty">No recurring requests are evidenced yet. This signal requires multiple feedback records linked to the same GitHub issue — a later step — and will stay empty until then rather than guess at similarity.</p>`;
   }
-  const rows = recurring.map((r) => `<tr>
-    <td>${r.issueUrl ? `<a href="${escapeHtml(r.issueUrl)}" rel="noreferrer noopener">${escapeHtml(r.repo ?? "")}#${escapeHtml(String(r.issueNumber))}</a>` : `${escapeHtml(r.repo ?? "")}#${escapeHtml(String(r.issueNumber))}`}</td>
+  const rows = recurring.map((r) => {
+    const label = `${escapeHtml(r.repo ?? "")}#${escapeHtml(String(r.issueNumber))}`;
+    const href = safeHttpUrl(r.issueUrl);
+    return `<tr>
+    <td>${href ? `<a href="${escapeHtml(href)}" rel="noreferrer noopener">${label}</a>` : label}</td>
     <td class="num">${r.count}</td>
-  </tr>`).join("\n");
+  </tr>`;
+  }).join("\n");
   return `
 <h2>5 · Recurring rider requests</h2>
 <p class="note">Feedback records grouped by the GitHub issue an operator linked them to. Not inferred — explicitly linked.</p>
@@ -157,7 +178,7 @@ function loopSection(loop) {
   const t = loop.triage;
   return `
 <h2>6 · Feedback → improvement loop</h2>
-<p class="note">The portion the data supports today: where written feedback sits in triage, and how much reached a linked issue. "Shipped" and "experience afterward" are later inputs and are shown as pending.</p>
+<p class="note">The portion the data supports today, for feedback <strong>received in this window</strong>: where it sits in triage, and how much reached a linked issue. "Shipped" and "experience afterward" are later inputs and are shown as pending.</p>
 <table>
   <thead><tr><th>Received (new)</th><th>Reviewing</th><th>Actionable</th><th>Closed</th><th>Reached a GitHub issue</th><th>Shipped → experience after</th></tr></thead>
   <tbody><tr>
@@ -207,9 +228,9 @@ export async function renderExperienceScorecard(db, url) {
 ${distributionSection(s.distributionByWindow)}
 ${windowSwitcher(s.selectedWindow.key)}
 ${summariesSection(s.summaries)}
-${byWorkflowSection(s.bySection)}
+${byWorkflowSection(s.bySection, s.workflowCount)}
 ${byVersionSection(s.byVersion)}
-${frictionSection(s.friction)}
+${frictionSection(s.friction, s.workflowCount)}
 ${recurringSection(s.recurring)}
 ${loopSection(s.loop)}
 `;

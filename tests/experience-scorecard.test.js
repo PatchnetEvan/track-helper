@@ -4,12 +4,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { APP_VERSION } from "../src/app-version.js";
 import {
-  buildScorecard, pct, SCORECARD_WINDOWS, DEFAULT_WINDOW_KEY, SUMMARY_SMALL_SAMPLE_MAX, isSmallSample, windowByKey,
+  buildScorecard, pct, SCORECARD_WINDOWS, DEFAULT_WINDOW_KEY, SUMMARY_SMALL_SAMPLE_MAX, isSmallSample,
+  WORKFLOW_DISPLAY_MAX, windowByKey,
 } from "../src/experience-scorecard-service.js";
 
 // Beta Experience Scorecard v1 #55 PR3B: the read/aggregation contract. No
 // routes, no HTML, no mutation. Asserts the counting, windowing, percentages,
-// honest-empties, and the evidence-summary sample floor. Migration is NOT
+// honest-empties, and the evidence-summary small-sample handling. Migration is NOT
 // applied to any remote database.
 
 class LocalD1 {
@@ -158,7 +159,8 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   const s = await buildScorecard(db, "7d");
   const review = s.friction.find((f) => f.section === "review");
   assert.equal(review.total, 2);
-  assert.equal(review.linked.length, 1, "one linked written feedback");
+  assert.equal(review.linkedCount, 1, "accurate linked count");
+  assert.equal(review.linked.length, 1, "one example snippet");
   assert.equal(review.linked[0].snippet, "brakes felt vague");
 }
 
@@ -176,6 +178,46 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   assert.equal(s.recurring.length, 1, "only the issue with >1 record");
   assert.equal(s.recurring[0].issueNumber, 42);
   assert.equal(s.recurring[0].count, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Recurrence identity is (repo, issue_number): a differing/NULL github_issue_url
+// on the same issue must NOT split it into dropped singletons.
+// ---------------------------------------------------------------------------
+{
+  const db = freshDb();
+  const ins = (id, url) => db.sqlite.prepare(
+    `INSERT INTO feedback_submissions (id, body, app_version, triage_state, github_repo, github_issue_number, github_issue_url, promoted_at, promoted_by, created_at)
+     VALUES (?, 'x', ?, 'actionable', 'PatchnetEvan/track-helper', 55, ?, '2026-01-01 00:00:00', 'op@example.test', datetime('now'))`,
+  ).run(id, APP_VERSION, url);
+  ins("fb_u1", "https://github.com/PatchnetEvan/track-helper/issues/55");
+  ins("fb_u2", null);
+  const s = await buildScorecard(db, "30d");
+  assert.equal(s.recurring.length, 1, "same issue with differing/NULL url is one recurrence, not dropped");
+  assert.equal(s.recurring[0].issueNumber, 55);
+  assert.equal(s.recurring[0].count, 2);
+  assert.ok(s.recurring[0].issueUrl, "a non-null url is chosen for display");
+}
+
+// ---------------------------------------------------------------------------
+// Visible workflow cap: the display list is bounded but reports the true total,
+// and evidence summaries still consider EVERY workflow (a strongest workflow
+// beyond the display cap is still found - the cap is display-only).
+// ---------------------------------------------------------------------------
+{
+  const db = freshDb();
+  for (let i = 0; i <= WORKFLOW_DISPLAY_MAX; i += 1) {
+    seedPulse(db, { value: 2, section: `flow-${i}` });
+    seedPulse(db, { value: 2, section: `flow-${i}` });
+  }
+  // One section with the LOWEST total but 100% Good: ranks below the cap by
+  // total, yet must still be the strongest.
+  seedPulse(db, { value: 3, section: "goldenwf" });
+  const s = await buildScorecard(db, "7d");
+  assert.equal(s.bySection.length, WORKFLOW_DISPLAY_MAX, "display list capped");
+  assert.equal(s.workflowCount, WORKFLOW_DISPLAY_MAX + 2, "true workflow count reported");
+  assert.ok(!s.bySection.some((r) => r.section === "goldenwf"), "low-total workflow beyond the display cap");
+  assert.equal(s.summaries.strongest.section, "goldenwf", "summaries consider EVERY workflow, not just the displayed slice");
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +283,8 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
 }
 
 // ---------------------------------------------------------------------------
-// Improving: a newer version with higher Good% than the previous (both meeting
-// the floor) is reported as evidence, never as causation.
+// Improving: a newer version with higher Good% than the previous (each with at
+// least one response) is reported as evidence, never as causation.
 // ---------------------------------------------------------------------------
 {
   const db = freshDb();
