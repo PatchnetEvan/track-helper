@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { APP_VERSION } from "../src/app-version.js";
 import {
-  buildScorecard, pct, SCORECARD_WINDOWS, DEFAULT_WINDOW_KEY, SUMMARY_MIN_SAMPLE, windowByKey,
+  buildScorecard, pct, SCORECARD_WINDOWS, DEFAULT_WINDOW_KEY, SUMMARY_SMALL_SAMPLE_MAX, isSmallSample, windowByKey,
 } from "../src/experience-scorecard-service.js";
 
 // Beta Experience Scorecard v1 #55 PR3B: the read/aggregation contract. No
@@ -194,30 +194,50 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
 }
 
 // ---------------------------------------------------------------------------
-// Evidence summaries: strongest / needs-attention / improving, guarded by the
-// sample floor so a tiny 100%-Good section is NEVER crowned.
+// The small-sample indicator is a DISPLAY caution, not a gate or the public
+// n>=25 threshold.
+// ---------------------------------------------------------------------------
+{
+  assert.equal(SUMMARY_SMALL_SAMPLE_MAX, 10, "internal small-sample hint is its own number, not 25");
+  assert.notEqual(SUMMARY_SMALL_SAMPLE_MAX, 25, "not the public publication threshold");
+  assert.equal(isSmallSample(3), true);
+  assert.equal(isSmallSample(4), true);
+  assert.equal(isSmallSample(10), true);
+  assert.equal(isSmallSample(11), false);
+}
+
+// ---------------------------------------------------------------------------
+// Evidence summaries: NO sample floor. A tiny 100%-Good workflow IS shown as
+// strongest (never suppressed), carrying its exact count so it reads as small;
+// a larger workflow is not flagged small. Priority is never inferred from this.
 // ---------------------------------------------------------------------------
 {
   const db = freshDb();
-  // "tires": 6 responses, 5 Good 1 Not good -> ~83% Good (eligible).
-  for (let i = 0; i < 5; i += 1) seedPulse(db, { value: 3, section: "tires" });
+  // "tires": 12 responses, 11 Good 1 Not good -> 92% Good, NOT small.
+  for (let i = 0; i < 11; i += 1) seedPulse(db, { value: 3, section: "tires" });
   seedPulse(db, { value: 1, section: "tires" });
-  // "review": 6 responses, 1 Good 5 Not good -> ~83% Not good (eligible).
-  seedPulse(db, { value: 3, section: "review" });
-  for (let i = 0; i < 5; i += 1) seedPulse(db, { value: 1, section: "review" });
-  // "shakedown": tiny sample, 2 responses both Good (100% Good) -> must NOT be
-  // crowned strongest despite the perfect rate.
+  // "review": 12 responses, 2 Good 10 Not good -> 83% Not good, NOT small.
+  seedPulse(db, { value: 3, section: "review" }); seedPulse(db, { value: 3, section: "review" });
+  for (let i = 0; i < 10; i += 1) seedPulse(db, { value: 1, section: "review" });
+  // "shakedown": tiny 2 responses, both Good (100%). Under the OLD floor this
+  // was suppressed; now it IS the strongest by rate, but must read as small.
   seedPulse(db, { value: 3, section: "shakedown" });
   seedPulse(db, { value: 3, section: "shakedown" });
 
   const s = await buildScorecard(db, "7d");
-  assert.equal(s.summaryMinSample, SUMMARY_MIN_SAMPLE);
-  assert.equal(s.summaries.strongest.section, "tires", "tiny 100% section not crowned; eligible max wins");
-  assert.ok(s.summaries.strongest.total >= SUMMARY_MIN_SAMPLE);
+  assert.equal(s.summarySmallSampleMax, SUMMARY_SMALL_SAMPLE_MAX);
+  // Tiny 100% section is shown as strongest (not suppressed) and reads small.
+  assert.equal(s.summaries.strongest.section, "shakedown", "tiny section no longer suppressed");
+  assert.equal(s.summaries.strongest.total, 2);
+  assert.equal(s.summaries.strongest.goodCount, 2);
+  assert.equal(isSmallSample(s.summaries.strongest.total), true, "strongest is flagged a small sample");
+  // Needs attention is the larger review workflow, NOT flagged small.
   assert.equal(s.summaries.needsAttention.section, "review");
-  assert.ok(s.summaries.needsAttention.notGoodPct >= 80);
-  // The tiny section still appears in the raw bySection data (counts visible).
-  assert.ok(s.bySection.some((r) => r.section === "shakedown" && r.total === 2), "tiny sample stays visible in raw counts");
+  assert.equal(s.summaries.needsAttention.total, 12);
+  assert.equal(s.summaries.needsAttention.notGoodCount, 10);
+  assert.equal(isSmallSample(s.summaries.needsAttention.total), false, "a 12-response summary is not small");
+  // The tiny section remains fully visible in the raw distribution too.
+  assert.ok(s.bySection.some((r) => r.section === "shakedown" && r.total === 2), "tiny sample visible in raw counts");
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +257,11 @@ function seedFeedback(db, { id = nextId("fb"), body = "written", section = null,
   assert.equal(s.summaries.improving.toVersion, "0.2.0-beta.1");
   assert.equal(s.summaries.improving.fromVersion, "0.1.0-beta.1");
   assert.ok(s.summaries.improving.toGoodPct > s.summaries.improving.fromGoodPct);
+  // Counts carried so the view can show "X of N" rather than a bare percentage.
+  assert.deepEqual(
+    [s.summaries.improving.fromGoodCount, s.summaries.improving.fromTotal, s.summaries.improving.toGoodCount, s.summaries.improving.toTotal],
+    [1, 5, 4, 5],
+  );
 }
 
 // ---------------------------------------------------------------------------

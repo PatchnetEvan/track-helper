@@ -9,7 +9,7 @@
 
 import { escapeHtml } from "./waitlist-profile-service.js";
 import {
-  buildScorecard, SCORECARD_WINDOWS, DEFAULT_WINDOW_KEY, windowByKey, pct, PULSE_VALUE_LABELS, SUMMARY_MIN_SAMPLE,
+  buildScorecard, SCORECARD_WINDOWS, windowByKey, pct, PULSE_VALUE_LABELS, isSmallSample,
 } from "./experience-scorecard-service.js";
 
 const STYLE = `
@@ -29,6 +29,7 @@ const STYLE = `
   .small { font-size: .85em; }
   .empty { color: #5a6572; font-style: italic; }
   .v { padding: .05rem .4rem; border-radius: .3rem; background: #eef1f5; font-size: .85em; }
+  .smalltag { margin-left: .4rem; padding: .05rem .4rem; border-radius: .3rem; background: #fdeec9; border: 1px solid #d9b95e; font-size: .78em; white-space: nowrap; }
 `;
 
 const shell = (title, body) => new Response(`<!doctype html>
@@ -166,22 +167,28 @@ function loopSection(loop) {
 </table>`;
 }
 
-// The evidence summaries — clearly labeled NOT priorities.
-function summariesSection(summaries, minSample) {
+// The evidence summaries — clearly labeled NOT priorities. Each shows its exact
+// response count; a small sample carries a visible "Small sample" tag so it is
+// never portrayed as strong evidence. Nothing is suppressed by sample size.
+const smallTag = (total) => (isSmallSample(total) ? `<span class="smalltag">Small sample</span>` : "");
+
+function summariesSection(summaries) {
   const line = (label, body) => `<div><strong>${escapeHtml(label)}</strong> ${body}</div>`;
+  const good = escapeHtml(PULSE_VALUE_LABELS[3]);
+  const notGood = escapeHtml(PULSE_VALUE_LABELS[1]);
   const strongest = summaries.strongest
-    ? line("Strongest experience:", `${sectionLabel(summaries.strongest.section)} — ${summaries.strongest.goodPct}% ${escapeHtml(PULSE_VALUE_LABELS[3])} <span class="muted">(n=${summaries.strongest.total})</span>`)
-    : line("Strongest experience:", `<span class="empty">not enough data yet</span>`);
+    ? line("Strongest experience:", `${sectionLabel(summaries.strongest.section)} — ${summaries.strongest.total} responses, ${summaries.strongest.goodCount} ${good} <span class="muted">(${summaries.strongest.goodPct}%)</span> ${smallTag(summaries.strongest.total)}`)
+    : line("Strongest experience:", `<span class="empty">no responses yet</span>`);
   const attention = summaries.needsAttention
-    ? line("Needs attention:", `${sectionLabel(summaries.needsAttention.section)} — ${summaries.needsAttention.notGoodPct}% ${escapeHtml(PULSE_VALUE_LABELS[1])} <span class="muted">(n=${summaries.needsAttention.total})</span>`)
-    : line("Needs attention:", `<span class="empty">not enough data yet</span>`);
+    ? line("Needs attention:", `${sectionLabel(summaries.needsAttention.section)} — ${summaries.needsAttention.total} responses, ${summaries.needsAttention.notGoodCount} ${notGood} <span class="muted">(${summaries.needsAttention.notGoodPct}%)</span> ${smallTag(summaries.needsAttention.total)}`)
+    : line("Needs attention:", `<span class="empty">no responses yet</span>`);
   const improving = summaries.improving
-    ? line("Improving:", `experience improved after <span class="v">${escapeHtml(summaries.improving.toVersion)}</span> — ${escapeHtml(PULSE_VALUE_LABELS[3])} ${summaries.improving.fromGoodPct}% → ${summaries.improving.toGoodPct}% <span class="muted">(vs ${escapeHtml(summaries.improving.fromVersion)})</span>`)
+    ? line("Improving:", `experience improved after <span class="v">${escapeHtml(summaries.improving.toVersion)}</span> — ${good} ${summaries.improving.fromGoodCount} of ${summaries.improving.fromTotal} → ${summaries.improving.toGoodCount} of ${summaries.improving.toTotal} ${smallTag(Math.min(summaries.improving.fromTotal, summaries.improving.toTotal))} <span class="muted">(vs ${escapeHtml(summaries.improving.fromVersion)})</span>`)
     : line("Improving:", `<span class="empty">no version-over-version improvement evidenced</span>`);
   return `
 <h2>Evidence summaries</h2>
 <div class="summaries">
-  <p class="small"><strong>These are evidence summaries, not priorities.</strong> Product priority remains an operator decision. A workflow appears here only with at least ${minSample} responses, so a tiny sample is never portrayed as strong evidence — but every raw count above stays visible.</p>
+  <p class="small"><strong>These are evidence summaries, not priorities.</strong> Product priority remains an operator decision. Every summary shows its exact response count and is visible at any sample size; a small sample is labeled as such and never portrayed as strong evidence. The only frozen publication threshold, n≥25, applies to future public figures — not to this internal view.</p>
   ${strongest}
   ${attention}
   ${improving}
@@ -199,7 +206,7 @@ export async function renderExperienceScorecard(db, url) {
 <p class="muted">Read-only evidence from the Experience Pulse and linked written Feedback. It summarizes; it does not decide.</p>
 ${distributionSection(s.distributionByWindow)}
 ${windowSwitcher(s.selectedWindow.key)}
-${summariesSection(s.summaries, s.summaryMinSample)}
+${summariesSection(s.summaries)}
 ${byWorkflowSection(s.bySection)}
 ${byVersionSection(s.byVersion)}
 ${frictionSection(s.friction)}

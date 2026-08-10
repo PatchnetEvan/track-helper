@@ -36,13 +36,17 @@ export const SCORECARD_WINDOWS = Object.freeze([
 ]);
 export const DEFAULT_WINDOW_KEY = "7d";
 
-// Internal DISPLAY guard for the superlative evidence summaries only: a
-// workflow needs at least this many responses before it can be called the
-// strongest / most in need of attention, so a 1-2 response section is never
-// portrayed as strong evidence. This is NOT the public Beta Update n>=25
-// threshold (which does not apply to internal Admin) - every raw count is still
-// shown regardless of this floor.
-export const SUMMARY_MIN_SAMPLE = 5;
+// Display-only caution (owner ruling): an evidence summary is shown at ANY
+// sample size - nothing is suppressed and no data is hidden - but a summary
+// computed on a sample at or below this size is rendered WITH a visible "Small
+// sample" indicator and its exact response count, so a tiny sample is never
+// portrayed as strong evidence. This is NOT a gate and NOT a confidence/
+// product/publication threshold. The ONLY frozen numeric publication threshold
+// is n>=25, and it applies solely to future PUBLIC Beta Update percentages,
+// never to this internal Admin Scorecard (which is deliberately a DIFFERENT
+// number to keep the two from being conflated).
+export const SUMMARY_SMALL_SAMPLE_MAX = 10;
+export const isSmallSample = (total) => (Number(total) || 0) <= SUMMARY_SMALL_SAMPLE_MAX;
 
 export function windowByKey(key) {
   return SCORECARD_WINDOWS.find((w) => w.key === key) ?? SCORECARD_WINDOWS.find((w) => w.key === DEFAULT_WINDOW_KEY);
@@ -165,35 +169,44 @@ function distMapToRows(map, keyName, order) {
   return rows;
 }
 
-// Evidence SUMMARIES (never priorities). Strongest = highest Good% among
-// workflows meeting the sample floor; needs-attention = highest Not-good%;
-// improving = the latest version whose Good% exceeds the previous version's
-// (both meeting the floor). Any of these may be null (not enough evidence),
-// which the view states plainly.
+// Evidence SUMMARIES (never priorities). Computed at ANY sample size - a tiny
+// sample is NOT suppressed; the view shows the exact response count and a
+// "Small sample" indicator so it is never portrayed as strong evidence.
+// Strongest = highest Good% among workflows; needs-attention = highest
+// Not-good%; improving = the latest version whose Good% exceeds the previous
+// version's. Ties prefer the busier workflow because sectionRows arrive sorted
+// by total desc. Each summary carries raw COUNTS + total so the view can show
+// "X of N responses". Any may be null only when there is genuinely NO data.
 function evidenceSummaries(sectionRows, versionRows) {
-  const eligible = sectionRows.filter((r) => r.total >= SUMMARY_MIN_SAMPLE && r.section !== null);
+  const named = sectionRows.filter((r) => r.section !== null && r.total > 0);
   let strongest = null;
   let needsAttention = null;
-  for (const r of eligible) {
+  for (const r of named) {
     const goodPct = pct(r.good, r.total);
     const notGoodPct = pct(r.notGood, r.total);
-    if (!strongest || goodPct > strongest.goodPct) strongest = { section: r.section, goodPct, total: r.total };
+    if (!strongest || goodPct > strongest.goodPct) {
+      strongest = { section: r.section, goodPct, goodCount: r.good, total: r.total };
+    }
     if (!needsAttention || notGoodPct > needsAttention.notGoodPct) {
-      needsAttention = { section: r.section, notGoodPct, total: r.total };
+      needsAttention = { section: r.section, notGoodPct, notGoodCount: r.notGood, total: r.total };
     }
   }
 
   // Improving: compare the two most recent versions (by first-seen) that each
-  // meet the floor. Report the fact of improvement, never a cause.
+  // have at least one response. Report the fact of improvement, never a cause.
   let improving = null;
-  const eligibleVersions = versionRows.filter((r) => r.total >= SUMMARY_MIN_SAMPLE);
-  if (eligibleVersions.length >= 2) {
-    const prev = eligibleVersions[eligibleVersions.length - 2];
-    const curr = eligibleVersions[eligibleVersions.length - 1];
+  const withData = versionRows.filter((r) => r.total > 0);
+  if (withData.length >= 2) {
+    const prev = withData[withData.length - 2];
+    const curr = withData[withData.length - 1];
     const prevGood = pct(prev.good, prev.total);
     const currGood = pct(curr.good, curr.total);
     if (currGood > prevGood) {
-      improving = { fromVersion: prev.version, toVersion: curr.version, fromGoodPct: prevGood, toGoodPct: currGood };
+      improving = {
+        fromVersion: prev.version, toVersion: curr.version,
+        fromGoodPct: prevGood, fromGoodCount: prev.good, fromTotal: prev.total,
+        toGoodPct: currGood, toGoodCount: curr.good, toTotal: curr.total,
+      };
     }
   }
   return { strongest, needsAttention, improving };
@@ -233,6 +246,6 @@ export async function buildScorecard(db, selectedWindowKey = DEFAULT_WINDOW_KEY)
     recurring: await recurringRequests(db, selected.since),
     loop: await feedbackLoop(db, selected.since),
     summaries: evidenceSummaries(bySection, byVersion),
-    summaryMinSample: SUMMARY_MIN_SAMPLE,
+    summarySmallSampleMax: SUMMARY_SMALL_SAMPLE_MAX,
   };
 }

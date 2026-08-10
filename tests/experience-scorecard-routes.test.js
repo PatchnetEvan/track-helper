@@ -121,6 +121,10 @@ const isAsset404 = async (res) => res.status === 404 && (await res.text()) === A
   assert.ok(html.includes("evidence summaries, not priorities") || html.includes("not priorities"), "labels framed as evidence, not priorities");
   // Percentages accompany counts (the "%" appears in distribution).
   assert.ok(html.includes("%"), "percentages rendered");
+  // The seeded data is tiny, so the evidence summaries must carry the small-
+  // sample indicator and exact response counts (no hidden floor suppresses them).
+  assert.ok(html.includes("Small sample"), "tiny-sample summaries carry the Small sample indicator");
+  assert.ok(html.includes("responses"), "evidence summaries show the exact response count");
 }
 
 // ---------------------------------------------------------------------------
