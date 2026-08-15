@@ -87,7 +87,7 @@ figcaption { margin-top:11px; color:var(--quiet); font-size:.88rem; }
 .text-link { color:var(--accent-bright); font-weight:850; text-decoration-thickness:1px; text-underline-offset:4px; }
 .development-preview { margin:24px 0; border-left:2px solid var(--accent); padding:9px 0 9px 12px; color:var(--quiet); font-size:.75rem; font-weight:750; letter-spacing:.055em; text-transform:uppercase; }
 .development-preview > div { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }.development-preview b { border:1px solid rgba(255,128,44,.35); border-radius:6px; padding:4px 7px; background:rgba(255,102,0,.08); color:#f3c5a5; font-size:.68rem; letter-spacing:0; text-transform:none; }
-.product-note { max-width:720px; margin:27px auto 0; color:var(--quiet); font-size:.9rem; text-align:center; }
+.product-note { max-width:720px; margin:27px auto 0; color:#c9c9c9; font-size:.95rem; text-align:center; }
 .steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:42px 0 0; padding:0; list-style:none; counter-reset:steps; }
 .steps li { min-height:250px; border:1px solid var(--glass-border); border-radius:16px; padding:22px; background:var(--glass); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); box-shadow:var(--glass-shadow); transition:border-color .25s,transform .25s; }
 .steps li:hover { border-color:rgba(255,255,255,.28); transform:translateY(-2px); }
@@ -99,6 +99,8 @@ figcaption { margin-top:11px; color:var(--quiet); font-size:.88rem; }
 .capability-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-top:42px; }
 .capability-grid article { min-height:255px; padding:25px; border:1px solid var(--glass-border); border-radius:16px; background:var(--glass); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); box-shadow:var(--glass-shadow); transition:border-color .25s,transform .25s; }
 .capability-grid article:hover { border-color:rgba(255,255,255,.28); transform:translateY(-2px); }
+.capability-grid article.wide { grid-column:1 / -1; min-height:0; }
+.capability-grid article.wide p:last-child { max-width:980px; }
 .capability-grid p:last-child { color:var(--muted); }
 .building { border:1px solid rgba(255,128,44,.42); color:var(--accent-bright); background:rgba(255,102,0,.15); }
 .building::before { background:var(--accent); box-shadow:0 0 8px rgba(255,102,0,.9); }
