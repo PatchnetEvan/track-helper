@@ -51,7 +51,15 @@ const count = (sql, ...a) => row(sql, ...a).n;
 // ---------------------------------------------------------------------------
 {
   // Internal canonical application version - NOT a 1.0 / marketing claim.
-  assert.equal(APP_VERSION, "0.1.0-beta.1", "canonical internal app version, not a declared 1.0");
+  //
+  // The literal moves: the stage-navigation rollout ships one reviewed change
+  // per app version so the Experience Scorecard can compare them, so pinning
+  // one string forever would make that release process impossible. What must
+  // not move is the claim - this stays a pre-1.0 beta until MotoTrack Log
+  // actually declares 1.0, and that is asserted on its own below.
+  assert.equal(APP_VERSION, "0.1.0-beta.2", "canonical internal app version");
+  assert.match(APP_VERSION, /^0\.\d+\.\d+-beta\.\d+$/,
+    "still a pre-1.0 beta: declaring 1.0 is a product decision, not a version bump");
   assert.deepEqual([...FEEDBACK_STATES], ["new", "reviewing", "actionable", "closed"]);
   assert.deepEqual([...FEEDBACK_CLOSURE_REASONS], ["resolved", "duplicate", "not_actionable", "spam"]);
   assert.equal(FEEDBACK_PROMPT, "How can we make MotoTrack better?");

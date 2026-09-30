@@ -239,6 +239,47 @@ button {
 }
 .btn-danger:active { background: rgba(239, 68, 68, 0.1); }
 
+/* Session transition (C4). The ONE solid --accent element in the app: a rider
+   glancing through a tinted visor must be able to tell "this moves the session
+   on" from navigation and from a calculation, by shape and position, not just
+   colour. Nothing else may take this fill.
+
+   Two lines: the verb and where it goes, then what state changes. The sub-line
+   is dimmed rather than a second colour so it never reads as a separate
+   control. */
+.btn-transition {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #1a0a00;
+  cursor: pointer;
+  text-align: center;
+}
+.btn-transition:active { background: var(--accent-dim); }
+.btn-transition .btn-transition-verb {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.btn-transition .btn-transition-effect {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.85;
+  line-height: 1.25;
+}
+/* Large text (README "Glove, sun, text size"): above 150% the sub-line is
+   meant to be hidden so the verb and the tap target survive. That is not
+   expressible as a reliable media query - text zoom is not a media feature -
+   and it belongs with the dock that introduces the height constraint, so it
+   is left to PR 4 rather than guessed at here. */
+
 .result {
   margin-top: 14px;
   padding: 12px;
