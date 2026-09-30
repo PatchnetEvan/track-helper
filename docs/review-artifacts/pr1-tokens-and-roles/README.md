@@ -5,20 +5,59 @@ in `asset-boundary`'s `FORBIDDEN_ARTIFACTS`, so nothing here is published.
 
 | file | shows |
 |---|---|
-| `01-calculators-secondary.jpg` | Calculators panel. "Calculate tire value" now reads as secondary while the active **Calculators** tab keeps the orange pill — the C4 separation between navigation and calculation |
+| `01-calculators-secondary.jpg` | Calculators panel at desktop width. "Calculate tire value" now reads as secondary while the active **Calculators** tab keeps the orange pill — the C4 separation between navigation and calculation |
 | `02-review-three-roles.jpg` | Review panel, all three roles at once: **Build summary** secondary, **Save this session** the one solid `--accent`, **Reset session** danger outline |
 
-## What could not be captured, and why it does not matter here
+## Phone widths — verified, not reasoned about
 
-A true 390px viewport was not achievable: the window manager ignores resize
-requests, and the same-origin iframe harness used for the Pro app fails
-against this app.
+The earlier version of this file claimed phone and desktop could not differ
+for this diff, on the strength of reading the stylesheet. That claim is
+withdrawn: it was an argument, not a measurement, and it was made because a
+true phone viewport had not been obtained.
 
-It does not affect this verification. `styles.css` has exactly one media
-query — `@media (max-width: 480px)`, which changes `.grid-3` to two columns
-and touches no button. Every control PR 1 changed is `width: 100%` at every
-width, so phone and desktop cannot differ for this diff. Later PRs that add
-the stage bar and dock will need real phone-width verification.
+It has now. A same-origin harness outside the repository serves `public/`
+alongside a wrapper page holding two iframes, which gives each app instance a
+**real nested viewport** — `innerWidth` reports 390 and 320, and
+`@media (max-width: 480px)` fires inside both (`.grid-3` resolves to
+`1fr 1fr`). These are genuine phone renders, not crops of a desktop layout.
+
+| file | shows |
+|---|---|
+| `03-phone-390-and-320.jpg` | Calculators at both widths, tab scroller and all |
+| `04-phone-buttons-390-and-320.jpg` | "Calculate tire value" reading as secondary at both widths |
+
+### Measured at both widths, 100% and 200% text
+
+Heights in px; `CLIPX` marks horizontal overflow.
+
+| button | 390 | 320 | 390 @200% | 320 @200% |
+|---|---|---|---|---|
+| `calc-tires` | 51 | 75 | 119 | 165 |
+| `calc-tire-core` | 51 | 51 | 119 | 119 |
+| `calc-sag` | 51 | 51 | 72 | 119 |
+| `calc-geometry` | 51 | 51 | 119 | 165 |
+| `calc-suspension` | 51 | 51 | 119 | **119 CLIPX** |
+| `calc-laps` | 51 | 51 | 72 | 72 |
+
+Every button stays `.btn-secondary` (`rgb(32,32,32)`) at every combination,
+and every height clears the 48px `--tap` floor. Labels wrap rather than
+shrink — the longest, "Calculate deltas & suggestions", grows to 165px at
+320px/200% without clipping.
+
+### One pre-existing defect, not caused by this PR
+
+`calc-suspension` ("Show recommendations") overflows horizontally at 320px
+with 200% text: `scrollWidth` 300 against `clientWidth` 245.
+
+This was tested rather than assumed. Restoring `.btn-primary` on that same
+element, at that same width and text size, reproduces it **identically** —
+same 300/245. `.btn-primary` and `.btn-secondary` share one box rule, so the
+demotion changes only `background`, `color` and `border-color`; it cannot
+affect wrapping. The cause is a single unbreakable word at 32px in a 245px
+content box.
+
+It is reported, not fixed: the handoff says not to restyle anything PR 1 does
+not list, and a wrapping fix belongs with whichever PR revisits that panel.
 
 ## Measured, not eyeballed
 

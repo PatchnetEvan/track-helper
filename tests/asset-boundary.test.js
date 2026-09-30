@@ -94,6 +94,29 @@ for (const path of APPROVED_PUBLIC_FILES) {
 //    directory. This is the recurrence guard for the exposure this issue
 //    fixes: /src/waitlist-worker.js, /tests/waitlist.test.js and friends were
 //    publicly reachable before the boundary existed.
+// ---------------------------------------------------------------------------
+// Redistributed third-party assets must carry their licence INTO the bundle.
+// public/icons/*.svg are Lucide under ISC, which requires the copyright and
+// permission notice appear in all copies. The deployed copy is the copy that
+// matters: THIRD-PARTY-NOTICES.md is repo-only and never published, so the
+// notice is embedded in each file as an XML comment. Nothing transforms these
+// - there is no build step, and wrangler's run_worker_first does not cover
+// /icons/* - so what is on disk is what is served.
+{
+  const iconDir = join(publicRoot, "icons");
+  const icons = readdirSync(iconDir).filter((n) => n.endsWith(".svg"));
+  assert.ok(icons.length > 0, "the icon tree is not empty");
+  for (const icon of icons) {
+    const body = readFileSync(join(iconDir, icon), "utf8");
+    assert.match(body, /ISC License/,
+      `public/icons/${icon} must carry the Lucide ISC notice it is redistributed under`);
+    assert.match(body, /Permission to use, copy, modify, and\/or distribute/,
+      `public/icons/${icon} must carry the ISC permission notice, not just the licence name`);
+    assert.match(body, /Cole Bemis 2013-2022|Lucide Contributors 2022/,
+      `public/icons/${icon} must carry the upstream copyright lines`);
+  }
+}
+
 const FORBIDDEN_ARTIFACTS = [
   "THIRD-PARTY-NOTICES.md",
   "src/waitlist-worker.js",
