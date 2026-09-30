@@ -293,25 +293,30 @@ button {
   text-align: center;
 }
 .btn-transition:active { background: var(--accent-dim); }
+/* rem, not the handoff's px: at a px size the dock is the one control on the
+   screen that does NOT grow when the rider enlarges text, which is exactly
+   backwards for the biggest action on the page. 1.125rem and 0.8125rem are
+   the specified 18px and 13px at the default root size. */
 .btn-transition .btn-transition-verb {
   display: block;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 700;
   line-height: 1.2;
 }
 .btn-transition .btn-transition-effect {
   display: block;
   margin-top: 2px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   opacity: 0.85;
   line-height: 1.25;
 }
-/* Large text (README "Glove, sun, text size"): above 150% the sub-line is
-   meant to be hidden so the verb and the tap target survive. That is not
-   expressible as a reliable media query - text zoom is not a media feature -
-   and it belongs with the dock that introduces the height constraint, so it
-   is left to PR 4 rather than guessed at here. */
+/* Large text (README "Glove, sun, text size"): the handoff says to hide the
+   sub-line above 150% text. PR 4 does NOT do that. Text zoom is not a media
+   feature, so any "150%" test would be a guess, and the line it would drop is
+   the one saying what the action changes. The dock wraps and grows instead,
+   and yields its sticky position when the measured height would cost too much
+   of the viewport - see .dock--flow and applyDockLayout(). */
 
 .result {
   margin-top: 14px;
@@ -661,6 +666,10 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
   flex-wrap: wrap;
 }
 .context-row .brand { min-width: 0; }
+/* .brand is itself a flex container, so the name needs its own min-width too:
+   without it the flex item keeps its full content width, overflow-wrap never
+   gets a chance, and the whole page scrolls sideways at very large text. */
+.context-row .brand-name { min-width: 0; }
 .brand-name { overflow-wrap: break-word; }
 .context-line {
   margin: 6px 0 0;
@@ -788,11 +797,79 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 /* Content clears the fixed bar. Measured at runtime, because the bar grows
    with text size; the fallback already clears the default bar so the first
    paint is correct with the script disabled. */
-:root { --stage-bar-h: 64px; }
-body { padding-bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px) + var(--space-gap, 12px)); }
+:root { --stage-bar-h: 64px; --dock-h: 0px; }
+body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + var(--space-gap, 12px)); }
 .panel :is(input, select, textarea, button) {
-  scroll-margin-bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px) + 12px);
+  scroll-margin-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + 12px);
 }
+
+/* --- The docked action (C4, C5, C13) ------------------------------------- */
+
+/* Sticky above the stage bar, so the forward action is always in thumb reach
+   without scrolling. It NEVER hides or truncates its own text: the effect line
+   says what the action changes, and dropping it at large text sizes would take
+   away meaning exactly when it is hardest to read. It wraps and grows instead,
+   and --dock-h (measured at runtime) keeps content clear of whatever height
+   that turns out to be. */
+.dock {
+  position: sticky;
+  bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+/* When the dock plus the bar would cost too much of the usable viewport, it
+   stops being sticky and takes its place at the end of the content. The rider
+   scrolls to it instead of losing half the screen to it - which is the right
+   trade at 400% text, and with the soft keyboard open. */
+.dock--flow {
+  position: static;
+  bottom: auto;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+}
+.dock-saves { display: flex; flex-direction: column; gap: 8px; }
+.dock-saves .btn-secondary { width: 100%; }
+.dock .result:empty { display: none; }
+.stage-note {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+/* A stage cell that will refuse to navigate says so before it is tapped. */
+.stage.is-locked { color: #7a828d; }
+.stage.is-locked .stage-icon {
+  -webkit-mask: url("icons/lock.svg") center / contain no-repeat;
+  mask: url("icons/lock.svg") center / contain no-repeat;
+}
+
+/* Committed PRE values. readOnly, not disabled, so they stay focusable and
+   readable - the rider is meant to be able to read what they went out on. */
+.is-locked[readonly] { opacity: 0.75; border-style: dashed; }
+
+/* What the rider went out on, shown on POST next to the readings they take
+   coming back in. */
+.pre-ref {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.pre-ref-line { margin: 0; color: var(--text-dim); font-size: 0.875rem; }
+.pre-ref-line strong { color: var(--text); }
 
 /* On the narrowest phones the 3.25rem floor is what stops all six fitting,
    not the labels themselves. Letting the cells size to their content gets
@@ -808,7 +885,13 @@ body { padding-bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px
   /* The bar becomes a full-height left rail, so there is no bottom navigation
      to clear. Zero here means a focused field scrolls to itself and not to
      itself plus a screen-height margin, both with and without the script. */
-  :root { --stage-bar-h: 0px; }
+  :root { --stage-bar-h: 0px; --dock-h: 0px; }
+  /* In the content column, not stuck to the viewport: a mouse has no reach
+     problem and a pinned bar would only cost reading height. */
+  .dock { position: static; border-top: 0; padding-left: 0; padding-right: 0; }
+  .dock-saves { flex-direction: row; flex-wrap: wrap; }
+  .dock-saves > .btn-transition { flex: 1 1 260px; }
+  .dock-saves > .btn-secondary { flex: 0 1 auto; width: auto; }
   .stage-bar {
     position: fixed;
     inset: 0 auto 0 0;

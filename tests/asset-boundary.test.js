@@ -44,6 +44,7 @@ const APPROVED_PUBLIC_FILES = [
   "log.html",
   "log/index.html",
   "privacy.html",
+  "session-progress.js", // session-progress decision rules (PR 4), loaded by /log
   "storage.js",
   "styles.css",
   "terms.html",

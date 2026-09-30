@@ -13,9 +13,10 @@
   // to POST while the clicks stay in PRE. Splitting by marker rather than by
   // cutting the markup apart is what keeps every handler and id intact.
   //
-  // This is NAVIGATION ONLY. Selecting POST shows POST and says nothing about
-  // whether PRE was completed: nothing is disabled, nothing is marked done,
-  // and no lifecycle state is read or written. PRE to POST gating is PR 4.
+  // Selecting a stage is NAVIGATION ONLY, in PR 4 exactly as in PR 3. The one
+  // stage that can refuse is POST before the rider has come back in, and it
+  // refuses by declining to navigate - it never performs the transition. All
+  // session progression goes through the docked action instead.
   const STAGE_PANELS = {
     day: ["panel-setup"],
     pre: ["panel-tires", "panel-suspension", "panel-calculators"],
@@ -28,6 +29,53 @@
   const ALL_PANEL_IDS = Array.from(new Set(Object.values(STAGE_PANELS).flat()));
   const panels = {};
   ALL_PANEL_IDS.forEach((id) => { panels[id] = document.getElementById(id); });
+
+  // --- Session progress (C5, C13) ------------------------------------------
+  //
+  // MEMORY ONLY, DELIBERATELY. None of this is written to storage and neither
+  // is anything the rider has typed: mototrack.sessions.v1 still holds only
+  // FINISHED sessions, and the live form is still the draft. A refresh, a
+  // crash, or the browser evicting the tab loses unfinished entries. That is
+  // today's behaviour and it is kept unchanged here so that draft persistence
+  // arrives once, behind the rider's own auto-save switch, instead of half of
+  // it landing by accident. Draft recovery is real follow-on work: a phone in
+  // a hot pit lane is exactly where a tab gets reclaimed.
+  //
+  // POST AVAILABILITY AND PRE EDITABILITY ARE TWO SEPARATE QUESTIONS and are
+  // two separate variables on purpose. Coming back in unlocks POST for good.
+  // Correcting PRE afterwards reopens the PRE fields and must NEVER re-lock
+  // POST, because the rider fixing a typo has already been back in - the fact
+  // does not become untrue.
+  // The rules themselves live in session-progress.js so they can be exercised
+  // directly; this file holds only the DOM that renders them.
+  const SP = window.SessionProgress;
+  const stageState = SP.createStageState();
+  const saveState = SP.createSaveState();
+  const nextLabelFrom = SP.nextLabelFrom;
+  let _copiedFromId = null;    // set only by History -> Copy to form
+
+  // The PRE values a rider commits when they go out. Tire brand and model are
+  // NOT here: they describe the fitment, not the state the session ran at, and
+  // they stay editable on every stage as they always have been.
+  const PRE_LOCKABLE_IDS = [
+    "front-pre", "rear-pre",
+    "fork-preload", "fork-comp", "fork-reb",
+    "shock-preload", "shock-comp", "shock-reb",
+  ];
+
+  function renderPreEditable() {
+    const editable = stageState.preEditable;
+    PRE_LOCKABLE_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      // readOnly, never disabled: a locked value must stay focusable,
+      // selectable and readable by a screen reader. Disabling it would take it
+      // out of the tab order and make the reference unreadable.
+      el.readOnly = !editable;
+      el.classList.toggle("is-locked", !editable);
+    });
+  }
+
 
   function showTab(name) {
     const stage = STAGE_PANELS[name] ? name : "day";
@@ -49,7 +97,202 @@
     if (activeCell && activeCell.scrollIntoView) {
       activeCell.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+    _stage = stage;
+    renderDock();
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  }
+
+  // --- The docked action (C4, C5, C13) -------------------------------------
+  //
+  // One forward action per stage, always within thumb reach. It is the ONLY
+  // thing that advances a session; the stage bar beside it only ever moves the
+  // view. LAPS and NOTES are on the route but not mandatory - the rail reaches
+  // REVIEW from POST in one tap for a rider with no laps to enter.
+  let _stage = "day";
+  const ADVANCE = { day: "pre", pre: "post", post: "laps", laps: "notes", notes: "review" };
+
+  function dockCopy(stage) {
+    if (stage === "day") {
+      const label = str("session-label");
+      return {
+        verb: label ? "Start " + label : "Start session",
+        // DAY -> PRE copies nothing and clears nothing. Carry-over between
+        // sessions is what Save & next does; copying a historical session is
+        // the explicit Copy to form action in History. Neither belongs on a
+        // button whose job is to open the next screen.
+        effect: "Opens PRE \u00b7 nothing is copied or cleared",
+      };
+    }
+    if (stage === "pre") {
+      return { verb: "Back in \u2192 POST", effect: "Unlocks POST \u00b7 PRE becomes read-only" };
+    }
+    if (stage === "post") {
+      return { verb: "Go to LAPS", effect: "Laps and notes are optional \u00b7 REVIEW saves" };
+    }
+    if (stage === "laps") return { verb: "Go to NOTES", effect: "Nothing is saved yet" };
+    if (stage === "notes") return { verb: "Go to REVIEW", effect: "Nothing is saved yet" };
+    return null;
+  }
+
+  function renderDock() {
+    const dock = document.getElementById("dock");
+    if (!dock) return;
+    const advance = document.getElementById("dock-advance");
+    const saves = document.getElementById("dock-saves");
+    const note = document.getElementById("stage-note");
+    if (note) note.hidden = true;
+
+    const copy = dockCopy(_stage);
+    const onReview = _stage === "review";
+    if (advance) advance.hidden = !copy;
+    if (saves) saves.hidden = !onReview;
+    if (copy && advance) {
+      document.getElementById("dock-verb").textContent = copy.verb;
+      document.getElementById("dock-effect").textContent = copy.effect;
+    }
+    if (onReview) renderSaveDock();
+    if (_stage === "post") renderPreReference();
+    dock.hidden = !copy && !onReview;
+
+    // The POST cell reads as locked only while it actually refuses.
+    const postCell = document.querySelector('.stage[data-tab="post"]');
+    if (postCell) {
+      postCell.classList.toggle("is-locked", !stageState.postUnlocked);
+      if (stageState.postUnlocked) postCell.removeAttribute("aria-disabled");
+      else postCell.setAttribute("aria-disabled", "true");
+    }
+    applyDockLayout();
+  }
+
+  // What the rider went out on, shown on POST beside the readings they are
+  // taking now. Read from the same fields PRE writes, so it cannot drift.
+  function renderPreReference() {
+    const f = document.getElementById("pre-ref-front");
+    const r = document.getElementById("pre-ref-rear");
+    const dash = "\u2014";
+    if (f) f.textContent = str("front-pre") || dash;
+    if (r) r.textContent = str("rear-pre") || dash;
+  }
+
+  function renderSaveDock() {
+    const nextBtn = document.getElementById("save-and-next");
+    const verb = document.getElementById("save-next-verb");
+    const onlyBtn = document.getElementById("save-session");
+    if (verb) {
+      const next = nextLabelFrom(str("session-label"));
+      verb.textContent = next.clean ? "Save & start " + next.label : "Save & start next session";
+    }
+    // A form with nothing new in it cannot be saved again. Save & next stays
+    // available because advancing is still a real thing to want after a plain
+    // Save - it just advances without writing a second copy.
+    const nothingNew = saveState.alreadySaved;
+    if (onlyBtn) {
+      onlyBtn.disabled = nothingNew || saveState.inFlight;
+      onlyBtn.textContent = nothingNew ? "Saved" : "Save only";
+    }
+    if (nextBtn) nextBtn.disabled = saveState.inFlight;
+    if (verb && nothingNew) {
+      const next = nextLabelFrom(str("session-label"));
+      verb.textContent = next.clean ? "Start " + next.label : "Start next session";
+    }
+    const effect = document.getElementById("save-next-effect");
+    if (effect) {
+      effect.textContent = nothingNew
+        ? "Already saved \u00b7 moves on without saving again"
+        : "Keeps bike, track, tires and clicks";
+    }
+  }
+
+  // --- Dock layout ----------------------------------------------------------
+  //
+  // The dock never hides or truncates its own text: the sub-line says what the
+  // action changes, and guessing a "150% text" threshold to hide it would drop
+  // meaning exactly when the rider most needs it. Instead the dock wraps and
+  // grows, and when the growth would cost too much of the screen it stops
+  // being sticky and takes its place in the document instead.
+  //
+  // What counts as "too much" is MEASURED, not assumed: dock plus navigation
+  // against the viewport actually available. visualViewport is what shrinks
+  // when the soft keyboard opens, so a tall dock yields with the keyboard up
+  // as well - which is the case that matters, because that is when the rider
+  // is typing a pressure into a field the dock would otherwise cover.
+  const DOCK_YIELD_RATIO = 0.45;
+  const DOCK_RELEASE_RATIO = 0.40;
+  let _dockLayoutBusy = false;
+
+  // A custom property write is cheap but never free: it invalidates style and
+  // can cascade into a layout that fires the listener that called this.
+  function setVar(root, name, value) {
+    if (root.style.getPropertyValue(name) === value) return;
+    root.style.setProperty(name, value);
+  }
+
+  function availableViewportHeight() {
+    if (window.visualViewport && window.visualViewport.height) return window.visualViewport.height;
+    return window.innerHeight || document.documentElement.clientHeight || 0;
+  }
+
+  function applyDockLayout() {
+    const dock = document.getElementById("dock");
+    const bar = document.querySelector(".stage-bar");
+    const root = document.documentElement;
+    if (!dock || !root || !root.style || _dockLayoutBusy) return;
+    _dockLayoutBusy = true;
+    try {
+      if (isRail()) {
+        if (dock.classList.contains("dock--flow")) dock.classList.remove("dock--flow");
+        if (root.style.getPropertyValue("--dock-h") && root.style.removeProperty) {
+          root.style.removeProperty("--dock-h");
+        }
+        return;
+      }
+      if (dock.hidden) {
+        if (dock.classList.contains("dock--flow")) dock.classList.remove("dock--flow");
+        setVar(root, "--dock-h", "0px");
+        return;
+      }
+      // Measure WITHOUT touching the class. Sticky and in-flow are the same
+      // height by construction (the flow rule swaps the top border for an
+      // identical bottom one), so the measurement does not depend on the
+      // decision. Clearing the class to "measure from a known state" instead
+      // made the height change, which re-fired the ResizeObserver, which
+      // toggled it back: an oscillation that froze the renderer.
+      const dockH = Math.ceil(dock.getBoundingClientRect().height);
+      const barH = bar ? Math.ceil(bar.getBoundingClientRect().height) : 0;
+      const avail = availableViewportHeight();
+      // Hysteresis: it takes more to start yielding than to stop, so a height
+      // sitting exactly on the threshold cannot flip back and forth.
+      const wasFlow = dock.classList.contains("dock--flow");
+      const ratio = wasFlow ? DOCK_RELEASE_RATIO : DOCK_YIELD_RATIO;
+      const yields = avail > 0 && (dockH + barH) > avail * ratio;
+      if (yields !== wasFlow) dock.classList.toggle("dock--flow", yields);
+      // In flow the dock is part of the content, so it needs no clearance.
+      // Written ONLY when it actually changes: an unconditional write moves
+      // the body's padding, which can fire the very events that call this
+      // back, and the second freeze in this lane came from exactly that.
+      setVar(root, "--dock-h", yields ? "0px" : dockH + "px");
+    } finally {
+      _dockLayoutBusy = false;
+    }
+  }
+
+  function watchDockLayout() {
+    const dock = document.getElementById("dock");
+    if (!dock) return;
+    applyDockLayout();
+    if (typeof ResizeObserver === "function") new ResizeObserver(applyDockLayout).observe(dock);
+    window.addEventListener("resize", applyDockLayout);
+    if (window.visualViewport && window.visualViewport.addEventListener) {
+      // resize only. A scroll listener here re-enters on the layout this very
+      // function causes, and the soft keyboard is a RESIZE of the visual
+      // viewport, which is the case this is here for.
+      window.visualViewport.addEventListener("resize", applyDockLayout);
+    }
+    if (typeof window.matchMedia === "function") {
+      const mq = window.matchMedia(DESKTOP_RAIL);
+      if (mq.addEventListener) mq.addEventListener("change", applyDockLayout);
+      else if (mq.addListener) mq.addListener(applyDockLayout);
+    }
   }
 
   // --- Context header (C3) ---
@@ -87,12 +330,15 @@
   // taller than the screen. Above the breakpoint the inline value is removed
   // so the stylesheet's own 0px applies and nothing reserves bottom clearance.
   const DESKTOP_RAIL = "(min-width: 900px)";
+  // Shared by the bar and the dock: above the breakpoint the bar is a rail and
+  // the dock sits in the content column, so neither reserves bottom clearance.
+  function isRail() {
+    return typeof window.matchMedia === "function" && !!window.matchMedia(DESKTOP_RAIL).matches;
+  }
   function watchStageBarHeight() {
     const bar = document.querySelector(".stage-bar");
     const root = document.documentElement;
     if (!bar || !root || !root.style || typeof root.style.setProperty !== "function") return;
-    const isRail = () =>
-      typeof window.matchMedia === "function" && !!window.matchMedia(DESKTOP_RAIL).matches;
     const apply = () => {
       if (isRail()) {
         if (typeof root.style.removeProperty === "function") root.style.removeProperty("--stage-bar-h");
@@ -116,6 +362,10 @@
     window.addEventListener("resize", apply);
   }
   watchStageBarHeight();
+  // Start in a known state: PRE editable, POST locked, dock rendered for DAY.
+  renderPreEditable();
+  renderDock();
+  watchDockLayout();
 
   const aboutOpen = document.getElementById("about-open");
   if (aboutOpen) {
@@ -131,11 +381,75 @@
 
   tabs.forEach((t) => {
     t.addEventListener("click", () => {
+      // The one stage that can refuse. It refuses by NOT NAVIGATING - it never
+      // performs the transition, because a tap on a navigation control must
+      // never progress the session. Enforced here rather than in CSS so that
+      // a stylesheet that fails to load cannot open POST early.
+      if (!stageState.mayOpen(t.dataset.tab)) {
+        const note = document.getElementById("stage-note");
+        if (note) {
+          note.textContent = "POST opens when you're back in.";
+          note.hidden = false;
+          applyDockLayout();
+        }
+        return;
+      }
       showTab(t.dataset.tab);
       // REVIEW now shows the saved-session list, so it is what refreshes it.
       if (t.dataset.tab === "review") renderHistory();
     });
   });
+
+  // The docked action, and the only thing that advances a session.
+  const dockAdvance = document.getElementById("dock-advance");
+  if (dockAdvance) {
+    dockAdvance.addEventListener("click", () => {
+      const next = ADVANCE[_stage];
+      if (!next) return;
+      if (_stage === "pre") {
+        // Coming back in is permanent. Correcting PRE afterwards reopens the
+        // fields but never takes this back.
+        stageState.backIn();
+        renderPreEditable();
+      }
+      showTab(next);
+      if (next === "review") renderHistory();
+    });
+  }
+
+  // Correct PRE: reopens the PRE fields and takes the rider straight to them.
+  // It does NOT re-lock POST and it clears nothing, so an accidental Back in
+  // costs one tap to undo with no data lost. Returning to POST is the rail.
+  const correctPre = document.getElementById("correct-pre");
+  if (correctPre) {
+    correctPre.addEventListener("click", () => {
+      stageState.correctPre();
+      renderPreEditable();
+      showTab("pre");
+      const first = PRE_LOCKABLE_IDS.map((id) => document.getElementById(id)).find(Boolean);
+      if (first && first.focus) {
+        first.focus();
+        if (first.scrollIntoView) first.scrollIntoView({ block: "center" });
+      }
+    });
+  }
+
+  // Anything the rider changes makes the form saveable again.
+  const mainEl = document.querySelector("main");
+  if (mainEl) {
+    const markDirty = () => {
+      const wasDirty = saveState.dirty;
+      saveState.markDirty();
+      // Both docked labels are built from the rider's own session label, so
+      // they have to follow it as it is typed rather than only at stage
+      // changes - otherwise DAY offers "Start session" for a rider who has
+      // just named the outing.
+      if (_stage === "day") renderDock();
+      else if (_stage === "review" || !wasDirty) renderSaveDock();
+    };
+    mainEl.addEventListener("input", markDirty);
+    mainEl.addEventListener("change", markDirty);
+  }
 
   // --- Helpers --------------------------------------------------------------
   function num(id) {
@@ -684,6 +998,12 @@
     // context header has to be told - otherwise Reset blanks the fields and
     // leaves the header still naming the bike that is no longer there.
     renderContext();
+    // An empty form is a new session: nothing is committed, nothing is saved,
+    // and POST is locked again.
+    stageState.reset();
+    renderPreEditable();
+    _copiedFromId = null;
+    saveState.reset();
   }
 
   // --- Session shape & form <-> object helpers ------------------------------
@@ -872,31 +1192,56 @@
     }
     try {
       Store.add(s);
-      return { ok: true, out };
+      return { ok: true, out, id: s.id };
     } catch (e) {
       out.innerHTML = `<p class="warn">Could not save: ${escapeHtml(e.message || String(e))}</p>`;
       return { ok: false };
     }
   }
 
+  // Every save goes through here so that the double-tap guard, the dirty flag
+  // and the "nothing new to save" rule cannot be bypassed by one of the two
+  // buttons. A failed save changes NOTHING: not the flags, not the label, not
+  // a single field.
+  function guardedSave() {
+    const gate = saveState.beginSave();
+    if (!gate.start) {
+      return gate.reason === "in-flight"
+        ? { ok: false, blocked: true }
+        : { ok: false, alreadySaved: true };
+    }
+    renderSaveDock();
+    let r = { ok: false };
+    try {
+      r = doSave();
+    } finally {
+      // A failed or throwing save leaves the form dirty and every value in
+      // place, so the rider can simply try again.
+      if (r && r.ok) {
+        saveState.saveSucceeded(r.id);
+        // A copied session has been written as its own record now, so the
+        // origin no longer applies to what is in the form.
+        _copiedFromId = null;
+      } else {
+        saveState.saveFailed();
+      }
+      renderSaveDock();
+    }
+    return r;
+  }
+
   document.getElementById("save-session").addEventListener("click", () => {
-    const r = doSave();
+    const r = guardedSave();
+    if (r.alreadySaved || r.blocked) return;
     if (r.ok) {
-      r.out.innerHTML = `<p class="good">Saved locally. Open the History tab any time.</p>`;
+      r.out.innerHTML = `<p class="good">Saved locally. It is in the saved-session list below.</p>`;
       // after_save: a session was saved and the result stays visible here.
       // (Save & next intentionally does not prompt - it navigates onward to the
       // next session, so the prompt would be unseen and the flow is mid-task.)
       pulseClient.maybePrompt(r.out, "after_save");
+      renderHistory();
     }
   });
-
-  function bumpSessionLabel(label) {
-    if (!label) return label;
-    const m = label.match(/^(.*?)(\d+)(\D*)$/);
-    if (!m) return label;
-    const next = String(parseInt(m[2], 10) + 1);
-    return m[1] + next + m[3];
-  }
 
   function clearTransientFields() {
     ["amb-temp", "track-temp", "humidity", "general-notes",
@@ -918,15 +1263,42 @@
   }
 
   document.getElementById("save-and-next").addEventListener("click", () => {
-    const r = doSave();
-    if (!r.ok) return;
+    const out = document.getElementById("save-result");
+    const r = guardedSave();
+    if (r.blocked) return;
+    // After a plain Save only, the form holds nothing new. The rider still
+    // wants to move on, so this advances WITHOUT writing a second copy of the
+    // session they just saved.
+    const advancingOnly = !!r.alreadySaved;
+    if (!advancingOnly && !r.ok) return;   // a failed save preserves everything
+    advanceToNextSession(out, advancingOnly);
+  });
+
+  // The carry-over step, shared by both paths. Bike, track, tire brand and
+  // suspension stay; the readings that describe one outing clear.
+  function advanceToNextSession(out, advancingOnly) {
     const labelEl = document.getElementById("session-label");
-    if (labelEl) labelEl.value = bumpSessionLabel(labelEl.value.trim());
+    if (labelEl) {
+      // The SAME rule that decided what the button said decides what is
+      // written. A bump we would not show is a bump we do not make, so the
+      // rider's own label is left exactly as they typed it.
+      const next = nextLabelFrom(labelEl.value);
+      if (next.clean) labelEl.value = next.label;
+    }
     clearTransientFields();
     renderContext();
-    r.out.innerHTML = `<p class="good">Saved. Form is ready for the next session — bike, track, tire brand, and suspension settings carried over.</p>`;
+    // Cleared fields mean this is a new session: nothing saved, nothing new.
+    saveState.advanced();
+    // The next outing has not been ridden yet, so POST locks again.
+    stageState.reset();
+    renderPreEditable();
+    if (out) {
+      out.innerHTML = advancingOnly
+        ? `<p class="good">Ready for the next session — bike, track, tire brand, and suspension settings carried over. The saved session was not duplicated.</p>`
+        : `<p class="good">Saved. Form is ready for the next session — bike, track, tire brand, and suspension settings carried over.</p>`;
+    }
     showTab("day");
-  });
+  }
 
   function renderHistory() {
     showStorageWarning();
@@ -962,7 +1334,7 @@
           <h4>${escapeHtml(sessionTitle(s))}</h4>
           <div class="meta">${escapeHtml(meta)}</div>
           <div class="actions">
-            <button type="button" class="btn-secondary" data-action="load" data-id="${escapeHtml(s.id)}">Load</button>
+            <button type="button" class="btn-secondary" data-action="load" data-id="${escapeHtml(s.id)}">Copy to form</button>
             <button type="button" class="btn-secondary" data-action="view" data-id="${escapeHtml(s.id)}">View</button>
             <button type="button" class="btn-danger" data-action="delete" data-id="${escapeHtml(s.id)}">Delete</button>
           </div>
@@ -1011,9 +1383,21 @@
     if (!s) return;
 
     if (action === "load") {
-      const ok = window.confirm("Load this session into the form? Anything you've typed will be overwritten.");
+      // Named for what it does. It opens the values as a NEW draft - it does
+      // not reopen the stored record, and saving writes a separate session.
+      const ok = window.confirm("Copy this session's values into the form? It will be saved as a separate session, not as changes to this one. Anything you've typed will be overwritten.");
       if (!ok) return;
       restoreSession(s);
+      // A finished session says nothing about whether THIS rider is back in.
+      // Copying it must never imply the transition: PRE opens editable and
+      // POST stays locked until the rider takes Back in themselves.
+      _copiedFromId = s.id;
+      stageState.copyFromSaved();
+      renderPreEditable();
+      // Copied values are new relative to storage: this draft has never been
+      // saved, and saving it will create its own record.
+      saveState.reset();
+      saveState.markDirty();
       showTab("day");
     } else if (action === "delete") {
       const ok = window.confirm("Delete this saved session? This cannot be undone.");

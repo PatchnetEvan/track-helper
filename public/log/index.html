@@ -169,6 +169,10 @@
           <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 28" />
         </label>
       </div>
+      <div class="pre-ref" data-stage="post">
+        <p class="pre-ref-line">Went out on <strong id="pre-ref-front">—</strong> front · <strong id="pre-ref-rear">—</strong> rear</p>
+        <button type="button" class="btn-secondary" id="correct-pre">Correct PRE</button>
+      </div>
       <div class="grid-2" data-stage="post">
         <label class="field">
           <span>Front post-session PSI</span>
@@ -486,12 +490,7 @@
 
       <div class="save-zone">
         <p><strong>Keep this session?</strong> Saving stores it only on this device, in your browser. Nothing leaves your phone.</p>
-        <div class="save-actions">
-          <button type="button" class="btn-primary" id="save-session">Save this session</button>
-          <button type="button" class="btn-secondary" id="save-and-next">Save &amp; next</button>
-        </div>
-        <p class="hint"><strong>Save &amp; next</strong> saves this session and primes the form for the next one &mdash; bike, track, tire brand, and suspension settings stay; PSIs, symptoms, lap times, and notes clear. Session label auto-bumps its trailing number.</p>
-        <div class="result" id="save-result" aria-live="polite"></div>
+        <p class="hint">The two save buttons sit at the bottom of the screen, within thumb reach. <strong>Save only</strong> keeps this session and leaves the form exactly as it is. <strong>Save &amp; start next</strong> also primes the form for the next outing &mdash; bike, track, tire brand, and suspension settings stay; PSIs, symptoms, lap times, and notes clear. The session label only advances when its number can be advanced cleanly; free-text labels are left as you wrote them.</p>
       </div>
 
       <div class="danger-zone">
@@ -611,12 +610,32 @@
     </section>
   </main>
 
+  <!-- The docked action (C4, C5, C13). One forward action per stage, always in
+       thumb reach. This is the ONLY thing that progresses a session; the stage
+       bar beside it only moves the view. -->
+  <div class="dock" id="dock" hidden>
+    <p class="stage-note" id="stage-note" role="status" hidden></p>
+    <button type="button" class="btn-transition" id="dock-advance" hidden>
+      <span class="btn-transition-verb" id="dock-verb">Start session</span>
+      <span class="btn-transition-effect" id="dock-effect"></span>
+    </button>
+    <div class="dock-saves" id="dock-saves" hidden>
+      <button type="button" class="btn-transition" id="save-and-next">
+        <span class="btn-transition-verb" id="save-next-verb">Save &amp; start next session</span>
+        <span class="btn-transition-effect" id="save-next-effect">Keeps bike, track, tires and clicks</span>
+      </button>
+      <button type="button" class="btn-secondary" id="save-session">Save only</button>
+      <div class="result" id="save-result" aria-live="polite"></div>
+    </div>
+  </div>
+
   <footer class="app-footer">
     <p>No accounts. No server. Refresh wipes the current session. Saved history lives only on this device.</p>
     <p><a href="../privacy.html">Privacy</a> · <a href="../terms.html">Terms</a></p>
   </footer>
 
   <script src="../storage.js" defer></script>
+  <script src="../session-progress.js" defer></script>
   <script src="../tire-core.js" defer></script>
   <script src="../experience-pulse-cadence.js" defer></script>
   <script src="../app.js" defer></script>
