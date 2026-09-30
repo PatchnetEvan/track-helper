@@ -661,6 +661,10 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
   align-items: baseline;
   gap: 4px 10px;
 }
+/* A display value in a stylesheet beats the [hidden] attribute's UA
+   display: none, so without this the "hidden" context line stayed in the
+   layout as an empty gap - visible nowhere, occupying space everywhere. */
+.context-line[hidden] { display: none; }
 /* The handoff's type table gives these as 18px and 15px, but its own
    "Glove, sun, text size" rule says to keep rem units, and a context line
    that ignores the rider's text setting is the one line they most need to
