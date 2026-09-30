@@ -66,15 +66,36 @@
     </div>
   </div>
 
-  <nav class="tabs" role="tablist" aria-label="Sections">
-    <button class="tab" role="tab" data-tab="setup" aria-selected="true">Setup</button>
-    <button class="tab" role="tab" data-tab="tires" aria-selected="false">Tires</button>
-    <button class="tab" role="tab" data-tab="calculators" aria-selected="false">Calculators</button>
-    <button class="tab" role="tab" data-tab="suspension" aria-selected="false">Suspension</button>
-    <button class="tab" role="tab" data-tab="laps" aria-selected="false">Laps</button>
-    <button class="tab" role="tab" data-tab="review" aria-selected="false">Review</button>
-    <button class="tab" role="tab" data-tab="history" aria-selected="false">History</button>
-    <button class="tab" role="tab" data-tab="about" aria-selected="false">About</button>
+  <!-- Stage bar (C1, C2). Navigation and view control only: selecting a
+       stage shows it and claims nothing about what the rider has finished.
+       No stage is disabled and no lifecycle state is read or written -
+       PRE to POST gating is PR 4. Icons are aria-hidden; the visible label
+       is the accessible name. -->
+  <nav class="stage-bar" role="tablist" aria-label="Stages">
+    <button class="stage" role="tab" data-tab="day" aria-selected="true">
+      <span class="stage-icon stage-icon-calendar-days" aria-hidden="true"></span>
+      <span class="stage-label">DAY</span>
+    </button>
+    <button class="stage" role="tab" data-tab="pre" aria-selected="false">
+      <span class="stage-icon stage-icon-gauge" aria-hidden="true"></span>
+      <span class="stage-label">PRE</span>
+    </button>
+    <button class="stage" role="tab" data-tab="post" aria-selected="false">
+      <span class="stage-icon stage-icon-flag" aria-hidden="true"></span>
+      <span class="stage-label">POST</span>
+    </button>
+    <button class="stage" role="tab" data-tab="laps" aria-selected="false">
+      <span class="stage-icon stage-icon-timer" aria-hidden="true"></span>
+      <span class="stage-label">LAPS</span>
+    </button>
+    <button class="stage" role="tab" data-tab="notes" aria-selected="false">
+      <span class="stage-icon stage-icon-notebook-pen" aria-hidden="true"></span>
+      <span class="stage-label">NOTES</span>
+    </button>
+    <button class="stage" role="tab" data-tab="review" aria-selected="false">
+      <span class="stage-icon stage-icon-clipboard-list" aria-hidden="true"></span>
+      <span class="stage-label">REVIEW</span>
+    </button>
   </nav>
 
   <main>
@@ -136,7 +157,9 @@
 
       <p class="hint">Pre-session is the pressure your tire is at right before you roll out — hot off the warmer if you use warmers, cold from the pit if you don't. Post-session is the reading the moment you're back in.</p>
 
-      <div class="grid-2">
+      <!-- Split by stage (C1). The ids, the inputs and the saved-session shape
+           are untouched; only which stage shows them changes. -->
+      <div class="grid-2" data-stage="pre">
         <label class="field">
           <span>Front pre-session PSI</span>
           <input type="text" id="front-pre" inputmode="decimal" placeholder="e.g. 30" />
@@ -145,6 +168,8 @@
           <span>Rear pre-session PSI</span>
           <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 28" />
         </label>
+      </div>
+      <div class="grid-2" data-stage="post">
         <label class="field">
           <span>Front post-session PSI</span>
           <input type="text" id="front-post" inputmode="decimal" placeholder="e.g. 33" />
@@ -342,6 +367,8 @@
     <section class="panel" id="panel-suspension" role="tabpanel" hidden>
       <h2>Suspension</h2>
 
+      <!-- Clicks are set before going out, so they belong to PRE. -->
+      <div data-stage="pre">
       <h3>Fork</h3>
       <div class="grid-3">
         <label class="field">
@@ -374,6 +401,12 @@
         </label>
       </div>
 
+      </div>
+
+      <!-- Symptoms are observed after the outing, so they belong to POST, and
+           the button that reads them goes with them (C1). The ids and the
+           saved shape are unchanged. -->
+      <div data-stage="post">
       <h3>Symptoms</h3>
       <div class="symptoms" id="symptoms">
         <label class="chip"><input type="checkbox" value="midcorner-push" /> <span>Mid-corner push</span></label>
@@ -387,6 +420,36 @@
       <button type="button" class="btn-secondary" id="calc-suspension">Show recommendations</button>
 
       <div class="result" id="suspension-result" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- Rider Feedback (NOTES). The stage chip is labelled NOTES; the concept,
+         the heading and the review section stay Rider Feedback, per the
+         Free/Pro contract section 1. General notes are a different thing and
+         stay in DAY. -->
+    <section class="panel" id="panel-notes" role="tabpanel" hidden>
+      <h2>Rider Feedback</h2>
+      <p class="hint">Your own words about the outing you just finished. Tags are optional and never block saving.</p>
+
+      <label class="field">
+        <span>What happened out there?</span>
+        <textarea id="rider-feedback" rows="5" placeholder="Front pushed on entry into 3, better once the tires came in…"></textarea>
+      </label>
+
+      <fieldset class="tag-set" id="feedback-tags">
+        <legend>Tags</legend>
+        <div class="symptoms">
+          <label class="chip"><input type="checkbox" value="corner_entry" /> <span>Corner entry</span></label>
+          <label class="chip"><input type="checkbox" value="corner_exit" /> <span>Corner exit</span></label>
+          <label class="chip"><input type="checkbox" value="braking" /> <span>Braking</span></label>
+          <label class="chip"><input type="checkbox" value="acceleration" /> <span>Acceleration</span></label>
+          <label class="chip"><input type="checkbox" value="front_feel" /> <span>Front feel</span></label>
+          <label class="chip"><input type="checkbox" value="rear_feel" /> <span>Rear feel</span></label>
+          <label class="chip"><input type="checkbox" value="stability" /> <span>Stability</span></label>
+          <label class="chip"><input type="checkbox" value="traction" /> <span>Traction</span></label>
+          <label class="chip"><input type="checkbox" value="setup_change" /> <span>Setup change</span></label>
+        </div>
+      </fieldset>
     </section>
 
     <!-- Laps -->
@@ -430,8 +493,12 @@
     </section>
 
     <!-- History -->
+    <!-- Shown as part of REVIEW, below the current session's summary and Save.
+         Its contents sit in labelled, collapsible sections so REVIEW opens on
+         what the rider just did rather than on a list of everything they have
+         ever done. -->
     <section class="panel" id="panel-history" role="tabpanel" hidden>
-      <h2>History</h2>
+      <h2 class="sr-only">Saved sessions</h2>
       <p class="hint">Saved sessions stay on this device only. Export a backup any time — it's a plain JSON file on your phone or computer.</p>
 
       <div id="storage-warning" class="result" hidden>
@@ -445,7 +512,8 @@
 
       <div id="history-trends"></div>
 
-      <h3>Compare two sessions</h3>
+      <details class="review-section">
+      <summary><h3>Compare two sessions</h3></summary>
       <div class="grid-2">
         <label class="field"><span>Session A</span><select id="compare-a"></select></label>
         <label class="field"><span>Session B</span><select id="compare-b"></select></label>
@@ -453,8 +521,12 @@
       <button type="button" class="btn-secondary" id="run-compare">Compare</button>
       <div class="result" id="compare-result" aria-live="polite"></div>
 
-      <h3>All saved sessions</h3>
+      </details>
+
+      <details class="review-section" open>
+      <summary><h3>All saved sessions</h3></summary>
       <div id="history-list"></div>
+      </details>
     </section>
 
     <!-- About -->

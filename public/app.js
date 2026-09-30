@@ -2,26 +2,53 @@
   "use strict";
 
   // --- Tabs -----------------------------------------------------------------
-  const tabs = document.querySelectorAll(".tab");
-  const panels = {
-    setup: document.getElementById("panel-setup"),
-    tires: document.getElementById("panel-tires"),
-    calculators: document.getElementById("panel-calculators"),
-    suspension: document.getElementById("panel-suspension"),
-    laps: document.getElementById("panel-laps"),
-    review: document.getElementById("panel-review"),
-    history: document.getElementById("panel-history"),
-    about: document.getElementById("panel-about"),
+  const tabs = document.querySelectorAll(".stage");
+  // --- Stages (C1, C2) ---
+  //
+  // Six stages over the panels that already existed. Every field keeps its id
+  // and its place in the saved session; only where a control APPEARS changes.
+  //
+  // A stage owns whole panels, plus any [data-stage] block inside a panel it
+  // shares - the tire pressures split pre/post, and the symptom chips belong
+  // to POST while the clicks stay in PRE. Splitting by marker rather than by
+  // cutting the markup apart is what keeps every handler and id intact.
+  //
+  // This is NAVIGATION ONLY. Selecting POST shows POST and says nothing about
+  // whether PRE was completed: nothing is disabled, nothing is marked done,
+  // and no lifecycle state is read or written. PRE to POST gating is PR 4.
+  const STAGE_PANELS = {
+    day: ["panel-setup"],
+    pre: ["panel-tires", "panel-suspension", "panel-calculators"],
+    post: ["panel-tires", "panel-suspension"],
+    laps: ["panel-laps"],
+    notes: ["panel-notes"],
+    review: ["panel-review", "panel-history"],
+    about: ["panel-about"],
   };
+  const ALL_PANEL_IDS = Array.from(new Set(Object.values(STAGE_PANELS).flat()));
+  const panels = {};
+  ALL_PANEL_IDS.forEach((id) => { panels[id] = document.getElementById(id); });
 
   function showTab(name) {
+    const stage = STAGE_PANELS[name] ? name : "day";
     tabs.forEach((t) => {
-      const active = t.dataset.tab === name;
+      const active = t.dataset.tab === stage;
       t.setAttribute("aria-selected", active ? "true" : "false");
     });
-    Object.keys(panels).forEach((k) => {
-      panels[k].hidden = k !== name;
+    const wanted = STAGE_PANELS[stage];
+    ALL_PANEL_IDS.forEach((id) => {
+      if (panels[id]) panels[id].hidden = wanted.indexOf(id) === -1;
     });
+    // Blocks a panel shares between two stages. Unmarked content belongs to
+    // every stage that shows the panel, so nothing has to be marked twice.
+    document.querySelectorAll("[data-stage]").forEach((block) => {
+      block.hidden = block.dataset.stage !== stage;
+    });
+    // Keep the selected stage in view when the bar has to scroll sideways.
+    const activeCell = document.querySelector('.stage[data-tab="' + stage + '"]');
+    if (activeCell && activeCell.scrollIntoView) {
+      activeCell.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
   }
 
@@ -53,6 +80,25 @@
   // opening anything new, so there is one About and the tab strip still shows
   // where you are. Focus moves to the panel heading, so a keyboard or screen
   // reader user lands in the content instead of back at the top of the page.
+  // The stage bar grows with text size, so the content padding follows its
+  // measured height. The CSS fallback already clears the default bar, so this
+  // only ever corrects upward.
+  function watchStageBarHeight() {
+    const bar = document.querySelector(".stage-bar");
+    const root = document.documentElement;
+    if (!bar || !root || !root.style || typeof root.style.setProperty !== "function") return;
+    const apply = () => {
+      if (typeof bar.getBoundingClientRect !== "function") return;
+      const rect = bar.getBoundingClientRect();
+      const h = rect ? Math.ceil(rect.height) : 0;
+      if (h > 0) root.style.setProperty("--stage-bar-h", Math.max(h, 64) + "px");
+    };
+    apply();
+    if (typeof ResizeObserver === "function") { new ResizeObserver(apply).observe(bar); return; }
+    window.addEventListener("resize", apply);
+  }
+  watchStageBarHeight();
+
   const aboutOpen = document.getElementById("about-open");
   if (aboutOpen) {
     aboutOpen.addEventListener("click", () => {
@@ -68,7 +114,8 @@
   tabs.forEach((t) => {
     t.addEventListener("click", () => {
       showTab(t.dataset.tab);
-      if (t.dataset.tab === "history") renderHistory();
+      // REVIEW now shows the saved-session list, so it is what refreshes it.
+      if (t.dataset.tab === "review") renderHistory();
     });
   });
 
@@ -564,6 +611,17 @@
       .map((i) => i.parentElement.querySelector("span").textContent);
     let suspBlock = suspRows;
     if (symptoms.length) suspBlock += row("Symptoms", symptoms.join(", "));
+
+    // Rider Feedback gets its own section in the summary, named as the
+    // contract names it - the chip says NOTES, the concept stays Rider
+    // Feedback.
+    const fbText = str("rider-feedback");
+    const fbTags = Array.from(document.querySelectorAll("#feedback-tags input:checked"))
+      .map((i) => FEEDBACK_TAG_LABELS[i.value] || i.value);
+    let fbBlock = "";
+    if (fbText) fbBlock += row("Feedback", fbText);
+    if (fbTags.length) fbBlock += row("Tags", fbTags.join(", "));
+    if (fbBlock) parts.push(`<h3>Rider Feedback</h3>${fbBlock}`);
     if (suspBlock) parts.push(`<h3>Suspension</h3>${suspBlock}`);
 
     const { laps } = analyzeLaps();
@@ -593,7 +651,7 @@
     const ok = window.confirm("Clear every field on every tab? This only blanks the current form — saved history in the History tab is untouched.");
     if (!ok) return;
     clearForm();
-    showTab("setup");
+    showTab("day");
   });
 
   function clearForm() {
@@ -607,6 +665,11 @@
   }
 
   // --- Session shape & form <-> object helpers ------------------------------
+  const FEEDBACK_TAG_LABELS = {
+    corner_entry: "Corner entry", corner_exit: "Corner exit", braking: "Braking",
+    acceleration: "Acceleration", front_feel: "Front feel", rear_feel: "Rear feel",
+    stability: "Stability", traction: "Traction", setup_change: "Setup change",
+  };
   const SYMPTOM_LABELS = {
     "midcorner-push": "Mid-corner push",
     "harsh-bumps": "Harsh on bumps",
@@ -639,6 +702,14 @@
         rearPost: str("rear-post"),
         warmerOn: document.getElementById("warmer-on").checked,
         warmerTime: str("warmer-time"),
+      },
+      // Rider Feedback (contract sections 1 and 5). A NEW object, never folded
+      // into setup.notes: general notes are day-level scratch text, this is
+      // post-outing reflection with tags. Merging them would silently rewrite
+      // what older sessions meant.
+      riderFeedback: {
+        text: str("rider-feedback"),
+        tags: Array.from(document.querySelectorAll("#feedback-tags input:checked")).map((i) => i.value),
       },
       suspension: {
         forkPreload: str("fork-preload"),
@@ -706,6 +777,19 @@
     const symptoms = (s.suspension && s.suspension.symptoms) || [];
     document.querySelectorAll("#symptoms input[type=checkbox]").forEach((cb) => {
       cb.checked = symptoms.indexOf(cb.value) !== -1;
+    });
+
+    // Rider Feedback. Absence is loaded EXPLICITLY, not skipped: a session
+    // saved before this field existed has no riderFeedback key, and one that
+    // simply had none has an empty one. Both must clear whatever the previous
+    // session left on screen, so the text is always assigned and every tag is
+    // unchecked before saved selections are restored. Skipping either would
+    // leave one session's words attached to another's record.
+    const fb = s.riderFeedback || {};
+    setId("rider-feedback", fb.text || "");
+    const fbTags = fb.tags || [];
+    document.querySelectorAll("#feedback-tags input[type=checkbox]").forEach((cb) => {
+      cb.checked = fbTags.indexOf(cb.value) !== -1;
     });
 
     setId("laps-input", s.laps && s.laps.raw);
@@ -800,6 +884,11 @@
       if (el) el.value = "";
     });
     document.querySelectorAll("#symptoms input[type=checkbox]").forEach((cb) => { cb.checked = false; });
+    // Feedback and tags describe the outing just saved, so they clear with the
+    // rest of it. Bike, track, tire brand and suspension carry over as always.
+    const fbText = document.getElementById("rider-feedback");
+    if (fbText) fbText.value = "";
+    document.querySelectorAll("#feedback-tags input[type=checkbox]").forEach((cb) => { cb.checked = false; });
     ["tire-result", "suspension-result", "laps-result", "summary-result"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.innerHTML = "";
@@ -814,7 +903,7 @@
     clearTransientFields();
     renderContext();
     r.out.innerHTML = `<p class="good">Saved. Form is ready for the next session — bike, track, tire brand, and suspension settings carried over.</p>`;
-    showTab("setup");
+    showTab("day");
   });
 
   function renderHistory() {
@@ -903,7 +992,7 @@
       const ok = window.confirm("Load this session into the form? Anything you've typed will be overwritten.");
       if (!ok) return;
       restoreSession(s);
-      showTab("setup");
+      showTab("day");
     } else if (action === "delete") {
       const ok = window.confirm("Delete this saved session? This cannot be undone.");
       if (!ok) return;
@@ -954,6 +1043,9 @@
     pushIf("Shock rebound", s.suspension && s.suspension.shockReb);
     const symNames = (s.suspension && s.suspension.symptoms || []).map((k) => SYMPTOM_LABELS[k] || k);
     if (symNames.length) pushIf("Symptoms", symNames.join(", "));
+    pushIf("Rider feedback", s.riderFeedback && s.riderFeedback.text);
+    const fbNames = ((s.riderFeedback && s.riderFeedback.tags) || []).map((k) => FEEDBACK_TAG_LABELS[k] || k);
+    if (fbNames.length) pushIf("Tags", fbNames.join(", "));
     const times = s.laps && s.laps.times || [];
     if (times.length) {
       pushIf("Laps", String(times.length));
@@ -1004,6 +1096,8 @@
       ["Shock comp", (s) => s.suspension && s.suspension.shockComp],
       ["Shock rebound", (s) => s.suspension && s.suspension.shockReb],
       ["Symptoms", (s) => ((s.suspension && s.suspension.symptoms) || []).map((k) => SYMPTOM_LABELS[k] || k).join(", ")],
+      ["Rider feedback", (s) => (s.riderFeedback && s.riderFeedback.text) || ""],
+      ["Tags", (s) => ((s.riderFeedback && s.riderFeedback.tags) || []).map((k) => FEEDBACK_TAG_LABELS[k] || k).join(", ")],
       ["Best lap", (s) => { const b = sessionBest(s); return b == null ? "" : fmtLap(b); }],
       ["Avg lap", (s) => { const t = s.laps && s.laps.times || []; return t.length ? fmtLap(t.reduce((x, y) => x + y, 0) / t.length) : ""; }],
       ["Laps", (s) => { const t = s.laps && s.laps.times || []; return t.length ? String(t.length) : ""; }],
@@ -1097,7 +1191,7 @@
     let csrfToken = null;
 
     function activeSection() {
-      const tab = document.querySelector('.tab[aria-selected="true"]');
+      const tab = document.querySelector('.stage[aria-selected="true"]');
       return tab ? tab.dataset.tab : null;
     }
     function setStatus(msg, kind) {
@@ -1212,7 +1306,7 @@
     let appVersion = null;
 
     function activeSection() {
-      const tab = document.querySelector('.tab[aria-selected="true"]');
+      const tab = document.querySelector('.stage[aria-selected="true"]');
       return tab ? tab.dataset.tab : null;
     }
 
