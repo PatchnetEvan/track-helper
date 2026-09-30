@@ -221,6 +221,22 @@ button {
   font-size: 1rem;
   cursor: pointer;
   margin-top: 4px;
+  /* A label must wrap inside the button, never spill out of it. At 320px with
+     200% text "recommendations" is a single unbreakable word wider than the
+     245px content box, so it overflowed horizontally and the end of the label
+     was unreachable. break-word is the narrow fix: it permits a break inside a
+     word ONLY when that word cannot fit on a line of its own, so ordinary
+     labels at ordinary sizes wrap between words exactly as before. The
+     alternatives were worse - shrinking the text fights the rider's own text
+     size, and rewording is not ours to do.
+
+     hyphens comes first so the break lands at a real syllable
+     ("recom-mendations") rather than orphaning a letter; break-word stays
+     behind it as the guarantee, because hyphenation only breaks where the
+     dictionary allows and a long word with no valid break would still spill.
+     The document is lang="en", which is what makes auto hyphenation work. */
+  hyphens: auto;
+  overflow-wrap: break-word;
 }
 .btn-primary {
   background: var(--accent);
@@ -250,6 +266,10 @@ button {
 .btn-transition {
   display: block;
   width: 100%;
+  /* Same reason as the shared rule above: this carries a verb line and an
+     effect line, both of which must wrap inside the button. */
+  hyphens: auto;
+  overflow-wrap: break-word;
   min-height: 60px;
   padding: 10px 16px;
   border: 1px solid transparent;

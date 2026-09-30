@@ -36,28 +36,78 @@ Heights in px; `CLIPX` marks horizontal overflow.
 | `calc-tire-core` | 51 | 51 | 119 | 119 |
 | `calc-sag` | 51 | 51 | 72 | 119 |
 | `calc-geometry` | 51 | 51 | 119 | 165 |
-| `calc-suspension` | 51 | 51 | 119 | **119 CLIPX** |
+| `calc-suspension` | 51 | 51 | 165 | 165 |
 | `calc-laps` | 51 | 51 | 72 | 72 |
+
+Re-measured after the overflow fix below; **no control clips at any of these
+twenty-four combinations**. Hyphenation also packs `calc-geometry` into one
+fewer line at 320px/200% (165 to 119).
 
 Every button stays `.btn-secondary` (`rgb(32,32,32)`) at every combination,
 and every height clears the 48px `--tap` floor. Labels wrap rather than
 shrink — the longest, "Calculate deltas & suggestions", grows to 165px at
 320px/200% without clipping.
 
-### One pre-existing defect, not caused by this PR
+### A pre-existing overflow, found here and fixed under a separate authorization
 
-`calc-suspension` ("Show recommendations") overflows horizontally at 320px
-with 200% text: `scrollWidth` 300 against `clientWidth` 245.
+`calc-suspension` ("Show recommendations") overflowed horizontally at 320px
+with 200% text: `scrollWidth` **300** against `clientWidth` **245**. The end
+of the label was unreachable.
 
-This was tested rather than assumed. Restoring `.btn-primary` on that same
-element, at that same width and text size, reproduces it **identically** —
-same 300/245. `.btn-primary` and `.btn-secondary` share one box rule, so the
-demotion changes only `background`, `color` and `border-color`; it cannot
-affect wrapping. The cause is a single unbreakable word at 32px in a 245px
-content box.
+Authorship was tested rather than assumed. Restoring `.btn-primary` on that
+same element at that same width and text size reproduced it **identically** —
+same 300/245. The two classes share one box rule, so the demotion changes only
+`background`, `color` and `border-color` and cannot affect wrapping. The cause
+is a single unbreakable word at 32px in a 245px content box.
 
-It is reported, not fixed: the handoff says not to restyle anything PR 1 does
-not list, and a wrapping fix belongs with whichever PR revisits that panel.
+**Fixed** (`05-overflow-fixed-390-and-320.jpg`): `scrollWidth` now equals
+`clientWidth` at 245, and no control clips at any of the twenty-four
+combinations measured.
+
+The fix is two properties on the shared button rule:
+
+```css
+hyphens: auto;
+overflow-wrap: break-word;
+```
+
+`hyphens` comes first so the break lands at a real syllable —
+"recommenda-tions" at 390px, "recommen-dations" at 320px — rather than
+orphaning a letter, which is what `break-word` alone produced. `break-word`
+stays behind it as the guarantee: hyphenation only breaks where the dictionary
+allows, and a long word with no valid break point would still spill. The
+document is `lang="en"`, which is what makes auto hyphenation work at all.
+
+What was preserved: the wording is untouched, the text stays at the rider's
+own size (32px at 200%), the role stays `.btn-secondary`, and every height
+clears the 48px `--tap` floor.
+
+The alternatives were worse. Shrinking the text fights the rider's own
+accessibility setting, and rewording the label is a product decision, not a
+CSS fix.
+
+### The shared rule, checked for side effects
+
+`overflow-wrap` and `hyphens` were added to `.btn-primary, .btn-secondary,
+.btn-danger` — so every button role inherits them. Measured at 320px, 100%
+and 200%:
+
+| control | role | 100% | 200% | clips |
+|---|---|---|---|---|
+| `save-session` | primary, `rgb(255,102,0)` | 100 | 119 | no |
+| `build-summary` | secondary | 51 | 119 | no |
+| `run-compare` | secondary | 51 | 72 | no |
+| `reset-all` | danger, transparent | 51 | 119 | no |
+| `clear-history` | danger, transparent | 51 | 119 | no |
+
+Colours, roles and tap targets are unchanged; the only difference is that a
+label now wraps instead of spilling. Both properties are inert until a word
+genuinely cannot fit, so ordinary labels at ordinary sizes render exactly as
+before.
+
+`.btn-transition` gets the same two properties. It is not used until PR 4, but
+it carries a verb line and an effect line and would meet the same defect;
+fixing it now avoids shipping a rule with a known flaw.
 
 ## Measured, not eyeballed
 
