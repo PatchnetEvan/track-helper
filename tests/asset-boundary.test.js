@@ -95,6 +95,7 @@ for (const path of APPROVED_PUBLIC_FILES) {
 //    fixes: /src/waitlist-worker.js, /tests/waitlist.test.js and friends were
 //    publicly reachable before the boundary existed.
 const FORBIDDEN_ARTIFACTS = [
+  "THIRD-PARTY-NOTICES.md",
   "src/waitlist-worker.js",
   "tests/waitlist.test.js",
   "migrations/0001_waitlist.sql",
