@@ -52,7 +52,10 @@
   const stageState = SP.createStageState();
   const saveState = SP.createSaveState();
   const nextLabelFrom = SP.nextLabelFrom;
-  let _copiedFromId = null;    // set only by History -> Copy to form
+  let _copiedFrom = null;      // { id, summary } - set only by Copy to form
+  // Assigned once the listeners are wired; calculators that write into the
+  // saved session call it, because their own inputs are not session fields.
+  let markSessionDirty = function () {};
 
   // The PRE values a rider commits when they go out. Tire brand and model are
   // NOT here: they describe the fitment, not the state the session ran at, and
@@ -201,6 +204,22 @@
         ? "Already saved \u00b7 moves on without saving again"
         : "Keeps bike, track, tires and clicks";
     }
+    renderCopyOrigin(nothingNew);
+  }
+
+  // Says, in the place the rider is about to tap, that this will become its
+  // own record and leave the session it came from alone. Stays visible until
+  // the first SUCCESSFUL save - a failed one leaves the warning up, because
+  // the duplicate it warns about has still not been written.
+  function renderCopyOrigin(nothingNew) {
+    const box = document.getElementById("copy-origin");
+    if (!box) return;
+    if (!_copiedFrom) { box.hidden = true; box.textContent = ""; return; }
+    box.hidden = false;
+    box.textContent = "Copied from " + _copiedFrom.summary
+      + ". Saving creates a separate session and leaves that one unchanged.";
+    const onlyBtn = document.getElementById("save-session");
+    if (onlyBtn && !nothingNew) onlyBtn.textContent = "Save as a new session";
   }
 
   // --- Dock layout ----------------------------------------------------------
@@ -434,7 +453,10 @@
     });
   }
 
-  // Anything the rider changes makes the form saveable again.
+  // Only a change to a field that actually reaches the saved session makes it
+  // saveable again. Listening to all of <main> meant the comparison selectors
+  // and the calculators' own working-out re-armed the save, so Save & next
+  // after a plain Save wrote a duplicate of an unchanged outing.
   const mainEl = document.querySelector("main");
   if (mainEl) {
     const markDirty = () => {
@@ -447,8 +469,20 @@
       if (_stage === "day") renderDock();
       else if (_stage === "review" || !wasDirty) renderSaveDock();
     };
-    mainEl.addEventListener("input", markDirty);
-    mainEl.addEventListener("change", markDirty);
+    const fromSessionField = (event) => {
+      const el = event && event.target;
+      if (!el) return false;
+      const containers = SP.SESSION_FIELD_CONTAINERS
+        .filter((c) => el.closest && el.closest("#" + c));
+      return SP.isSessionField(el.id, containers);
+    };
+    const onEdit = (event) => { if (fromSessionField(event)) markDirty(); };
+    mainEl.addEventListener("input", onEdit);
+    mainEl.addEventListener("change", onEdit);
+    // A calculator that writes into the saved session counts as an edit even
+    // though its own inputs do not: running the sag calculation is what puts
+    // a sag figure into setup.geometryConstants.
+    markSessionDirty = markDirty;
   }
 
   // --- Helpers --------------------------------------------------------------
@@ -661,6 +695,10 @@
       return;
     }
 
+    // This is the moment a sag figure enters setup.geometryConstants, so it
+    // is an edit to the saved session even though sag-front-l2 and friends
+    // are only working-out.
+    markSessionDirty();
     _sagCache = {
       frontL1Mm: fl1,
       rearL1Mm: rl1,
@@ -1002,7 +1040,7 @@
     // and POST is locked again.
     stageState.reset();
     renderPreEditable();
-    _copiedFromId = null;
+    _copiedFrom = null;
     saveState.reset();
   }
 
@@ -1219,9 +1257,9 @@
       // place, so the rider can simply try again.
       if (r && r.ok) {
         saveState.saveSucceeded(r.id);
-        // A copied session has been written as its own record now, so the
-        // origin no longer applies to what is in the form.
-        _copiedFromId = null;
+        // The copy now has its own record, so the warning has done its job.
+        // It stays put until this point - a failed save leaves it showing.
+        _copiedFrom = null;
       } else {
         saveState.saveFailed();
       }
@@ -1391,7 +1429,10 @@
       // A finished session says nothing about whether THIS rider is back in.
       // Copying it must never imply the transition: PRE opens editable and
       // POST stays locked until the rider takes Back in themselves.
-      _copiedFromId = s.id;
+      _copiedFrom = {
+        id: s.id,
+        summary: sessionDateLabel(s.savedAt) + " \u2014 " + sessionTitle(s),
+      };
       stageState.copyFromSaved();
       renderPreEditable();
       // Copied values are new relative to storage: this draft has never been

@@ -91,7 +91,54 @@
     };
   }
 
-  const api = { nextLabelFrom, createStageState, createSaveState };
+  // --- Which fields actually reach a saved session --------------------------
+  //
+  // Only a change to one of these can make the form worth saving again. The
+  // first version of this listened to every input inside <main>, which meant
+  // picking two sessions to COMPARE, or typing into a calculator that feeds
+  // nothing, re-armed the save button - and Save & next then wrote a second
+  // copy of an outing that had not changed.
+  //
+  // This list is the read-side of collectSession(). A test asserts the two
+  // agree, so adding a field to the saved session without adding it here
+  // fails rather than silently going untracked.
+  const SESSION_FIELD_IDS = [
+    // setup
+    "bike", "track", "session-label", "amb-temp", "track-temp", "humidity",
+    "general-notes",
+    // setup.geometryConstants - saved, even though the inputs sit among the
+    // calculators. The other sag and tire-core inputs are working-out and are
+    // deliberately absent.
+    "geo-wheelbase", "geo-design-rake", "geo-front-radius", "geo-fork-offset",
+    "sag-front-l1", "sag-rear-l1",
+    // tires
+    "tire-brand", "tire-model", "front-pre", "rear-pre", "front-post",
+    "rear-post", "warmer-on", "warmer-time",
+    // riderFeedback
+    "rider-feedback",
+    // suspension
+    "fork-preload", "fork-comp", "fork-reb",
+    "shock-preload", "shock-comp", "shock-reb",
+    // laps
+    "laps-input",
+  ];
+  // Checkbox groups are read by container, not by id.
+  const SESSION_FIELD_CONTAINERS = ["feedback-tags", "symptoms"];
+  const SESSION_FIELD_SET = new Set(SESSION_FIELD_IDS);
+
+  // Takes the plain facts about an element rather than the element, so the
+  // rule can be exercised without a DOM.
+  function isSessionField(id, containerIds) {
+    if (id && SESSION_FIELD_SET.has(id)) return true;
+    if (!containerIds) return false;
+    const list = Array.isArray(containerIds) ? containerIds : [containerIds];
+    return list.some((c) => SESSION_FIELD_CONTAINERS.indexOf(c) !== -1);
+  }
+
+  const api = {
+    nextLabelFrom, createStageState, createSaveState,
+    isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
+  };
   if (typeof window !== "undefined") window.SessionProgress = api;
   if (typeof globalThis !== "undefined") globalThis.SessionProgress = api;
 })();

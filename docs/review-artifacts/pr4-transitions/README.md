@@ -189,3 +189,90 @@ decision that Save & next never prompts still fails the suite if broken.
   front · 28.0 rear"* with **Correct PRE** beneath it.
 - `02-review-both-saves-docked-390.png` — both save controls in the dock:
   **Save & start Session 3** in accent, **Save only** secondary.
+
+---
+
+## Correction round (owner review of PR #77)
+
+Two integration bugs. Both lived in the **wiring**, and the pure state-module
+tests passed throughout — which is the point of the new harness.
+
+### 1. Dirty tracking was too broad
+
+`input` and `change` were bound to the whole of `<main>`, so **anything** the
+rider touched re-armed the save: the comparison selectors, the tire-core
+inputs, the sag working-out. After a plain Save only, picking two sessions to
+compare made Save & next write a **second copy of an unchanged outing**.
+
+Tracking now follows the fields that actually reach a saved session. The list
+is `SESSION_FIELD_IDS` in `session-progress.js`, and a test compares it against
+what `collectSession()` reads, so a field joining the saved session without
+joining the list fails rather than going untracked in silence.
+
+| touched | re-arms the save? |
+|---|---|
+| `compare-a`, `compare-b` | **no** |
+| `tire-core-*`, `sag-front-l2/l3`, `sag-rear-l2/l3` | **no** |
+| any of the 28 saved-session fields | **yes** |
+| feedback tags, symptom chips | **yes** (matched by container) |
+| running the **sag calculator** | **yes** — its result lands in `setup.geometryConstants` |
+
+The sag calculator is the subtle one: its own inputs are working-out, but
+pressing Calculate is the moment a sag figure enters the saved session, so the
+handler marks the form dirty explicitly.
+
+Measured in the browser: Save only → 1 record; change both comparison
+selectors → Save only still disabled, still 1 record; Save & next → **still 1
+record**, advanced without duplicating.
+
+### 2. Copy provenance was recorded but never shown
+
+`_copiedFromId` was assigned and cleared and nothing read it. The promised
+wording and source context now render.
+
+On REVIEW, after a copy:
+
+- an amber notice above the save controls: *"Copied from Sep 30, 2026, 5:38 PM
+  — Barber — Panigale V4 #21 · Session 2. Saving creates a separate session and
+  leaves that one unchanged."*
+- the save control reads **Save as a new session**
+
+**The warning stays up through a failed save** — the duplicate it warns about
+still has not been written — and clears only on the first *successful* one.
+Measured: after a thrown `Store.add` the notice was still shown and the record
+count unchanged; after the retry succeeded the notice was gone, its text
+emptied, and the copy existed as its own record with the original untouched.
+
+Screenshot: `03-copy-origin-notice-390.png`.
+
+### Integration coverage
+
+`tests/session-wiring.test.js` — **11 tests** driving the real `public/app.js`
+through real events, via a DOM harness in `tests/helpers/`. The harness
+auto-creates elements on lookup, so app.js's many `getElementById` calls need
+no fixture; only what a test asserts on is arranged. Assertions are on
+primitives only, never on a node.
+
+**The harness itself had a flaw worth recording:** at first it did not parent
+fields to `<main>`, so delegated events never reached the handler — and the
+three "must not re-arm the save" tests passed for entirely the wrong reason.
+They only became real once elements joined a default parent. A test that
+asserts *nothing happened* is exactly the kind that passes when the plumbing
+is broken.
+
+Mutation results — every mutant killed, control green:
+
+| mutation | result |
+|---|---|
+| dirty listener widened back to all of `<main>` *(the original bug)* | 2 fail |
+| `renderCopyOrigin` never called | 4 fail |
+| warning also cleared on a failed save | 1 fail |
+| save-only label not changed when copied | 1 fail |
+| sag calculator no longer marks dirty | 1 fail |
+| one saved field dropped from the tracked list | 2 fail |
+| *(control — unmutated)* | **0 fail** |
+
+Suite: **58 pass / 0 fail** locally (47 before, plus 11 wiring tests).
+
+The header overflow fix stays in this PR, as agreed — it is what makes the
+enlarged-text verification above hold.

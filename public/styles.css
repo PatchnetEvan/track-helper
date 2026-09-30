@@ -835,6 +835,17 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .dock-saves { display: flex; flex-direction: column; gap: 8px; }
 .dock-saves .btn-secondary { width: 100%; }
 .dock .result:empty { display: none; }
+/* Copy provenance. Sits with the save buttons because that is where the
+   duplicate would be created, and stays until the first successful save. */
+.copy-origin {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
 .stage-note {
   margin: 0;
   padding: 8px 10px;
