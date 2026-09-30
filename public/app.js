@@ -81,19 +81,37 @@
   // where you are. Focus moves to the panel heading, so a keyboard or screen
   // reader user lands in the content instead of back at the top of the page.
   // The stage bar grows with text size, so the content padding follows its
-  // measured height. The CSS fallback already clears the default bar, so this
-  // only ever corrects upward.
+  // measured height. Only on phone: at 900px and up the same element is a
+  // full-height left rail, and measuring it there would write a viewport-sized
+  // value into --stage-bar-h, giving every focused control a scroll margin
+  // taller than the screen. Above the breakpoint the inline value is removed
+  // so the stylesheet's own 0px applies and nothing reserves bottom clearance.
+  const DESKTOP_RAIL = "(min-width: 900px)";
   function watchStageBarHeight() {
     const bar = document.querySelector(".stage-bar");
     const root = document.documentElement;
     if (!bar || !root || !root.style || typeof root.style.setProperty !== "function") return;
+    const isRail = () =>
+      typeof window.matchMedia === "function" && !!window.matchMedia(DESKTOP_RAIL).matches;
     const apply = () => {
+      if (isRail()) {
+        if (typeof root.style.removeProperty === "function") root.style.removeProperty("--stage-bar-h");
+        return;
+      }
       if (typeof bar.getBoundingClientRect !== "function") return;
       const rect = bar.getBoundingClientRect();
       const h = rect ? Math.ceil(rect.height) : 0;
       if (h > 0) root.style.setProperty("--stage-bar-h", Math.max(h, 64) + "px");
     };
     apply();
+    // Crossing the breakpoint swaps bar for rail, so re-apply on the query as
+    // well as on the element: a resize that only changes orientation still
+    // needs the measurement, and one that crosses 900px needs it dropped.
+    if (typeof window.matchMedia === "function") {
+      const mq = window.matchMedia(DESKTOP_RAIL);
+      if (typeof mq.addEventListener === "function") mq.addEventListener("change", apply);
+      else if (typeof mq.addListener === "function") mq.addListener(apply);
+    }
     if (typeof ResizeObserver === "function") { new ResizeObserver(apply).observe(bar); return; }
     window.addEventListener("resize", apply);
   }
@@ -662,6 +680,10 @@
       const el = document.getElementById(id);
       if (el) el.innerHTML = "";
     });
+    // clearForm assigns .value directly and fires no input event, so the
+    // context header has to be told - otherwise Reset blanks the fields and
+    // leaves the header still naming the bike that is no longer there.
+    renderContext();
   }
 
   // --- Session shape & form <-> object helpers ------------------------------

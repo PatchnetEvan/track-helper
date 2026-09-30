@@ -805,6 +805,10 @@ body { padding-bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px
 
 /* Desktop: the bar becomes a left rail. Same markup, same order, same words. */
 @media (min-width: 900px) {
+  /* The bar becomes a full-height left rail, so there is no bottom navigation
+     to clear. Zero here means a focused field scrolls to itself and not to
+     itself plus a screen-height margin, both with and without the script. */
+  :root { --stage-bar-h: 0px; }
   .stage-bar {
     position: fixed;
     inset: 0 auto 0 0;
@@ -860,3 +864,31 @@ body { padding-bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px
 .review-section:not([open]) > summary::after { transform: none; }
 .review-section > summary > h3 { margin: 0; }
 .review-section > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* PRE's Tools disclosure. Same tap-target rule as REVIEW's sections: the
+   summary row is what the rider hits, so it carries the height and the
+   chevron, and the heading inside keeps the document outline. */
+.tools-disclosure { border: 1px solid var(--border); border-radius: var(--radius); padding: 0 12px; }
+.tools-disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: var(--tap);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 0;
+}
+.tools-disclosure > summary::-webkit-details-marker { display: none; }
+.tools-disclosure > summary::after {
+  content: "";
+  width: 1rem; height: 1rem; margin-left: auto; flex: none;
+  background: currentColor;
+  -webkit-mask: url("icons/chevron-right.svg") center / contain no-repeat;
+  mask: url("icons/chevron-right.svg") center / contain no-repeat;
+  transform: rotate(90deg);
+}
+.tools-disclosure:not([open]) > summary::after { transform: none; }
+.tools-disclosure > summary > h2 { margin: 0; }
+.tools-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tools-sub { font-size: 0.8125rem; color: var(--text-dim); }

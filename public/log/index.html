@@ -195,9 +195,76 @@
       <div class="result" id="tire-result" aria-live="polite"></div>
     </section>
 
+    <!-- Suspension -->
+    <section class="panel" id="panel-suspension" role="tabpanel" hidden>
+      <h2>Suspension</h2>
+
+      <!-- Clicks are set before going out, so they belong to PRE. -->
+      <div data-stage="pre">
+      <h3>Fork</h3>
+      <div class="grid-3">
+        <label class="field">
+          <span>Preload</span>
+          <input type="text" id="fork-preload" autocomplete="off" placeholder="turns / lines" />
+        </label>
+        <label class="field">
+          <span>Compression</span>
+          <input type="text" id="fork-comp" autocomplete="off" placeholder="clicks" />
+        </label>
+        <label class="field">
+          <span>Rebound</span>
+          <input type="text" id="fork-reb" autocomplete="off" placeholder="clicks" />
+        </label>
+      </div>
+
+      <h3>Shock</h3>
+      <div class="grid-3">
+        <label class="field">
+          <span>Preload</span>
+          <input type="text" id="shock-preload" autocomplete="off" placeholder="turns" />
+        </label>
+        <label class="field">
+          <span>Compression</span>
+          <input type="text" id="shock-comp" autocomplete="off" placeholder="clicks" />
+        </label>
+        <label class="field">
+          <span>Rebound</span>
+          <input type="text" id="shock-reb" autocomplete="off" placeholder="clicks" />
+        </label>
+      </div>
+
+      </div>
+
+      <!-- Symptoms are observed after the outing, so they belong to POST, and
+           the button that reads them goes with them (C1). The ids and the
+           saved shape are unchanged. -->
+      <div data-stage="post">
+      <h3>Symptoms</h3>
+      <div class="symptoms" id="symptoms">
+        <label class="chip"><input type="checkbox" value="midcorner-push" /> <span>Mid-corner push</span></label>
+        <label class="chip"><input type="checkbox" value="harsh-bumps" /> <span>Harsh on bumps</span></label>
+        <label class="chip"><input type="checkbox" value="rear-spin" /> <span>Rear spin on exit</span></label>
+        <label class="chip"><input type="checkbox" value="chatter" /> <span>Chatter</span></label>
+        <label class="chip"><input type="checkbox" value="brake-dive" /> <span>Brake dive</span></label>
+        <label class="chip"><input type="checkbox" value="wallow" /> <span>Wallow</span></label>
+      </div>
+
+      <button type="button" class="btn-secondary" id="calc-suspension">Show recommendations</button>
+
+      <div class="result" id="suspension-result" aria-live="polite"></div>
+      </div>
+    </section>
+
     <!-- Calculators -->
     <section class="panel" id="panel-calculators" role="tabpanel" hidden>
-      <h2>Calculators</h2>
+      <!-- Collapsed by default. Pressures and clicks are entered every outing;
+           these four are reached a handful of times a weekend, so they sit
+           behind one labelled row instead of ahead of the routine entry. -->
+      <details class="tools-disclosure">
+      <summary>
+        <h2>Tools</h2>
+        <span class="tools-sub">Rolling circumference, sag, geometry deltas</span>
+      </summary>
       <p class="hint">Workflow: check sag at the start of the weekend to validate your spring rates and ride-height balance, then use Geometry Deltas between sessions to track direction and magnitude of changes from that baseline.</p>
 
       <section class="calc-tool" aria-labelledby="rolling-circ-heading">
@@ -361,66 +428,7 @@
 
         <div class="result" id="geometry-result" aria-live="polite"></div>
       </section>
-    </section>
-
-    <!-- Suspension -->
-    <section class="panel" id="panel-suspension" role="tabpanel" hidden>
-      <h2>Suspension</h2>
-
-      <!-- Clicks are set before going out, so they belong to PRE. -->
-      <div data-stage="pre">
-      <h3>Fork</h3>
-      <div class="grid-3">
-        <label class="field">
-          <span>Preload</span>
-          <input type="text" id="fork-preload" autocomplete="off" placeholder="turns / lines" />
-        </label>
-        <label class="field">
-          <span>Compression</span>
-          <input type="text" id="fork-comp" autocomplete="off" placeholder="clicks" />
-        </label>
-        <label class="field">
-          <span>Rebound</span>
-          <input type="text" id="fork-reb" autocomplete="off" placeholder="clicks" />
-        </label>
-      </div>
-
-      <h3>Shock</h3>
-      <div class="grid-3">
-        <label class="field">
-          <span>Preload</span>
-          <input type="text" id="shock-preload" autocomplete="off" placeholder="turns" />
-        </label>
-        <label class="field">
-          <span>Compression</span>
-          <input type="text" id="shock-comp" autocomplete="off" placeholder="clicks" />
-        </label>
-        <label class="field">
-          <span>Rebound</span>
-          <input type="text" id="shock-reb" autocomplete="off" placeholder="clicks" />
-        </label>
-      </div>
-
-      </div>
-
-      <!-- Symptoms are observed after the outing, so they belong to POST, and
-           the button that reads them goes with them (C1). The ids and the
-           saved shape are unchanged. -->
-      <div data-stage="post">
-      <h3>Symptoms</h3>
-      <div class="symptoms" id="symptoms">
-        <label class="chip"><input type="checkbox" value="midcorner-push" /> <span>Mid-corner push</span></label>
-        <label class="chip"><input type="checkbox" value="harsh-bumps" /> <span>Harsh on bumps</span></label>
-        <label class="chip"><input type="checkbox" value="rear-spin" /> <span>Rear spin on exit</span></label>
-        <label class="chip"><input type="checkbox" value="chatter" /> <span>Chatter</span></label>
-        <label class="chip"><input type="checkbox" value="brake-dive" /> <span>Brake dive</span></label>
-        <label class="chip"><input type="checkbox" value="wallow" /> <span>Wallow</span></label>
-      </div>
-
-      <button type="button" class="btn-secondary" id="calc-suspension">Show recommendations</button>
-
-      <div class="result" id="suspension-result" aria-live="polite"></div>
-      </div>
+      </details>
     </section>
 
     <!-- Rider Feedback (NOTES). The stage chip is labelled NOTES; the concept,
