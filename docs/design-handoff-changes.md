@@ -114,3 +114,46 @@ would have created half of that persistence outside the rider's control.
 **Recorded consequence:** unfinished entries are memory-only. A refresh, a
 crash, or the browser reclaiming the tab loses them. Draft recovery is
 follow-on work that matters for trackside use, where tabs get evicted.
+
+## PR 5 — save status line
+
+### 7. "Not saved yet" points at REVIEW, not at Finish
+
+**Handoff line 76:** the unsaved text is *"Not saved yet · finish the session
+to keep it"*.
+
+**Changed to:** *"Not saved yet · REVIEW saves it"*.
+
+**Why:** PR 4 moved the save off POST's Finish button, so the handoff's
+sentence now points at a control that no longer exists. The new wording matches
+the dock's own "Nothing is saved yet" sub-lines on LAPS and NOTES.
+
+### 8. A failed save names no cause
+
+**Handoff:** no text was specified for a failed write.
+
+**Decided:** *"Not saved · try Save again"*.
+
+**Why:** an earlier draft said "storage refused it". The app cannot distinguish
+a quota error from private-mode eviction from a write that silently did not
+land, so naming a cause states something unestablished. The rider is told the
+fact and the action.
+
+**Owner decision, this lane:** *"Use 'Not saved · try Save again' for an
+unsuccessful save. 'Storage refused it' is too specific unless that cause is
+established."*
+
+### 9. "Saved" requires read-back of the content, not just a write that returned
+
+**Handoff line 74:** Saved is shown when *"storage.js write succeeded and
+read-back matched"*.
+
+**Implemented as:** the write goes through `Store.put` under an id claimed from
+the save state, then the record is read straight back and compared by content,
+not only by id. An unverified write leaves the id **pending**, so the retry
+reconciles that record instead of writing a second copy of the same outing.
+
+**Owner decision, this lane:** *"If writing succeeds but verification fails,
+retry must reuse the pending record ID and reconcile that record—not create
+another copy. Verify the saved content as well as its ID before claiming
+success."*

@@ -803,6 +803,43 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   scroll-margin-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + 12px);
 }
 
+/* --- Save status (C7) ----------------------------------------------------- */
+
+/* One short line under the context header. It costs nothing when there is
+   nothing to say, because it is hidden outright rather than left empty.
+   It WRAPS at large text rather than being clamped to one line or shrunk:
+   the words are the whole point, and a status the rider cannot read is worse
+   than one that takes a second line. */
+.save-status {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--text-dim);
+  overflow-wrap: break-word;
+}
+.save-status::before {
+  content: "";
+  flex: none;
+  width: 1.125em; height: 1.125em;
+  margin-top: 0.1em;
+  background: currentColor;
+  -webkit-mask: url("icons/circle-dashed.svg") center / contain no-repeat;
+  mask: url("icons/circle-dashed.svg") center / contain no-repeat;
+}
+.save-status--good { color: var(--good); }
+.save-status--good::before {
+  -webkit-mask: url("icons/check.svg") center / contain no-repeat;
+  mask: url("icons/check.svg") center / contain no-repeat;
+}
+.save-status--warn { color: var(--warn); }
+.save-status--warn::before {
+  -webkit-mask: url("icons/triangle-alert.svg") center / contain no-repeat;
+  mask: url("icons/triangle-alert.svg") center / contain no-repeat;
+}
+
 /* --- The docked action (C4, C5, C13) ------------------------------------- */
 
 /* Sticky above the stage bar, so the forward action is always in thumb reach

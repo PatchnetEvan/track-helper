@@ -155,6 +155,7 @@
     }
     if (onReview) renderSaveDock();
     if (_stage === "post") renderPreReference();
+    renderSaveStatus();
     dock.hidden = !copy && !onReview;
 
     // The POST cell reads as locked only while it actually refuses.
@@ -205,6 +206,45 @@
         : "Keeps bike, track, tires and clicks";
     }
     renderCopyOrigin(nothingNew);
+  }
+
+  // --- Save status (C7) -----------------------------------------------------
+  //
+  // One line under the context header. It holds no state: every word comes
+  // from saveState, storage availability and whether the session has content,
+  // so it cannot claim something that did not happen.
+  function savedAtLabel(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    try {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch (e) {
+      return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    }
+  }
+
+  let _statusKey = null;
+  let _statusText = null;
+  function renderSaveStatus() {
+    const el = document.getElementById("save-status");
+    if (!el) return;
+    const status = SP.saveStatusFor({
+      storageReady: storageReady(),
+      failed: saveState.failed,
+      alreadySaved: saveState.alreadySaved,
+      savedAtLabel: savedAtLabel(saveState.lastSavedAt),
+      hasContent: hasSessionContent(),
+    });
+    // Written only when it actually changes. This is a polite live region:
+    // re-assigning it on every keystroke would make a screen reader announce
+    // the save status on every keystroke.
+    if (status.key === _statusKey && status.text === _statusText) return;
+    _statusKey = status.key;
+    _statusText = status.text;
+    el.hidden = status.key === "none";
+    el.textContent = status.text;
+    el.className = "save-status save-status--" + status.tone;
   }
 
   // Says, in the place the rider is about to tap, that this will become its
@@ -384,6 +424,7 @@
   // Start in a known state: PRE editable, POST locked, dock rendered for DAY.
   renderPreEditable();
   renderDock();
+  renderSaveStatus();
   watchDockLayout();
 
   const aboutOpen = document.getElementById("about-open");
@@ -468,6 +509,9 @@
       // just named the outing.
       if (_stage === "day") renderDock();
       else if (_stage === "review" || !wasDirty) renderSaveDock();
+      // Only the first edit after a save can change the status; later
+      // keystrokes cannot, and collectSession() on each one would be waste.
+      if (!wasDirty) renderSaveStatus();
     };
     const fromSessionField = (event) => {
       const el = event && event.target;
@@ -1042,6 +1086,7 @@
     renderPreEditable();
     _copiedFrom = null;
     saveState.reset();
+    renderSaveStatus();
   }
 
   // --- Session shape & form <-> object helpers ------------------------------
@@ -1213,6 +1258,30 @@
     el.hidden = storageReady();
   }
 
+  // Does this session describe an outing yet?
+  //
+  // Reads the SAVED session rather than the form, so the two can never
+  // disagree. setup.geometryConstants is excluded deliberately: those are the
+  // calculators' bike constants, and a wheelbase typed into the geometry tool
+  // must not make an otherwise empty session look like unsaved work. Rider
+  // Feedback text and tags ARE content - they are the rider's own words.
+  function sessionHasContent(s) {
+    if (!s) return false;
+    const setup = Object.assign({}, s.setup);
+    delete setup.geometryConstants;
+    const fb = s.riderFeedback || {};
+    return Object.values(setup).some(Boolean)
+      || Object.values(s.tires).some((v) => v !== "" && v !== false)
+      || Object.values(s.suspension).some((v) => (Array.isArray(v) ? v.length : Boolean(v)))
+      || Boolean(fb.text)
+      || (Array.isArray(fb.tags) && fb.tags.length > 0)
+      || Boolean(s.laps && s.laps.times && s.laps.times.length);
+  }
+
+  function hasSessionContent() {
+    try { return sessionHasContent(collectSession()); } catch (e) { return false; }
+  }
+
   function doSave() {
     const out = document.getElementById("save-result");
     if (!storageReady()) {
@@ -1220,21 +1289,29 @@
       return { ok: false };
     }
     const s = collectSession();
-    const hasAny = Object.values(s.setup).some(Boolean)
-      || Object.values(s.tires).some((v) => v !== "" && v !== false)
-      || Object.values(s.suspension).some((v) => (Array.isArray(v) ? v.length : Boolean(v)))
-      || (s.laps.times && s.laps.times.length);
-    if (!hasAny) {
+    // The id comes from the save state, so a retry after an unverified write
+    // reuses it and RECONCILES that record rather than writing a second copy.
+    s.id = saveState.claimSaveId(() => (window.Store ? Store.newId() : String(Date.now())));
+    if (!sessionHasContent(s)) {
       out.innerHTML = `<p>Nothing to save yet — fill in some details first.</p>`;
       return { ok: false };
     }
     try {
-      Store.add(s);
-      return { ok: true, out, id: s.id };
+      Store.put(s);
     } catch (e) {
-      out.innerHTML = `<p class="warn">Could not save: ${escapeHtml(e.message || String(e))}</p>`;
+      out.innerHTML = `<p class="warn">Not saved — try Save again.</p>`;
       return { ok: false };
     }
+    // Read it back and compare the CONTENT, not just the id. A throwing write
+    // is handled above; this catches one that reported success and did not
+    // land, or landed as something else.
+    let stored = null;
+    try { stored = Store.findById(s.id); } catch (e) { stored = null; }
+    if (!stored || JSON.stringify(stored) !== JSON.stringify(s)) {
+      out.innerHTML = `<p class="warn">Not saved — try Save again.</p>`;
+      return { ok: false, unverified: true };
+    }
+    return { ok: true, out, id: s.id, savedAt: s.savedAt };
   }
 
   // Every save goes through here so that the double-tap guard, the dirty flag
@@ -1256,7 +1333,7 @@
       // A failed or throwing save leaves the form dirty and every value in
       // place, so the rider can simply try again.
       if (r && r.ok) {
-        saveState.saveSucceeded(r.id);
+        saveState.saveSucceeded(r.id, r.savedAt || new Date().toISOString());
         // The copy now has its own record, so the warning has done its job.
         // It stays put until this point - a failed save leaves it showing.
         _copiedFrom = null;
@@ -1264,6 +1341,7 @@
         saveState.saveFailed();
       }
       renderSaveDock();
+      renderSaveStatus();
     }
     return r;
   }
@@ -1330,6 +1408,9 @@
     // The next outing has not been ridden yet, so POST locks again.
     stageState.reset();
     renderPreEditable();
+    // The new session is NOT saved. Nothing about the record just written
+    // carries forward into how this one is described.
+    renderSaveStatus();
     if (out) {
       out.innerHTML = advancingOnly
         ? `<p class="good">Ready for the next session — bike, track, tire brand, and suspension settings carried over. The saved session was not duplicated.</p>`
@@ -1437,8 +1518,10 @@
       renderPreEditable();
       // Copied values are new relative to storage: this draft has never been
       // saved, and saving it will create its own record.
+      // A copy is not saved, however saved the session it came from was.
       saveState.reset();
       saveState.markDirty();
+      renderSaveStatus();
       showTab("day");
     } else if (action === "delete") {
       const ok = window.confirm("Delete this saved session? This cannot be undone.");

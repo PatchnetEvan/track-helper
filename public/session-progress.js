@@ -66,28 +66,60 @@
   function createSaveState() {
     let dirty = false;
     let lastSavedId = null;
+    let lastSavedAt = null;
     let inFlight = false;
+    let failed = false;
+    let pendingId = null;
     return {
       get dirty() { return dirty; },
       get lastSavedId() { return lastSavedId; },
+      get lastSavedAt() { return lastSavedAt; },
       get inFlight() { return inFlight; },
+      get failed() { return failed; },
+      // The id of a save that has been attempted but not yet verified. The
+      // retry REUSES it, so a write that landed without being readable back
+      // is reconciled in place instead of being written a second time.
+      get pendingId() { return pendingId; },
       // Nothing new to write, and something already written.
       get alreadySaved() { return !dirty && lastSavedId !== null; },
-      markDirty() { dirty = true; return this; },
+      markDirty() { dirty = true; failed = false; return this; },
+      // Called at the start of an attempt: hands back the id to write under.
+      claimSaveId(makeId) {
+        if (!pendingId) pendingId = makeId();
+        return pendingId;
+      },
       // Returns the decision rather than acting on it, so the caller cannot
       // start a save the rules would refuse.
       beginSave() {
         if (inFlight) return { start: false, reason: "in-flight" };
         if (this.alreadySaved) return { start: false, reason: "already-saved" };
         inFlight = true;
+        failed = false;
         return { start: true };
       },
-      saveSucceeded(id) { inFlight = false; dirty = false; lastSavedId = id == null ? lastSavedId : id; return this; },
-      saveFailed() { inFlight = false; return this; },   // dirty and values untouched
+      saveSucceeded(id, at) {
+        inFlight = false;
+        dirty = false;
+        failed = false;
+        pendingId = null;              // verified, so nothing is pending
+        lastSavedId = id == null ? lastSavedId : id;
+        lastSavedAt = at == null ? lastSavedAt : at;
+        return this;
+      },
+      // dirty, values and pendingId all untouched: the entries survive and the
+      // retry reuses the same record.
+      saveFailed() { inFlight = false; failed = true; return this; },
       // After the carried-over fields are cleared the form is a new session:
-      // nothing saved, nothing new yet.
-      advanced() { dirty = false; lastSavedId = null; return this; },
-      reset() { dirty = false; lastSavedId = null; inFlight = false; return this; },
+      // nothing saved, nothing new, and NOTHING carried over from the record
+      // just written - including its pending id and its saved-at time.
+      advanced() {
+        dirty = false; lastSavedId = null; lastSavedAt = null;
+        failed = false; pendingId = null; return this;
+      },
+      reset() {
+        dirty = false; lastSavedId = null; lastSavedAt = null;
+        inFlight = false; failed = false; pendingId = null; return this;
+      },
     };
   }
 
@@ -135,8 +167,40 @@
     return list.some((c) => SESSION_FIELD_CONTAINERS.indexOf(c) !== -1);
   }
 
+  // --- Save status (C7) -----------------------------------------------------
+  //
+  // One line, derived entirely from save state. It holds no state of its own,
+  // so it cannot drift from what actually happened.
+  //
+  // "Saved on this device" is the one string here that must never be
+  // optimistic: it is shown only after a write that was read back and whose
+  // CONTENT matched. Everything this app cannot do - cloud, sync, queued
+  // uploads, draft recovery - is absent on purpose, not by omission. A test
+  // asserts this vocabulary never acquires those words.
+  function saveStatusFor(facts) {
+    const f = facts || {};
+    if (!f.storageReady) {
+      return { key: "blocked", tone: "warn",
+        text: "Not saving \u00b7 this browser blocks storage" };
+    }
+    if (f.failed) {
+      // Deliberately does NOT name a cause. A write can fail for reasons this
+      // app cannot distinguish, and guessing "storage refused it" would state
+      // something unestablished.
+      return { key: "failed", tone: "warn", text: "Not saved \u00b7 try Save again" };
+    }
+    if (f.alreadySaved && f.savedAtLabel) {
+      return { key: "saved", tone: "good",
+        text: "Saved on this device \u00b7 " + f.savedAtLabel };
+    }
+    if (f.hasContent) {
+      return { key: "unsaved", tone: "dim", text: "Not saved yet \u00b7 REVIEW saves it" };
+    }
+    return { key: "none", tone: "dim", text: "" };
+  }
+
   const api = {
-    nextLabelFrom, createStageState, createSaveState,
+    nextLabelFrom, createStageState, createSaveState, saveStatusFor,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

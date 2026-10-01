@@ -15,6 +15,10 @@ function setup() {
   const { document, win } = app;
   const type = (id, value) => {
     const el = document.getElementById(id);
+    // Declare it a real field: clearForm() finds what it clears by selector
+    // ('input[type="text"], textarea'), so an element that never claims to be
+    // an input is never cleared, and Reset would look broken when it is not.
+    el.tagName = "INPUT";
     el.value = value;
     el.dispatchEvent(new win.Event("input"));
   };
@@ -213,4 +217,205 @@ test("a copy is saved as a separate record, leaving the original alone", () => {
   assert.equal(all.length, 2, "two records");
   assert.equal(all.filter((s) => s.id === original.id).length, 1, "the original is untouched");
   assert.notEqual(all[1].id, original.id, "the copy has its own id");
+});
+
+// ---------------------------------------------------------------------------
+// 3. Save status through the real wiring (PR 5)
+// ---------------------------------------------------------------------------
+
+const status = (a) => a.el("save-status").textContent;
+const statusHidden = (a) => a.el("save-status").hidden;
+
+test("a fresh empty form says nothing", () => {
+  const a = setup();
+  assert.equal(statusHidden(a), true, "the line takes no space");
+  assert.equal(status(a), "");
+});
+
+test("entering something says it is not saved", () => {
+  const a = setup();
+  a.type("bike", "Panigale V4 #21");
+  assert.equal(statusHidden(a), false);
+  assert.match(status(a), /Not saved yet/);
+});
+
+test("a successful write says Saved on this device, with a time", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.el("save-session").click();
+  assert.equal(a.saved().length, 1);
+  assert.match(status(a), /^Saved on this device · \d/, status(a));
+});
+
+test("an edit after saving returns the status to unsaved", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.el("save-session").click();
+  assert.match(status(a), /Saved on this device/);
+  a.type("rear-pre", "28.0");
+  assert.match(status(a), /Not saved yet/, "a real session-field edit flips it back");
+});
+
+test("comparison selections and calculator inputs never change the status", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.el("save-session").click();
+  const saidSaved = status(a);
+  for (const id of ["compare-a", "compare-b", "tire-core-measured", "tire-core-size",
+                    "sag-front-l2", "sag-front-l3", "sag-rear-l2", "sag-rear-l3"]) {
+    a.type(id, "123");
+    assert.equal(status(a), saidSaved, `${id} must not change the save status`);
+  }
+});
+
+test("calculator working inputs alone do not make an empty session look unsaved", () => {
+  const a = setup();
+  for (const id of ["geo-wheelbase", "geo-design-rake", "sag-front-l1", "sag-rear-l1",
+                    "tire-core-measured", "tire-core-size"]) {
+    a.type(id, "100");
+  }
+  assert.equal(statusHidden(a), true, "still nothing to report");
+  assert.equal(status(a), "");
+});
+
+test("Rider Feedback text alone counts as content", () => {
+  const a = setup();
+  a.type("rider-feedback", "Front pushed on entry all session.");
+  assert.equal(statusHidden(a), false);
+  assert.match(status(a), /Not saved yet/);
+});
+
+test("a Rider Feedback tag alone counts as content", () => {
+  const a = setup();
+  const tag = a.dom.makeEl("", "INPUT");
+  tag.checked = true;
+  tag.value = "corner_entry";
+  a.el("feedback-tags").appendChild(tag);
+  tag.dispatchEvent(new a.win.Event("change"));
+  assert.equal(statusHidden(a), false, "a tag on its own is the rider saying something");
+  assert.match(status(a), /Not saved yet/);
+});
+
+// --- write failures -------------------------------------------------------
+
+test("a write that throws keeps every entry and asks for a retry", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.storage.failNextWrite = true;
+  a.el("save-session").click();
+  assert.equal(a.saved().length, 0, "nothing was written");
+  assert.equal(status(a), "Not saved · try Save again");
+  assert.equal(a.el("bike").value, "Panigale V4 #21", "entries retained");
+  assert.equal(a.el("front-pre").value, "30.5", "entries retained");
+  // and the retry works
+  a.el("save-session").click();
+  assert.equal(a.saved().length, 1);
+  assert.match(status(a), /Saved on this device/);
+});
+
+test("a SILENT write failure is caught by read-back and never claims Saved", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  // setItem reports success and stores nothing: the case a try/catch misses.
+  const real = a.storage.setItem.bind(a.storage);
+  a.storage.setItem = () => {};
+  a.el("save-session").click();
+  assert.equal(a.saved().length, 0, "nothing landed");
+  assert.equal(status(a), "Not saved · try Save again", "and Saved was never claimed");
+  a.storage.setItem = real;
+});
+
+test("write succeeds but read-back fails: the retry reconciles, it does not duplicate", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+
+  // The write lands; the verification read cannot see it.
+  const realFind = a.win.Store.findById;
+  a.win.Store.findById = () => null;
+  a.el("save-session").click();
+  const afterUnverified = a.saved();
+  assert.equal(afterUnverified.length, 1, "the record DID land");
+  assert.equal(status(a), "Not saved · try Save again", "but Saved was not claimed");
+  const pendingId = afterUnverified[0].id;
+
+  // Verification recovers; the retry must reuse the id and reconcile.
+  a.win.Store.findById = realFind;
+  a.el("save-session").click();
+  const after = a.saved();
+  assert.equal(after.length, 1, "ONE record, not two copies of the same outing");
+  assert.equal(after[0].id, pendingId, "the retry reused the pending id");
+  assert.match(status(a), /Saved on this device/);
+});
+
+test("content is verified, not just the id", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  // A record with the right id but the wrong content must not pass.
+  const realFind = a.win.Store.findById;
+  a.win.Store.findById = (id) => ({ id, setup: { bike: "someone else's bike" } });
+  a.el("save-session").click();
+  assert.equal(status(a), "Not saved · try Save again", "matching id is not enough");
+  a.win.Store.findById = realFind;
+});
+
+test("Save & next failing keeps entries, the label and the stage", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.storage.failNextWrite = true;
+  a.el("save-and-next").click();
+  assert.equal(a.saved().length, 0, "nothing written");
+  assert.equal(a.el("session-label").value, "Session 2", "label not advanced");
+  assert.equal(a.el("bike").value, "Panigale V4 #21", "entries retained");
+  assert.equal(a.el("front-pre").value, "30.5", "entries retained");
+  assert.equal(a.el("rear-pre").value, "", "nothing cleared");
+  assert.equal(status(a), "Not saved · try Save again");
+});
+
+// --- the four actions -----------------------------------------------------
+
+test("Save & next shows the NEW session as unsaved, never the predecessor's Saved", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.el("save-and-next").click();
+  assert.equal(a.saved().length, 1);
+  assert.match(status(a), /Not saved yet/,
+    "the carried-over bike and track are a new, unsaved session");
+  assert.ok(!/Saved on this device/.test(status(a)), "no inherited Saved");
+});
+
+test("advancing after a plain Save also reports the new session as unsaved", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.el("save-session").click();
+  assert.match(status(a), /Saved on this device/);
+  a.el("save-and-next").click();           // advances without a second write
+  assert.equal(a.saved().length, 1, "no duplicate");
+  assert.match(status(a), /Not saved yet/, "and the status moved on with the rider");
+});
+
+test("Reset clears the status completely", () => {
+  const a = setup();
+  a.fillSession();
+  a.go("review");
+  a.el("save-session").click();
+  a.el("reset-all").click();
+  assert.equal(statusHidden(a), true, "an empty form reports nothing");
+  assert.equal(status(a), "");
+});
+
+test("Copy to form reports the copy as unsaved", () => {
+  const a = setup();
+  copyASavedSessionInto(a);
+  assert.match(status(a), /Not saved yet/,
+    "a copy of a saved session is not itself saved");
 });

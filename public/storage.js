@@ -37,6 +37,24 @@
     writeAll(list);
   }
 
+  // Upsert by id. A save that wrote but could not be verified leaves a record
+  // behind, and the retry has to RECONCILE that record rather than add a
+  // second copy of the same outing - so the retry reuses the pending id and
+  // lands here, replacing in place when the id is already present.
+  function put(session) {
+    if (!session || !session.id) throw new Error("A session needs an id");
+    const list = readAll();
+    const at = list.findIndex((s) => s && s.id === session.id);
+    if (at === -1) list.push(session);
+    else list[at] = session;
+    writeAll(list);
+  }
+
+  // Reads one record straight back out of storage, for verifying a write.
+  function findById(id) {
+    return readAll().find((s) => s && s.id === id) || null;
+  }
+
   function remove(id) {
     writeAll(readAll().filter((s) => s.id !== id));
   }
@@ -83,7 +101,7 @@
   }
 
   window.Store = {
-    available, readAll, add, remove, clear, newId,
+    available, readAll, add, put, findById, remove, clear, newId,
     importPayload, exportPayload,
   };
 })();
