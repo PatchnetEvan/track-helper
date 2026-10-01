@@ -248,3 +248,93 @@ Still to be measured when access is restored:
 
 Every behaviour above is covered by tests driving the real `app.js`; what is
 unverified is how it *looks and measures* on a phone.
+
+---
+
+## Correction round 2 — the backup path (owner review of PR #78)
+
+The previous round told riders to export a backup when their history could not
+be read. That advice pointed at a path that did not work.
+
+`exportPayload()` read through the lenient `readAll()`, so:
+
+- **malformed history** exported as **zero sessions** — and the handler then
+  said *"No saved sessions to export yet"* about a device that still held them;
+- **mixed valid and invalid entries** exported the readable ones **silently**,
+  producing a partial backup that looked complete.
+
+Export now asks `Store.exportState()`, which gives one of three answers.
+
+| stored value | answer | what the rider gets |
+|---|---|---|
+| key absent, or a valid list | `ok` | a normal backup, `mototrack-YYYY-MM-DD.json` |
+| text readable, not a valid history | `raw` | a labelled recovery copy, `mototrack-RECOVERY-UNREADABLE-YYYY-MM-DD.txt`, containing the **original text byte for byte** |
+| `getItem` throws | `unreadable` | **no file**, and a message saying recovery failed |
+
+Mixed entries fall under `raw`, not `ok`: a list that is partly unreadable is
+preserved **whole**, rather than handed over as a backup of the good half.
+
+### The wording
+
+The recovery download is confirmed before it is written, and both the
+confirmation and the follow-up say what it is and is not:
+
+> This preserves a copy of what is stored. It does not repair the saved
+> sessions and it does not let saving work again — MotoTrack still will not
+> write over a history it cannot read.
+
+A read exception says so plainly, and claims nothing:
+
+> Recovery failed. The saved sessions on this device could not be read at all,
+> so no file was created and no backup exists. Nothing on this device was
+> changed.
+
+The save-failure message was updated to match, since it is what sends riders
+here: it now offers a *recovery copy* rather than a *backup*, and says it
+repairs nothing.
+
+### Bytes are preserved throughout
+
+Every case is read-only; each test asserts the stored value is unchanged after
+the attempt. The recovery copy is the original string, **not** re-serialised —
+a mutant that re-serialises it fails the suite.
+
+### Tests
+
+**108 pass / 0 fail** locally (99 → 108). Nine new, covering malformed JSON,
+mixed valid/invalid entries, a read exception, a declined download, and the
+healthy and genuinely-empty cases. The harness now captures downloads and
+dialogs so the file name, its exact contents and the wording can all be
+asserted.
+
+All five mutants killed, control green:
+
+| mutation | result |
+|---|---|
+| `exportState` falls back to the lenient read *(the reported bug)* | 4 fail |
+| recovery copy re-serialised instead of preserving bytes | 3 fail |
+| read exception writes an empty file anyway | 1 fail |
+| recovery wording drops "repairs nothing" | 1 fail |
+| read exception treated as empty history | 1 fail |
+| *(control — unmutated)* | **0 fail** |
+
+---
+
+## OUTSTANDING ACCEPTANCE ITEM — browser verification (unchanged)
+
+Still open, and **no further local-server retries will be made until the access
+problem is diagnosed**, per the owner's instruction. The last attempt was on
+port 8851 after the previous round: `curl` 200, Chrome
+`chrome-error://chromewebdata/`. Six ports, both hostnames, cause not
+established.
+
+To measure when access is restored:
+
+- [ ] **320px and 390px** — the status line at both phone widths
+- [ ] **Enlarged text** — 200% and 400%
+- [ ] **Status wrapping** — wraps rather than clipping or shrinking
+- [ ] **Save and failure states rendered** — including icon masks and tone colours
+- [ ] Added height of the line at each text size
+
+The export dialogs and recovery download are also unverified visually, though
+their contents and wording are asserted by the tests above.

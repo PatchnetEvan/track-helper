@@ -606,3 +606,121 @@ test("unchanged status text is not rewritten, so a live region is not re-announc
   }
   assert.equal(writes, 0, "the status said the same thing, so it was not rewritten");
 });
+
+// ---------------------------------------------------------------------------
+// 6. The backup path itself (PR 5 correction)
+//
+// The save path tells riders to export when their history cannot be read, so
+// export has to be honest about what it can and cannot do.
+// ---------------------------------------------------------------------------
+
+const exportBtn = (a) => a.el("export-history");
+
+test("a healthy history exports a complete backup", () => {
+  const a = setup();
+  seedHistory(a, 3);
+  const before = a.storage.getItem(KEY);
+  exportBtn(a).click();
+  assert.equal(a.downloads.length, 1, "one file");
+  const file = a.downloads[0];
+  assert.match(file.name, /^mototrack-\d{4}-\d{2}-\d{2}\.json$/, "a normal backup name");
+  const payload = JSON.parse(file.text);
+  assert.equal(payload.sessions.length, 3, "every session is in it");
+  assert.equal(a.storage.getItem(KEY), before, "storage untouched");
+});
+
+test("malformed history NEVER exports as an empty backup", () => {
+  const a = setup();
+  a.storage.setItem(KEY, '[{"id":"s_old_1","setup":{');
+  const before = a.storage.getItem(KEY);
+  exportBtn(a).click();
+  const normal = a.downloads.filter((d) => /^mototrack-\d{4}-\d{2}-\d{2}\.json$/.test(d.name || ""));
+  assert.equal(normal.length, 0, "no file pretending to be a backup");
+  assert.ok(!a.dialogs.alerts.some((m) => /no saved sessions to export/i.test(m)),
+    "and it does not claim the device is empty when it is not");
+  assert.equal(a.storage.getItem(KEY), before, "storage untouched");
+});
+
+test("malformed but readable text offers a labelled recovery copy, byte for byte", () => {
+  const a = setup();
+  const RAW = '[{"id":"s_old_1","setup":{"bike":"Panigale"}},{"id":"s_old_2",BROKEN';
+  a.storage.setItem(KEY, RAW);
+  exportBtn(a).click();
+  assert.equal(a.downloads.length, 1, "a file was offered");
+  const file = a.downloads[0];
+  assert.equal(file.text, RAW, "the ORIGINAL text, exactly, not re-serialised");
+  assert.match(file.name, /RECOVERY/, "named so it cannot be mistaken for a backup");
+  assert.ok(!/\.json$/.test(file.name), "and not named like an importable backup");
+  assert.equal(a.storage.getItem(KEY), RAW, "storage untouched");
+});
+
+test("MIXED valid and invalid entries do not export a silent partial backup", () => {
+  const a = setup();
+  const good = { id: "s_old_1", savedAt: "2026-09-21T10:00:00.000Z", setup: { bike: "Panigale" } };
+  const RAW = JSON.stringify([good, null, "junk", { id: "s_old_2", setup: { bike: "RSV4" } }]);
+  a.storage.setItem(KEY, RAW);
+  exportBtn(a).click();
+  const file = a.downloads[0];
+  assert.ok(file, "something was offered");
+  assert.match(file.name, /RECOVERY/, "as a recovery copy, not a backup");
+  assert.equal(file.text, RAW, "preserving ALL of it, including the entries it cannot read");
+  // The partial-backup failure this guards against:
+  assert.ok(!/^mototrack-\d{4}-\d{2}-\d{2}\.json$/.test(file.name),
+    "a partial list must never be handed over as a normal backup");
+  assert.equal(a.storage.getItem(KEY), RAW, "storage untouched");
+});
+
+test("the recovery copy explains it preserves a copy and repairs nothing", () => {
+  const a = setup();
+  a.storage.setItem(KEY, "{broken");
+  exportBtn(a).click();
+  const said = a.dialogs.alerts.concat(a.dialogs.confirms).join("\n");
+  assert.match(said, /NOT a usable backup|not a usable backup/, "says it is not a backup");
+  assert.match(said, /does not repair/i, "says it does not repair the history");
+  assert.match(said, /does not let saving work again|make saving work again/i,
+    "and says it does not unblock saving");
+});
+
+test("declining the recovery download writes no file", () => {
+  const a = setup();
+  a.storage.setItem(KEY, "{broken");
+  a.dialogs.confirmAnswer = false;
+  exportBtn(a).click();
+  assert.equal(a.downloads.length, 0, "nothing downloaded");
+});
+
+test("a read exception reports recovery FAILED and creates no file", () => {
+  const a = setup();
+  seedHistory(a, 2);
+  const before = a.storage.getItem(KEY);
+  // Storage refuses to hand the text over at all.
+  const realGet = a.storage.getItem.bind(a.storage);
+  a.storage.getItem = (k) => { if (k === KEY) throw new Error("SecurityError"); return realGet(k); };
+  exportBtn(a).click();
+  assert.equal(a.downloads.length, 0, "no file was created");
+  const said = a.dialogs.alerts.join("\n");
+  assert.match(said, /Recovery failed/i, "it says recovery failed");
+  assert.match(said, /no backup exists/i, "and does not claim a backup exists");
+  a.storage.getItem = realGet;
+  assert.equal(a.storage.getItem(KEY), before, "storage untouched");
+});
+
+test("an empty device still says there is nothing to export", () => {
+  const a = setup();
+  a.storage.removeItem(KEY);
+  exportBtn(a).click();
+  assert.equal(a.downloads.length, 0);
+  assert.ok(a.dialogs.alerts.some((m) => /no saved sessions to export/i.test(m)),
+    "which is true here, unlike the malformed case");
+});
+
+test("the save-failure message points at what export actually offers", () => {
+  const a = setup();
+  a.storage.setItem(KEY, "{broken");
+  a.fillSession();
+  a.go("review");
+  a.el("save-session").click();
+  const msg = a.el("save-result").innerHTML;
+  assert.match(msg, /recovery copy/i, "it offers a recovery copy, not a backup");
+  assert.match(msg, /does not repair/i, "and is clear that it repairs nothing");
+});

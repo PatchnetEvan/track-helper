@@ -51,6 +51,11 @@ export function bootApp() {
     return el;
   };
 
+  // Downloads are captured rather than performed, so a test can assert what
+  // would have reached the rider's phone.
+  const downloads = [];
+  const dialogs = { alerts: [], confirms: [], confirmAnswer: true };
+
   const win = {
     document,
     localStorage: storage,
@@ -58,7 +63,16 @@ export function bootApp() {
     scrollTo() {},
     addEventListener() {},
     matchMedia: (q) => ({ matches: false, media: q, addEventListener() {}, addListener() {} }),
-    confirm: () => true,
+    confirm: (msg) => { dialogs.confirms.push(String(msg)); return dialogs.confirmAnswer; },
+    alert: (msg) => { dialogs.alerts.push(String(msg)); },
+    Blob: class { constructor(parts, opts) { this.parts = parts; this.type = opts && opts.type; } },
+    URL: {
+      createObjectURL(blob) {
+        downloads.push({ text: blob.parts.join(""), type: blob.type, name: null });
+        return "blob:captured-" + downloads.length;
+      },
+      revokeObjectURL() {},
+    },
     Event: class { constructor(type) { this.type = type; } },
     getComputedStyle: () => ({ getPropertyValue: () => "" }),
   };
@@ -66,6 +80,9 @@ export function bootApp() {
 
   const g = {
     window: win, document, localStorage: storage,
+    // Referenced bare by app.js's download path, so they have to be in scope
+    // and not only on `window`.
+    Blob: win.Blob, URL: win.URL,
     ResizeObserver: undefined,
     Event: win.Event,
     console,
@@ -96,7 +113,18 @@ export function bootApp() {
   g.SessionProgress = win.SessionProgress;
   runIn(read("public", "app.js"), "app.js");
 
-  return { dom, document, win, storage, main, stageCells, field, bar,
+  // The anchor's download name is set after createObjectURL, so it is linked
+  // back to the most recent capture when the link is clicked.
+  const realCreate = document.createElement;
+  document.createElement = (tag) => {
+    const el = realCreate(tag);
+    if (String(tag).toUpperCase() === "A") {
+      el.click = () => { if (downloads.length) downloads[downloads.length - 1].name = el.download; };
+    }
+    return el;
+  };
+
+  return { dom, document, win, storage, main, stageCells, field, bar, downloads, dialogs,
            STORAGE_KEY: "mototrack.sessions.v1",
            saved: () => JSON.parse(storage.getItem("mototrack.sessions.v1") || "[]") };
 }

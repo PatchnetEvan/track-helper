@@ -148,8 +148,46 @@
     };
   }
 
+  // What can honestly be exported right now.
+  //
+  // exportPayload() reads leniently, which is right for a healthy history and
+  // wrong for a damaged one: malformed text would export as zero sessions and
+  // a list with some junk in it would export the good entries SILENTLY, so a
+  // rider would keep a partial backup believing it was complete. Worse, the
+  // caller would then say "no saved sessions to export" about a device that
+  // still held them.
+  //
+  // So the export path asks this instead, and gets one of three answers:
+  //
+  //   ok         - a normal backup; `payload` is complete
+  //   raw        - the stored TEXT is readable but is not a valid history.
+  //                Nothing can be parsed out of it safely, but the text itself
+  //                can be preserved verbatim as a recovery copy.
+  //   unreadable - storage itself refused to hand the text over. There is
+  //                nothing to write to a file, and no backup exists.
+  //
+  // Read-only in every case: the stored bytes are never touched.
+  function exportState() {
+    let raw;
+    try {
+      raw = localStorage.getItem(KEY);
+    } catch (e) {
+      return { kind: "unreadable" };
+    }
+    if (raw === null || raw === undefined) {
+      return { kind: "ok", payload: { app: APP, version: VERSION, exportedAt: new Date().toISOString(), sessions: [] } };
+    }
+    let sessions;
+    try {
+      sessions = readAllForWrite();
+    } catch (e) {
+      return { kind: "raw", raw: raw };
+    }
+    return { kind: "ok", payload: { app: APP, version: VERSION, exportedAt: new Date().toISOString(), sessions: sessions } };
+  }
+
   window.Store = {
     available, readAll, readAllForWrite, add, put, findById, remove, clear, newId,
-    importPayload, exportPayload, UNREADABLE,
+    importPayload, exportPayload, exportState, UNREADABLE,
   };
 })();

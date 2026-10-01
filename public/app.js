@@ -1308,7 +1308,7 @@
       // rather than inviting the rider to tap Save until it works.
       const unreadable = window.Store && Store.UNREADABLE && e && e.message === Store.UNREADABLE;
       out.innerHTML = unreadable
-        ? `<p class="warn">Not saved. The sessions already on this device could not be read, and MotoTrack will not replace them. Export a backup from About before saving again.</p>`
+        ? `<p class="warn">Not saved. The sessions already on this device could not be read, and MotoTrack will not replace them. Export from About to download a recovery copy of what is stored \u2014 that keeps a copy, but it does not repair the saved sessions or make saving work again.</p>`
         : `<p class="warn">Not saved — try Save again.</p>`;
       return { ok: false };
     }
@@ -1669,20 +1669,63 @@
   });
 
   // --- Export / Import / Clear ---------------------------------------------
-  document.getElementById("export-history").addEventListener("click", () => {
-    if (!storageReady()) { window.alert("Storage unavailable in this browser."); return; }
-    const payload = Store.exportPayload();
-    if (!payload.sessions.length) { window.alert("No saved sessions to export yet."); return; }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  function downloadBlob(text, type, filename) {
+    const blob = new Blob([text], { type: type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `mototrack-${stamp}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Export has three honest outcomes, not one.
+  //
+  // A damaged history used to export as zero sessions, and the rider was told
+  // "no saved sessions to export yet" about a device that still held them. A
+  // list with some junk in it exported the readable entries silently, so the
+  // backup was partial and looked complete. Neither is acceptable when the
+  // save path is telling riders to come here first.
+  document.getElementById("export-history").addEventListener("click", () => {
+    if (!storageReady()) { window.alert("Storage unavailable in this browser."); return; }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const state = Store.exportState();
+
+    if (state.kind === "unreadable") {
+      // Nothing was handed over, so there is nothing to put in a file. Do not
+      // write one: an empty download here would read as a successful backup.
+      window.alert(
+        "Recovery failed. The saved sessions on this device could not be read at all, "
+        + "so no file was created and no backup exists. Nothing on this device was changed."
+      );
+      return;
+    }
+
+    if (state.kind === "raw") {
+      // The TEXT is readable, it just is not a valid history. Preserve it
+      // exactly - byte for byte, not re-serialised - under a name that cannot
+      // be mistaken for a working backup.
+      const ok = window.confirm(
+        "The saved sessions on this device are damaged and cannot be read as sessions.\n\n"
+        + "MotoTrack can download the stored text exactly as it is, as a recovery copy. "
+        + "It is NOT a usable backup and it cannot be imported.\n\n"
+        + "Download the recovery copy?"
+      );
+      if (!ok) return;
+      downloadBlob(state.raw, "text/plain", `mototrack-RECOVERY-UNREADABLE-${stamp}.txt`);
+      window.alert(
+        "Recovery copy downloaded. Keep it somewhere safe.\n\n"
+        + "This preserves a copy of what is stored. It does not repair the saved sessions "
+        + "and it does not let saving work again \u2014 MotoTrack still will not write over "
+        + "a history it cannot read."
+      );
+      return;
+    }
+
+    if (!state.payload.sessions.length) { window.alert("No saved sessions to export yet."); return; }
+    downloadBlob(JSON.stringify(state.payload, null, 2), "application/json", `mototrack-${stamp}.json`);
   });
 
   document.getElementById("import-history").addEventListener("change", (e) => {
