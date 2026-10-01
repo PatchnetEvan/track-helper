@@ -247,9 +247,12 @@
   function stepperUsable(id) {
     const el = document.getElementById(id);
     if (!el || el.readOnly || el.disabled) return false;
-    const raw = (el.value || "").trim();
-    if (raw === "") return false;               // blank stays blank
-    return Number.isFinite(Number(raw));        // and text we cannot read is left alone
+    const step = STEPPER_STEPS[id];
+    if (!step) return false;
+    // The SAME rule stepValue applies. Number() alone was too generous: it
+    // reads "1e-2" and "0x1A" as numbers this stepper cannot describe, so the
+    // buttons offered to step values they would then have mangled.
+    return SP.canStep(el.value, step);
   }
 
   function syncSteppers() {

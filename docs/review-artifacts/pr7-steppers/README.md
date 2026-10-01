@@ -160,3 +160,75 @@ here is a headless desktop viewport: it cannot tell whether a 64px button is
 comfortable in gloves, nor whether the on-screen keyboard stays down across
 repeated taps on a real device. That is the check this PR most needs, because
 avoiding the keyboard is its entire purpose.
+
+---
+
+## Correction round — the numeric-input contract
+
+`Number()` is far more generous than this stepper can be, and availability was
+asking `Number.isFinite()` while the arithmetic asked `decimalsOf()`. Those two
+disagree, and the gap was not theoretical. At `57a5978`:
+
+| typed | `Number()` | stepped by +0.5 | what went wrong |
+|---|---|---|---|
+| `1e-2` | 0.01 | **`0.5`** | the rider's 0.01 silently discarded — no decimals to count |
+| `0x1A` | 26 | **`26.5`** | a hex entry rewritten as decimal |
+| `0b101` | 5 | **`5.5`** | same |
+| `30.123456789012345678` | 30.123456789012344 | **`30.623456789012344359`** | invented digits from unsafe scaling |
+| `999999999999999999999` | 1e21 | **`"1e+21"`** | wrote a value the parser would then refuse |
+
+### One rule, shared
+
+`stepPlan(text, step)` is now the single decision, used by `stepValue` **and**
+by the buttons through `canStep()`. A button can no longer look available while
+the arithmetic would mangle the value.
+
+It accepts **ordinary decimal notation only** —
+`/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/` — and then refuses anything it cannot hold
+exactly:
+
+- more than 12 decimal places (`toFixed` throws above 100, and scaled
+  arithmetic stops being exact long before);
+- a scaled value, step, sum or difference outside `Number.MAX_SAFE_INTEGER`;
+- a result that is not finite, or whose text would not itself be ordinary
+  decimal notation.
+
+Unsupported text is **left exactly as typed**, both buttons are disabled, and
+nothing is marked dirty or written. Direct typing and existing saved values are
+untouched — the parser governs the stepper, never the field.
+
+### Tests
+
+**214 pass / 0 fail** (195 → 214). Nineteen new, covering all four required
+regressions plus a consistency test asserting button availability and the step
+rule can never disagree across a mixed set of inputs.
+
+Mutants killed: the notation check removed — the reported bug — (9 fail), the
+regex widened to accept exponents (5), the decimal-places ceiling removed (1),
+and both safe-integer guards removed together (4).
+
+**Two notes on method.** Removing *one* of the two safe-integer guards survives,
+because the other still catches it; the honest mutant removes both, and that
+one fails. And the output re-check is an **equivalent mutant** — `toFixed` only
+returns exponential notation at magnitudes the safe-integer guards have already
+refused, so it is unreachable defence in depth. It is kept and not counted as
+covered.
+
+A case was chosen specifically to isolate the safe-integer guard:
+`999999999999.9999` has four decimals (inside the ceiling) and an
+ordinary-notation result, but scaled by 10⁴ it lands beyond
+`Number.MAX_SAFE_INTEGER`.
+
+### Browser verification
+
+| typed | buttons | value after pressing both | exception |
+|---|---|---|---|
+| `1e-2`, `1E3`, `0x1A`, `0b101` | disabled | unchanged | none |
+| `30.123456789012345678` | disabled | unchanged | none |
+| `999999999999999999999` | disabled | unchanged | none |
+| `999999999999.9999` | disabled | unchanged | none |
+| `1,500`, `Infinity` | disabled | unchanged | none |
+
+`30.25` → `30.75` → `30.25` still round-trips, and pressing a disabled stepper
+on an unsteppable value left the kept draft byte-identical with the status
+still reading "draft kept on this device".

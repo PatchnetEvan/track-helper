@@ -341,3 +341,151 @@ test("a refused step does not steal focus either", () => {
   assert.equal(a.el("front-pre").value, "0");
   assert.equal(a.document.activeElement, before, "nothing was focused by a no-op");
 });
+
+// ---------------------------------------------------------------------------
+// The numeric-input contract: one rule for availability and for stepping
+// ---------------------------------------------------------------------------
+
+// Number() reads all of these; this stepper must not.
+const UNSUPPORTED = [
+  ["scientific, negative exponent", "1e-2"],
+  ["scientific, capital E", "1E3"],
+  ["scientific with a sign", "2.5e+3"],
+  ["hexadecimal", "0x1A"],
+  ["binary", "0b101"],
+  ["octal", "0o17"],
+  ["Infinity", "Infinity"],
+  ["a thousands separator", "1,500"],
+  ["trailing unit", "30psi"],
+  ["excessive decimal precision", "30.123456789012345678"],
+  ["an unsafe magnitude", "999999999999999999999"],
+];
+
+for (const [label, text] of UNSUPPORTED) {
+  test(`unsupported format is left untouched and cannot be stepped: ${label}`, () => {
+    assert.equal(stepValue(text, "0.5", 1), null, `${text} must not step up`);
+    assert.equal(stepValue(text, "0.5", -1), null, `${text} must not step down`);
+
+    const a = setup();
+    a.type("front-pre", text);
+    assert.equal(a.btn("front-pre", 1).disabled, true, "the + button is disabled");
+    assert.equal(a.btn("front-pre", -1).disabled, true, "the - button is disabled");
+    a.btn("front-pre", 1).click();
+    a.btn("front-pre", -1).click();
+    assert.equal(a.el("front-pre").value, text, "and the text is exactly as it was typed");
+  });
+}
+
+test("scientific notation is never silently rounded away", () => {
+  // The defect: Number("1e-2") is 0.01 but it carries no decimal places, so
+  // stepping produced "0.5" - the rider's 0.01 discarded without a word.
+  assert.equal(stepValue("1e-2", "0.5", 1), null);
+  const a = setup();
+  a.type("rear-pre", "1e-2");
+  a.btn("rear-pre", 1).click();
+  assert.equal(a.el("rear-pre").value, "1e-2", "not 0.5");
+});
+
+test("hexadecimal is never rewritten as decimal", () => {
+  // The defect: "0x1A" stepped to "26.5".
+  assert.equal(stepValue("0x1A", "1", 1), null);
+  const a = setup();
+  a.type("fork-comp", "0x1A");
+  a.btn("fork-comp", 1).click();
+  assert.equal(a.el("fork-comp").value, "0x1A", "not 26.5");
+});
+
+test("excessive precision and unsafe magnitudes throw nothing and change nothing", () => {
+  for (const text of ["30.123456789012345678", "999999999999999999999",
+                      "0.0000000000000001", "12345678901234567890.5"]) {
+    for (const dir of [1, -1]) {
+      assert.doesNotThrow(() => stepValue(text, "0.5", dir), `${text} must not throw`);
+      assert.equal(stepValue(text, "0.5", dir), null, `${text} must not step`);
+    }
+  }
+});
+
+test("an unsteppable value marks nothing dirty and schedules no autosave", () => {
+  const a = setup();
+  a.storage.setItem("mototrack.autosave", "true");
+  const b = bootApp({ storage: a.storage });
+  const bEl = (id) => b.document.getElementById(id);
+  const bBtn = (id, dir) => b.document.querySelectorAll(".stepper-btn")
+    .find((x) => x.dataset.stepFor === id && Number(x.dataset.stepDir) === dir);
+  // Something saveable exists, so a draft is being kept.
+  bEl("bike").tagName = "INPUT"; bEl("bike").value = "Panigale";
+  bEl("bike").dispatchEvent(new b.win.Event("input"));
+  bEl("front-pre").tagName = "INPUT"; bEl("front-pre").value = "1e-2";
+  bEl("front-pre").dispatchEvent(new b.win.Event("input"));
+  b.clock.flush();
+  const before = b.storage.getItem("mototrack.draft.v1");
+  const pendingBefore = b.clock.pending();
+
+  bBtn("front-pre", 1).click();
+  bBtn("front-pre", -1).click();
+
+  assert.equal(bEl("front-pre").value, "1e-2", "untouched");
+  assert.equal(b.clock.pending(), pendingBefore, "no draft write was scheduled");
+  b.clock.flush();
+  assert.equal(b.storage.getItem("mototrack.draft.v1"), before, "and nothing was written");
+});
+
+test("ordinary decimal notation still works, and stays reversible", () => {
+  for (const text of ["30", "30.25", "30.5", "0", "0.5", "-2", ".5", "8", "8.5", "120.75"]) {
+    assert.equal(typeof stepValue(text, "0.5", 1), "string", `${text} is steppable`);
+  }
+  assert.equal(stepValue("30.25", "0.5", 1), "30.75");
+  assert.equal(stepValue("30.75", "0.5", -1), "30.25");
+  assert.equal(stepValue(stepValue("30.25", "0.5", 1), "0.5", -1), "30.25",
+    "30.25 to 30.75 and back again");
+
+  const a = setup();
+  a.type("front-pre", "30.25");
+  a.btn("front-pre", 1).click();
+  assert.equal(a.el("front-pre").value, "30.75");
+  a.btn("front-pre", -1).click();
+  assert.equal(a.el("front-pre").value, "30.25", "and the same round trip in the app");
+});
+
+test("the stepper never writes a value it would then refuse to read", () => {
+  // Whatever a step produces must itself be steppable, or the rider could be
+  // left with a field the buttons will not touch.
+  for (const text of ["30", "30.25", "0.5", "-2", "999999999", "0.000001"]) {
+    for (const step of ["0.5", "1"]) {
+      const next = stepValue(text, step, 1);
+      if (next === null) continue;
+      assert.ok(typeof stepValue(next, step, 1) === "string" || Number(next) >= 0,
+        `${text} -> ${next} must remain readable`);
+      assert.match(next, /^[+-]?(\d+(\.\d*)?|\.\d+)$/, `${next} is ordinary decimal notation`);
+    }
+  }
+});
+
+test("button availability and the step rule can never disagree", () => {
+  const a = setup();
+  for (const text of ["30", "1e-2", "0x1A", "", "abc", "30.25", "-2",
+                      "30.123456789012345678", "999999999999999999999", ".5"]) {
+    a.type("front-pre", text);
+    const enabled = !a.btn("front-pre", 1).disabled;
+    const steppable = stepValue(text, "0.5", 1) !== null || stepValue(text, "0.5", -1) !== null;
+    assert.equal(enabled, steppable,
+      `${JSON.stringify(text)}: button ${enabled ? "enabled" : "disabled"} but rule says ${steppable}`);
+  }
+});
+
+test("a magnitude that is unsafe only once scaled is refused", () => {
+  // Chosen to isolate the safe-integer guard: four decimals (inside the
+  // ceiling) and an ordinary-notation result, but 999999999999.9999 x 10^4
+  // lands beyond Number.MAX_SAFE_INTEGER, where the arithmetic starts
+  // inventing digits.
+  for (const text of ["999999999999.9999", "9007199254740.993"]) {
+    assert.doesNotThrow(() => stepValue(text, "0.5", 1));
+    assert.equal(stepValue(text, "0.5", 1), null, `${text} cannot be stepped exactly`);
+    assert.equal(stepValue(text, "0.5", -1), null);
+    const a = setup();
+    a.type("front-pre", text);
+    assert.equal(a.btn("front-pre", 1).disabled, true, "and its buttons are disabled");
+    a.btn("front-pre", 1).click();
+    assert.equal(a.el("front-pre").value, text, "and the value is untouched");
+  }
+});

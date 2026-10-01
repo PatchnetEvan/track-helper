@@ -144,5 +144,89 @@
   "restored_value": "30.5",
   "restored_stepper_usable": true,
   "calc_runs": true
+ },
+ "numericContract": {
+  "scientific": {
+   "after": "1e-2",
+   "before": "1e-2",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "scientific-caps": {
+   "after": "1E3",
+   "before": "1E3",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "hex": {
+   "after": "0x1A",
+   "before": "0x1A",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "binary": {
+   "after": "0b101",
+   "before": "0b101",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "excess-precision": {
+   "after": "30.123456789012345678",
+   "before": "30.123456789012345678",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "unsafe-magnitude": {
+   "after": "999999999999999999999",
+   "before": "999999999999999999999",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "unsafe-when-scaled": {
+   "after": "999999999999.9999",
+   "before": "999999999999.9999",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "thousands-separator": {
+   "after": "1,500",
+   "before": "1,500",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "infinity": {
+   "after": "Infinity",
+   "before": "Infinity",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "roundTrip": {
+   "up": "30.75",
+   "back": "30.25"
+  },
+  "autosaveUndisturbed": {
+   "unchanged": true,
+   "fieldKept": "1e-2",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  },
+  "consoleErrors": 0
  }
 }

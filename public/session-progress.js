@@ -351,34 +351,85 @@
   // never 30.8. A fractional click is respected the same way - 8.5 + 1 is 9.5,
   // not 9 - because rounding someone's entry into a shape the app prefers is
   // not the app's decision to make.
+  // ORDINARY DECIMAL NOTATION ONLY.
+  //
+  // Number() is far more generous than this stepper can be: it reads "1e-2",
+  // "0x1A" and "0b101" happily, and the decimal count cannot describe any of
+  // them. Stepping "1e-2" by 0.5 used to produce "0.5" - the rider's 0.01
+  // silently discarded - and "0x1A" came back as "26.5", a hex entry rewritten
+  // as decimal. So the parser is deliberately narrow, and ONE rule decides both
+  // whether a button is available and what a step produces.
+  const ORDINARY_DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+  // toFixed throws above 100 places, and scaled arithmetic stops being exact
+  // long before that. Anything beyond this is refused rather than approximated.
+  const MAX_STEP_DECIMALS = 12;
+
   function decimalsOf(text) {
     const m = String(text).match(/\.(\d+)\s*$/);
     return m ? m[1].length : 0;
+  }
+
+  // The shared eligibility rule. Returns the arithmetic plan, or null when this
+  // text is not something the stepper may touch - in which case the caller
+  // leaves it exactly as the rider typed it and offers no buttons.
+  function stepPlan(currentText, step) {
+    const raw = String(currentText == null ? "" : currentText).trim();
+    if (raw === "") return null;                       // blank stays blank
+    if (!ORDINARY_DECIMAL.test(raw)) return null;      // scientific, hex, words
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    const stepNum = Number(step);
+    if (!Number.isFinite(stepNum)) return null;
+
+    const places = Math.max(decimalsOf(raw), decimalsOf(step));
+    if (places > MAX_STEP_DECIMALS) return null;       // cannot be held exactly
+    const scale = Math.pow(10, places);
+    if (!Number.isFinite(scale)) return null;
+
+    const scaledValue = Math.round(value * scale);
+    const scaledStep = Math.round(stepNum * scale);
+    // Beyond the safe-integer range the scaled arithmetic silently invents
+    // digits, so a magnitude that cannot be represented is refused outright
+    // rather than stepped approximately.
+    if (!Number.isSafeInteger(scaledValue) || !Number.isSafeInteger(scaledStep)) return null;
+    if (!Number.isSafeInteger(scaledValue + scaledStep)
+        || !Number.isSafeInteger(scaledValue - scaledStep)) return null;
+    return { places: places, scale: scale, scaledValue: scaledValue, scaledStep: scaledStep };
+  }
+
+  // Is this field steppable at all? The buttons and the handler both ask this,
+  // so a button can never look available while the handler refuses - or worse,
+  // look available and then mangle the value.
+  function canStep(currentText, step) {
+    return stepPlan(currentText, step) !== null;
   }
 
   // The rule, as a pure function. Returns the new text, or null when there is
   // no legitimate step to take - blank, not a number, or a decrement that
   // would cross below zero.
   function stepValue(currentText, step, direction) {
-    const raw = String(currentText == null ? "" : currentText).trim();
-    if (raw === "") return null;                 // blank stays blank
-    const value = Number(raw);
-    if (!Number.isFinite(value)) return null;    // leave text we cannot read alone
-    const places = Math.max(decimalsOf(raw), decimalsOf(step));
-    const scale = Math.pow(10, places);
-    const scaled = Math.round(value * scale) + (direction < 0 ? -1 : 1) * Math.round(Number(step) * scale);
+    const plan = stepPlan(currentText, step);
+    if (plan === null) return null;              // same rule the buttons use
+    const scaled = plan.scaledValue + (direction < 0 ? -1 : 1) * plan.scaledStep;
     // An ENTRY guard, not an opinion about tyre pressure: a decrement may not
     // take a field below zero. It does not clamp and it never rewrites what
     // the rider typed - a value already below zero simply refuses to go lower,
     // and increments are always allowed.
     if (direction < 0 && scaled < 0) return null;
-    const next = scaled / scale;
-    return next.toFixed(places);
+    const next = scaled / plan.scale;
+    if (!Number.isFinite(next)) return null;
+    const text = next.toFixed(plan.places);
+    // A last check that what we are about to write is something this same
+    // parser would accept. toFixed can return exponential notation for very
+    // large magnitudes, and writing a value the stepper then refuses to read
+    // would be a trap of our own making.
+    return ORDINARY_DECIMAL.test(text) ? text : null;
   }
 
   const api = {
     nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
-    footerDraftNote, stepValue, decimalsOf,
+    footerDraftNote, stepValue, decimalsOf, canStep, stepPlan,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;
