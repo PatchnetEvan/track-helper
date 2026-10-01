@@ -164,28 +164,64 @@
       <!-- Split by stage (C1). The ids, the inputs and the saved-session shape
            are untouched; only which stage shows them changes. -->
       <div class="grid-2" data-stage="pre">
-        <label class="field">
-          <span>Front pre-session PSI</span>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="front-pre"><span>Front pre-session PSI</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="-1" aria-label="Decrease front pre-session PSI by 0.5 PSI">&minus;</button>
           <input type="text" id="front-pre" inputmode="decimal" placeholder="e.g. 30" />
-        </label>
-        <label class="field">
-          <span>Rear pre-session PSI</span>
+          <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="1" aria-label="Increase front pre-session PSI by 0.5 PSI">+</button>
+          </div>
+        </div>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="rear-pre"><span>Rear pre-session PSI</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="-1" aria-label="Decrease rear pre-session PSI by 0.5 PSI">&minus;</button>
           <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 28" />
-        </label>
+          <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="1" aria-label="Increase rear pre-session PSI by 0.5 PSI">+</button>
+          </div>
+        </div>
       </div>
       <div class="pre-ref" data-stage="post">
         <p class="pre-ref-line">Went out on <strong id="pre-ref-front">—</strong> front · <strong id="pre-ref-rear">—</strong> rear</p>
         <button type="button" class="btn-secondary" id="correct-pre">Correct PRE</button>
       </div>
       <div class="grid-2" data-stage="post">
-        <label class="field">
-          <span>Front post-session PSI</span>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="front-post"><span>Front post-session PSI</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="-1" aria-label="Decrease front post-session PSI by 0.5 PSI">&minus;</button>
           <input type="text" id="front-post" inputmode="decimal" placeholder="e.g. 33" />
-        </label>
-        <label class="field">
-          <span>Rear post-session PSI</span>
+          <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="1" aria-label="Increase front post-session PSI by 0.5 PSI">+</button>
+          </div>
+        </div>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="rear-post"><span>Rear post-session PSI</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="-1" aria-label="Decrease rear post-session PSI by 0.5 PSI">&minus;</button>
           <input type="text" id="rear-post" inputmode="decimal" placeholder="e.g. 31" />
-        </label>
+          <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="1" aria-label="Increase rear post-session PSI by 0.5 PSI">+</button>
+          </div>
+        </div>
       </div>
 
       <label class="checkbox-row">
@@ -215,14 +251,32 @@
           <span>Preload</span>
           <input type="text" id="fork-preload" autocomplete="off" placeholder="turns / lines" />
         </label>
-        <label class="field">
-          <span>Compression</span>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="fork-comp"><span>Compression</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="fork-comp" data-step-dir="-1" aria-label="Decrease fork compression by 1 click">&minus;</button>
           <input type="text" id="fork-comp" autocomplete="off" placeholder="clicks" />
-        </label>
-        <label class="field">
-          <span>Rebound</span>
+          <button type="button" class="stepper-btn" data-step-for="fork-comp" data-step-dir="1" aria-label="Increase fork compression by 1 click">+</button>
+          </div>
+        </div>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="fork-reb"><span>Rebound</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="fork-reb" data-step-dir="-1" aria-label="Decrease fork rebound by 1 click">&minus;</button>
           <input type="text" id="fork-reb" autocomplete="off" placeholder="clicks" />
-        </label>
+          <button type="button" class="stepper-btn" data-step-for="fork-reb" data-step-dir="1" aria-label="Increase fork rebound by 1 click">+</button>
+          </div>
+        </div>
       </div>
 
       <h3>Shock</h3>
@@ -231,14 +285,32 @@
           <span>Preload</span>
           <input type="text" id="shock-preload" autocomplete="off" placeholder="turns" />
         </label>
-        <label class="field">
-          <span>Compression</span>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="shock-comp"><span>Compression</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="shock-comp" data-step-dir="-1" aria-label="Decrease shock compression by 1 click">&minus;</button>
           <input type="text" id="shock-comp" autocomplete="off" placeholder="clicks" />
-        </label>
-        <label class="field">
-          <span>Rebound</span>
+          <button type="button" class="stepper-btn" data-step-for="shock-comp" data-step-dir="1" aria-label="Increase shock compression by 1 click">+</button>
+          </div>
+        </div>
+        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
+             inside it, activating one counts as activating the label and
+             focuses the input, which opens the keyboard the stepper exists
+             to avoid. The input, its id, its inputmode and the label text
+             are unchanged. -->
+        <div class="field">
+          <label class="field-label" for="shock-reb"><span>Rebound</span></label>
+          <div class="stepper">
+          <button type="button" class="stepper-btn" data-step-for="shock-reb" data-step-dir="-1" aria-label="Decrease shock rebound by 1 click">&minus;</button>
           <input type="text" id="shock-reb" autocomplete="off" placeholder="clicks" />
-        </label>
+          <button type="button" class="stepper-btn" data-step-for="shock-reb" data-step-dir="1" aria-label="Increase shock rebound by 1 click">+</button>
+          </div>
+        </div>
       </div>
 
       </div>

@@ -164,6 +164,21 @@ export function bootApp(opts) {
     field(id, "INPUT");
   }
 
+  // The stepper buttons the page ships, built the same way app.js finds them:
+  // by class and data attributes, with the input they act on alongside.
+  const STEPPER_FIELDS = ["front-pre", "rear-pre", "front-post", "rear-post",
+                          "fork-comp", "fork-reb", "shock-comp", "shock-reb"];
+  for (const id of STEPPER_FIELDS) {
+    field(id, "INPUT");
+    for (const dir of ["-1", "1"]) {
+      const b = dom.makeEl("", "BUTTON");
+      b.classList.add("stepper-btn");
+      b.dataset.stepFor = id;
+      b.dataset.stepDir = dir;
+      main.appendChild(b);
+    }
+  }
+
   // Lets a test interleave something between the store being ready and the
   // app booting - which is where load-time races actually live.
   if (opts && typeof opts.beforeBoot === "function") opts.beforeBoot(win);

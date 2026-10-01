@@ -340,9 +340,45 @@
     return "A refresh brings your draft back.";
   }
 
+  // --- Steppers (C8) --------------------------------------------------------
+  //
+  // Decimal-safe, because the obvious version is wrong: 30.1 + 0.5 in binary
+  // floating point is 30.599999999999998, and a rider watching a pressure
+  // gain digits would be right not to trust it.
+  //
+  // Everything is done in integers scaled to the most decimal places either
+  // side carries, so the rider's own precision survives: 30.25 + 0.5 is 30.75,
+  // never 30.8. A fractional click is respected the same way - 8.5 + 1 is 9.5,
+  // not 9 - because rounding someone's entry into a shape the app prefers is
+  // not the app's decision to make.
+  function decimalsOf(text) {
+    const m = String(text).match(/\.(\d+)\s*$/);
+    return m ? m[1].length : 0;
+  }
+
+  // The rule, as a pure function. Returns the new text, or null when there is
+  // no legitimate step to take - blank, not a number, or a decrement that
+  // would cross below zero.
+  function stepValue(currentText, step, direction) {
+    const raw = String(currentText == null ? "" : currentText).trim();
+    if (raw === "") return null;                 // blank stays blank
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;    // leave text we cannot read alone
+    const places = Math.max(decimalsOf(raw), decimalsOf(step));
+    const scale = Math.pow(10, places);
+    const scaled = Math.round(value * scale) + (direction < 0 ? -1 : 1) * Math.round(Number(step) * scale);
+    // An ENTRY guard, not an opinion about tyre pressure: a decrement may not
+    // take a field below zero. It does not clamp and it never rewrites what
+    // the rider typed - a value already below zero simply refuses to go lower,
+    // and increments are always allowed.
+    if (direction < 0 && scaled < 0) return null;
+    const next = scaled / scale;
+    return next.toFixed(places);
+  }
+
   const api = {
     nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
-    footerDraftNote,
+    footerDraftNote, stepValue, decimalsOf,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

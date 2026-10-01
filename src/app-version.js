@@ -14,4 +14,4 @@
 //
 // This is an INTERNAL canonical application-version identifier, not a
 // billing/plan/version marketing claim. MotoTrack Log has not declared 1.0.
-export const APP_VERSION = "0.1.0-beta.7";
+export const APP_VERSION = "0.1.0-beta.8";

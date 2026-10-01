@@ -95,6 +95,10 @@
       el.readOnly = !editable;
       el.classList.toggle("is-locked", !editable);
     });
+    // PRE locking is the one that changes a stepper's availability without any
+    // edit, so the buttons are re-synced wherever the lock is applied - which
+    // is also restore, Correct PRE, Copy to form, Reset and Save & next.
+    syncSteppers();
   }
 
 
@@ -224,6 +228,61 @@
         : "Keeps bike, track, tires and clicks";
     }
     renderCopyOrigin(nothingNew);
+  }
+
+  // --- Steppers (C8) --------------------------------------------------------
+  //
+  // Big minus/plus either side of the existing input. The input keeps its id,
+  // its inputmode and its label, and typing is untouched - the stepper is a
+  // second way in, not a replacement.
+  const STEPPER_STEPS = {
+    "front-pre": "0.5", "rear-pre": "0.5", "front-post": "0.5", "rear-post": "0.5",
+    "fork-comp": "1", "fork-reb": "1", "shock-comp": "1", "shock-reb": "1",
+  };
+
+  // A stepper may act only when there is a number to act on and the field is
+  // open for editing. Both the handler and the button's disabled state read
+  // THIS, so they cannot disagree - a disabled-looking button that still works
+  // is worse than no button.
+  function stepperUsable(id) {
+    const el = document.getElementById(id);
+    if (!el || el.readOnly || el.disabled) return false;
+    const raw = (el.value || "").trim();
+    if (raw === "") return false;               // blank stays blank
+    return Number.isFinite(Number(raw));        // and text we cannot read is left alone
+  }
+
+  function syncSteppers() {
+    document.querySelectorAll(".stepper-btn").forEach((btn) => {
+      const id = btn.dataset.stepFor;
+      if (!id) return;
+      btn.disabled = !stepperUsable(id);
+    });
+  }
+
+  function wireSteppers() {
+    document.querySelectorAll(".stepper-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.stepFor;
+        const step = STEPPER_STEPS[id];
+        if (!id || !step || !stepperUsable(id)) return;
+        const el = document.getElementById(id);
+        const next = SP.stepValue(el.value, step, Number(btn.dataset.stepDir) < 0 ? -1 : 1);
+        // A refused step - blank, unreadable, or below zero - changes nothing,
+        // and must not mark the session dirty or schedule a draft write.
+        if (next === null || next === el.value) return;
+        el.value = next;
+        // The SAME signal typing produces, so dirty tracking, the save status
+        // and the 800ms draft write all follow. No second persistence path.
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        // Keep focus on the button that was pressed. Moving it to the input
+        // would open the on-screen keyboard, which is what this control is for
+        // avoiding, and would make a second tap land somewhere else.
+        if (btn.focus) btn.focus();
+        syncSteppers();
+      });
+    });
+    syncSteppers();
   }
 
   // --- Auto-save draft (C6) -------------------------------------------------
@@ -681,6 +740,7 @@
   watchStageBarHeight();
   // Start in a known state: PRE editable, POST locked, dock rendered for DAY.
   renderPreEditable();
+  wireSteppers();
   renderDock();
 
   // --- Auto-save switch wiring ---------------------------------------------
@@ -921,6 +981,9 @@
       // its own guard against rewriting unchanged text, so a live region is
       // still not re-announced on every keystroke.
       renderSaveStatus();
+      // Typing can make a field steppable or stop it being so - emptying it,
+      // or leaving text that is not a number.
+      syncSteppers();
       // Each edit restarts the debounce and marks the draft behind, so the
       // status cannot claim the latest keystrokes are kept.
       scheduleDraftWrite();
@@ -1839,6 +1902,9 @@
     // PREVIOUS session's fields on top of the next one.
     cancelDraftWrite();
     clearTransientFields();
+    // Save & next CLEARS all four pressures and keeps the clicks, so the PSI
+    // steppers go back to disabled while the click steppers carry on.
+    syncSteppers();
     renderContext();
     // Cleared fields mean this is a new session: nothing saved, nothing new.
     saveState.advanced();
