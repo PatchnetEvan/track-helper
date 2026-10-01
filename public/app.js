@@ -243,7 +243,12 @@
     _statusKey = status.key;
     _statusText = status.text;
     el.hidden = status.key === "none";
-    el.textContent = status.text;
+    // The text lives in its own element so it can shrink and wrap. Writing it
+    // on the <p> would delete that element, and the <p> is a flex container -
+    // a bare text node in one is an anonymous flex item with min-width:auto,
+    // which no overflow-wrap can get past.
+    const textEl = document.getElementById("save-status-text") || el;
+    textEl.textContent = status.text;
     el.className = "save-status save-status--" + status.tone;
   }
 

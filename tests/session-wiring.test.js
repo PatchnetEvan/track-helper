@@ -223,7 +223,9 @@ test("a copy is saved as a separate record, leaving the original alone", () => {
 // 3. Save status through the real wiring (PR 5)
 // ---------------------------------------------------------------------------
 
-const status = (a) => a.el("save-status").textContent;
+// The text lives in its own element now, so it can shrink and wrap inside the
+// flex row; the <p> keeps role="status" and the hidden state.
+const status = (a) => a.el("save-status-text").textContent;
 const statusHidden = (a) => a.el("save-status").hidden;
 
 test("a fresh empty form says nothing", () => {
@@ -593,7 +595,7 @@ test("the status follows content back to empty on every stage, not only DAY", ()
 test("unchanged status text is not rewritten, so a live region is not re-announced", () => {
   const a = setup();
   a.type("bike", "Panigale V4 #21");
-  const el = a.el("save-status");
+  const el = a.el("save-status-text");
   let writes = 0;
   let text = el.textContent;
   Object.defineProperty(el, "textContent", {
