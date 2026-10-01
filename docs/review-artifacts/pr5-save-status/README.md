@@ -139,3 +139,112 @@ calculator made an otherwise empty session saveable. One definition of "empty"
 is the point — two would be the competing-flags problem again — but it does
 change when a save is refused, and is recorded here rather than folded in
 silently.
+
+---
+
+## Correction round (owner review of PR #78)
+
+### 1. An unreadable history is never replaced
+
+`Store.put()` read through `readAll()`, which answers `[]` for a history it
+could not read. The mutation then wrote that empty list plus the new record,
+**replacing every saved session** — and the read-back of the new record still
+succeeded, so the rider was told "Saved on this device" at the moment their
+history was destroyed.
+
+Mutations now read through `readAllForWrite()`, which separates *absent* from
+*unreadable*:
+
+| stored value | strict read | effect on a save |
+|---|---|---|
+| key absent | `[]` | saves normally — genuinely empty history |
+| `[]` | `[]` | saves normally |
+| valid list of records | the records | saves, keeping them |
+| read throws | **abort** | nothing written |
+| JSON will not parse | **abort** | nothing written |
+| parses to a non-array | **abort** | nothing written |
+| list containing a non-record | **abort** | nothing written |
+
+On abort the **original bytes are left exactly as they are**, so the sessions
+stay recoverable and exportable by hand. Every mutation is covered, not just
+the reported one: `put`, `add`, `remove` and `importPayload`. Only `clear()`
+still writes unconditionally, because erasing is what it is for.
+
+**This is reported as a scope expansion.** The finding named `put()`; `remove()`
+and `importPayload()` had the identical defect, and fixing one of three would
+have left the same data-loss path open by another route.
+
+The rider is told something different from an ordinary failure, because
+retrying will not help:
+
+> Not saved. The sessions already on this device could not be read, and
+> MotoTrack will not replace them. Export a backup from About before saving
+> again.
+
+Deleting a session against an unreadable history is refused the same way.
+
+**A second defect, found by the new tests:** the lenient `readAll()` returned
+junk entries unchanged, and a `null` in the list crashed the saved-session list
+while sorting it (`Cannot read properties of null (reading 'savedAt')`). The
+display read now skips non-record entries. That is safe only because no
+mutation reads through it any more.
+
+### 2. The status follows content back to empty
+
+Outside DAY the status was recomputed only on the first dirty transition, so
+typing into the last remaining field and then clearing it left the line still
+claiming "Not saved yet" about an empty session. It is now recomputed on every
+relevant edit.
+
+The guard against rewriting unchanged live-region text is kept, and is itself
+tested: three successive keystrokes that do not change the status produce
+**zero** writes to `textContent`, so a polite live region is not re-announced
+per keystroke.
+
+Covered in NOTES for both content types — feedback text alone, and a tag
+alone — each typed/checked and then cleared, plus a sweep asserting the
+behaviour on all six stages rather than only the two named.
+
+### Tests
+
+**99 pass / 0 fail** locally (84 → 99). All six mutants killed, control green:
+
+| mutation | result |
+|---|---|
+| `put()` reverts to the lenient read *(the reported bug)* | 6 fail |
+| strict read answers `[]` on a parse failure | 5 fail |
+| strict read accepts a non-array | 1 fail |
+| strict read accepts junk entries | 2 fail |
+| `remove()` reverts to the lenient read | 1 fail |
+| status recomputes only on the dirty transition *(the reported bug)* | 3 fail |
+| *(control — unmutated)* | **0 fail** |
+
+`remove()` initially **survived**. The test corrupted the history in a way the
+display read could not parse either, so the delete handler never found the
+record and never reached `Store.remove` — it passed without exercising
+anything. Corrupting it with a trailing `null` instead, which `readAll()`
+skips and `readAllForWrite()` rejects, made the test real.
+
+---
+
+## OUTSTANDING ACCEPTANCE ITEM — browser verification not done
+
+**This remains open and this PR should not be accepted until it is measured.**
+
+Chrome still cannot reach a local server from this session. Retried after the
+corrections on a fresh port (8851): `curl` returned HTTP 200 and Chrome
+returned `chrome-error://chromewebdata/`. That is now six ports across two
+sessions of attempts, on both `127.0.0.1` and `localhost`.
+
+Still to be measured when access is restored:
+
+- [ ] **320px and 390px** — the status line at both phone widths
+- [ ] **Enlarged text** — 200% and 400%
+- [ ] **Status wrapping** — that it wraps rather than clipping or shrinking
+- [ ] **Save and failure states rendered** — Saved / Not saved yet / Not saved ·
+      try Save again / blocked storage, including the icon masks and tone
+      colours
+- [ ] Added height of the line at each text size
+
+Every behaviour above is covered by tests driving the real `app.js`; what is
+unverified is how it *looks and measures* on a phone.

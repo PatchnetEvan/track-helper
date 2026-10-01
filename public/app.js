@@ -509,9 +509,13 @@
       // just named the outing.
       if (_stage === "day") renderDock();
       else if (_stage === "review" || !wasDirty) renderSaveDock();
-      // Only the first edit after a save can change the status; later
-      // keystrokes cannot, and collectSession() on each one would be waste.
-      if (!wasDirty) renderSaveStatus();
+      // Recomputed on EVERY relevant edit, not just the first. Typing into the
+      // last remaining field and then clearing it takes the session back to
+      // empty, and a status that only recomputed on the dirty transition went
+      // on claiming "Not saved yet" about nothing. renderSaveStatus() keeps
+      // its own guard against rewriting unchanged text, so a live region is
+      // still not re-announced on every keystroke.
+      renderSaveStatus();
     };
     const fromSessionField = (event) => {
       const el = event && event.target;
@@ -1299,7 +1303,13 @@
     try {
       Store.put(s);
     } catch (e) {
-      out.innerHTML = `<p class="warn">Not saved — try Save again.</p>`;
+      // An unreadable history is NOT a retry case: the write was refused on
+      // purpose so the existing sessions are not replaced by a guess. Say so,
+      // rather than inviting the rider to tap Save until it works.
+      const unreadable = window.Store && Store.UNREADABLE && e && e.message === Store.UNREADABLE;
+      out.innerHTML = unreadable
+        ? `<p class="warn">Not saved. The sessions already on this device could not be read, and MotoTrack will not replace them. Export a backup from About before saving again.</p>`
+        : `<p class="warn">Not saved — try Save again.</p>`;
       return { ok: false };
     }
     // Read it back and compare the CONTENT, not just the id. A throwing write
@@ -1526,7 +1536,14 @@
     } else if (action === "delete") {
       const ok = window.confirm("Delete this saved session? This cannot be undone.");
       if (!ok) return;
-      Store.remove(id);
+      try {
+        Store.remove(id);
+      } catch (err) {
+        // Same refusal as a save: rewriting a history that could not be read
+        // would delete far more than the one session asked for.
+        window.alert("Could not delete: the saved sessions on this device could not be read, so nothing was changed.");
+        return;
+      }
       renderHistory();
     } else if (action === "view") {
       const el = document.getElementById("view-" + id);
