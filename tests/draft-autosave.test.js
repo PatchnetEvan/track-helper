@@ -842,3 +842,86 @@ test("with auto-save off the footer says a refresh wipes the session", () => {
   a.clock.flush();
   assert.match(footer(a), /Refresh wipes the current session/);
 });
+
+// ---------------------------------------------------------------------------
+// The footer only promises a draft that is verified to exist right now
+// ---------------------------------------------------------------------------
+
+test("Save only: the footer describes a saved session, and a refresh clears the form", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  assert.match(footer(a), /brings your draft back/, "a draft exists before the save");
+
+  a.go("review");
+  a.el("save-session").click();
+  assert.equal(a.saved().length, 1, "the session saved");
+  assert.equal(a.draft(), null, "and the draft is gone");
+  assert.equal(footer(a), "Session saved. Refresh clears the form; saved history remains.");
+
+  // Immediately, with no edit in between.
+  const b = reload(a);
+  assert.equal(b.el("bike").value, "", "the form really is cleared by the refresh");
+  assert.equal(b.el("front-pre").value, "");
+  assert.equal(b.saved().length, 1, "and the saved history really does remain");
+  assert.equal(b.saved()[0].setup.bike, "Panigale V4 #21");
+});
+
+test("Save & next: the promise returns only once the carried-over draft is written", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  a.go("review");
+  a.el("save-and-next").click();
+
+  // Carried-over fields are real unsaved work, but nothing is kept yet.
+  assert.equal(a.el("bike").value, "Panigale V4 #21", "bike carried over");
+  assert.equal(a.el("front-pre").value, "", "pressures cleared");
+  assert.equal(a.draft(), null, "no draft yet for the new session");
+  assert.ok(!/brings your draft back/.test(footer(a)),
+    "so the footer must not promise one: " + footer(a));
+
+  // The rider types; the draft write lands.
+  a.type("front-pre", "31.0");
+  a.clock.flush();
+  assert.ok(a.draft(), "now a draft exists");
+  assert.match(footer(a), /brings your draft back/, "and only now is the promise made");
+
+  const b = reload(a);
+  assert.equal(b.el("bike").value, "Panigale V4 #21", "the carried-over session came back");
+  assert.equal(b.el("front-pre").value, "31.0");
+  assert.equal(b.saved().length, 1, "with the first session still the only saved record");
+});
+
+test("the footer never promises a draft that is not actually stored", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+  assert.match(footer(a), /brings your draft back/);
+
+  // Something removes the draft behind the app's back - another tab, or the
+  // browser reclaiming storage. Crucially there is NO new edit afterwards, so
+  // the "changes outstanding" rule cannot mask this: as far as this tab's own
+  // bookkeeping goes, everything it typed is kept. Only reading storage shows
+  // otherwise.
+  a.storage.removeItem(DRAFT);
+  a.go("pre");                                 // a re-render, not an edit
+  assert.equal(a.draft(), null, "the draft really is gone");
+  assert.ok(!/brings your draft back/.test(footer(a)),
+    "the promise is withdrawn because the draft was checked, not assumed: " + footer(a));
+});
+
+test("Reset clears the promise along with the draft", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+  assert.match(footer(a), /brings your draft back/);
+  a.win.confirm = () => true;
+  a.el("reset-all").click();
+  assert.equal(a.draft(), null);
+  assert.ok(!/brings your draft back/.test(footer(a)), footer(a));
+});

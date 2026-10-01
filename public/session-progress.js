@@ -314,8 +314,19 @@
         || facts.draftIdentityUnrecorded) {
       return "Your latest changes are not being kept right now.";
     }
-    if (facts.draftBehind) return "Your most recent changes have not been kept yet.";
+    // A finished session is not a draft. After a save there is nothing kept to
+    // come back, and the honest thing to describe is what a refresh would
+    // actually do with the form still on screen.
+    if (facts.sessionSaved) {
+      return "Session saved. Refresh clears the form; saved history remains.";
+    }
     if (!facts.hasContent) return "Anything you enter is kept on this device.";
+    if (facts.draftBehind) return "Your most recent changes have not been kept yet.";
+    // The promise is only made about a draft that was VERIFIED to exist when
+    // this was rendered. Inferring it from "auto-save is on and nothing has
+    // failed" claimed a draft in every window where one had just been
+    // discarded - after a save, after a reset, before the first write.
+    if (!facts.draftExists) return "Your most recent changes have not been kept yet.";
     return "A refresh brings your draft back.";
   }
 

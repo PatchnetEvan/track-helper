@@ -49,5 +49,42 @@
   "disabled": false,
   "sub": "Off \u00b7 refresh clears the draft",
   "draftGone": true
+ },
+ "footerCorrectionRound": {
+  "draftKept": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  },
+  "afterSaveOnly": {
+   "footer": "Session saved. Refresh clears the form; saved history remains.",
+   "status": "Saved on this device \u00b7 02:33 PM",
+   "draft": null,
+   "saved": 1
+  },
+  "refreshAfterSaveOnly": {
+   "bike": "",
+   "saved": 1,
+   "footer": "Anything you enter is kept on this device."
+  },
+  "afterSaveAndNext": {
+   "footer": "Your most recent changes have not been kept yet.",
+   "status": "Keeping draft\u2026",
+   "bike": "Panigale V4 #21",
+   "frontPre": "",
+   "draft": null,
+   "label": "Session 3"
+  },
+  "carriedDraftWritten": {
+   "footer": "A refresh brings your draft back.",
+   "draftRev": 1
+  },
+  "refreshAfterCarried": {
+   "bike": "Panigale V4 #21",
+   "frontPre": "31.0",
+   "label": "Session 3",
+   "saved": 1,
+   "footer": "A refresh brings your draft back.",
+   "status": "Draft restored \u00b7 not saved yet"
+  }
  }
 }

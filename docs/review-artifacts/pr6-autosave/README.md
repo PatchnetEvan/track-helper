@@ -349,3 +349,78 @@ Headless Chromium 152 via chromedriver, server on 127.0.0.1 only.
 
 **Real-phone keyboard check**, separate as always — none of this exercises an
 on-screen keyboard.
+
+---
+
+## Correction round 3 — the footer's promise
+
+### It must be about a draft that exists
+
+"A refresh brings your draft back" was derived from *auto-save is on and
+nothing has failed*. That is true in fewer moments than it looks: a draft has
+just been discarded after every save, after every Reset, and before the first
+write of a carried-over session. In all of those the promise was false.
+
+The footer now requires a **verified, currently existing draft** —
+`Store.readDraftState().kind === "ok"`, read at render time rather than
+inferred.
+
+### After Save only
+
+A finished session is not a draft, and the honest thing to describe is what a
+refresh would do with the form still on screen:
+
+> **Session saved. Refresh clears the form; saved history remains.**
+
+### The full rule
+
+| condition | footer |
+|---|---|
+| auto-save off, or storage blocked | Refresh wipes the current session. |
+| write failed, unreadable, conflict, attempt unrecorded | Your latest changes are not being kept right now. |
+| **session just saved** | **Session saved. Refresh clears the form; saved history remains.** |
+| nothing entered | Anything you enter is kept on this device. |
+| changes outstanding (debounce) | Your most recent changes have not been kept yet. |
+| **no draft actually stored** | Your most recent changes have not been kept yet. |
+| verified draft present and current | A refresh brings your draft back. |
+
+### A stale-footer defect the new test caught
+
+The footer was being refreshed **after** `renderSaveStatus()`'s live-region
+guard, which returns early when the status wording has not changed. So whenever
+a draft disappeared without the status text moving — exactly the case above —
+the footer kept its old promise. It is now refreshed before the guard.
+
+That only surfaced because the first version of the new test was **masked by
+`draftBehind`**: typing after deleting the draft made the "changes outstanding"
+rule fire first, so the `draftExists` branch was never reached and two mutants
+survived. Re-staging it as a re-render with no edit exposed both the mutants
+and the real defect.
+
+### Tests
+
+**161 pass / 0 fail** (157 → 161), including the two required:
+
+- **Save only → footer → immediate refresh**: footer reads "Session saved…",
+  the draft is gone, and the refresh really does clear the form while the saved
+  record remains.
+- **Save & next → carried-over fields → draft write → refresh**: no promise
+  while nothing is kept, the promise returns only once the carried-over draft
+  is written, and the refresh brings back the carried-over session with the
+  first record still the only saved one.
+
+Mutants killed: the promise made without a verified draft, `draftExists`
+inferred rather than read, the saved-session wording removed, `sessionSaved`
+ignoring the recorded time, and the footer not refreshed when the status text
+is unchanged (7 fail). Control green.
+
+### Browser acceptance for this round
+
+| step | footer | state |
+|---|---|---|
+| draft kept | A refresh brings your draft back. | status "draft kept on this device" |
+| **after Save only** | **Session saved. Refresh clears the form; saved history remains.** | draft `null`, 1 saved |
+| refresh after Save only | Anything you enter is kept on this device. | form cleared, 1 saved |
+| **after Save & next** | Your most recent changes have not been kept yet. | bike carried, PSI cleared, draft `null`, label `Session 3` |
+| carried draft written | A refresh brings your draft back. | draft rev 1 |
+| refresh after that | A refresh brings your draft back. | bike + `31.0` + `Session 3` restored, still 1 saved |

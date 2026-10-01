@@ -468,6 +468,11 @@
       draftIdentityUnrecorded: draftState.identityUnrecorded,
       draftRestored: draftState.restored,
     });
+    // The footer makes a claim about the same facts and must follow them even
+    // when the status text happens to be unchanged - it was previously updated
+    // after the guard below, so it went stale exactly when a draft disappeared
+    // without the status wording moving.
+    renderAutosaveUi();
     // Written only when it actually changes. This is a polite live region:
     // re-assigning it on every keystroke would make a screen reader announce
     // the save status on every keystroke.
@@ -482,8 +487,6 @@
     const textEl = document.getElementById("save-status-text") || el;
     textEl.textContent = status.text;
     el.className = "save-status save-status--" + status.tone;
-    // The footer makes a claim about the same facts, so it moves with them.
-    renderAutosaveUi();
   }
 
   // Says, in the place the rider is about to tap, that this will become its
@@ -665,6 +668,13 @@
   renderDock();
 
   // --- Auto-save switch wiring ---------------------------------------------
+  // Is a readable draft actually on disk at this moment? Checked rather than
+  // inferred, because every "it must be there" assumption was wrong in some
+  // window - just after a save, a reset, or before the first write lands.
+  function draftIsStored() {
+    try { return Store.readDraftState().kind === "ok"; } catch (e) { return false; }
+  }
+
   function renderAutosaveUi() {
     const sw = document.getElementById("autosave-switch");
     const sub = document.getElementById("autosave-sub");
@@ -696,6 +706,10 @@
         storageReady: usable,
         autosave: _autosave,
         hasContent: hasSessionContent(),
+        // Read from storage, not assumed: the promise is about a draft that
+        // is there right now.
+        draftExists: usable && _autosave && draftIsStored(),
+        sessionSaved: saveState.alreadySaved && !!saveState.lastSavedAt,
         draftBehind: draftState.behind,
         draftFailed: draftState.failed,
         draftConflict: draftState.conflict,
