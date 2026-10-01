@@ -1,0 +1,131 @@
+{
+ "head": "c8dca0df78c2a301a8561130161bdbe9c2bee580",
+ "riderWorkflow": {
+  "day": {
+   "stage": "day",
+   "dock": "Start Session 2"
+  },
+  "pre": {
+   "stage": "pre",
+   "frontPre": "30.5",
+   "dock": "Back in \u2192 POST",
+   "postLockedBefore": true
+  },
+  "backIn": {
+   "stage": "post",
+   "preReadOnly": true,
+   "preStepperDisabled": true,
+   "postUnlocked": true,
+   "preRef": "30.5"
+  },
+  "chain": [
+   {
+    "from": "post",
+    "dock": "Go to LAPS"
+   },
+   {
+    "from": "laps",
+    "dock": "Go to NOTES"
+   },
+   {
+    "from": "notes",
+    "dock": "Go to REVIEW"
+   }
+  ],
+  "landed": "review",
+  "reviewDock": {
+   "saveNext": "Save & start Session 3",
+   "saveOnly": "Save only"
+  },
+  "afterSaveAndNext": {
+   "savedBefore": 0,
+   "savedAfter": 1,
+   "stage": "day",
+   "label": "Session 3",
+   "bike": "Panigale V4 #21",
+   "track": "Barber",
+   "frontPre": "",
+   "rearPre": "",
+   "frontPost": "",
+   "rearPost": "",
+   "forkComp": "8",
+   "forkReb": "10",
+   "feedback": "",
+   "laps": "",
+   "ambTemp": "",
+   "psiSteppersDisabled": true,
+   "clickSteppersEnabled": true,
+   "postRelocked": true
+  },
+  "savedRecord": {
+   "count": 1,
+   "ids": [
+    "s_muq5cm8r_kdiauz"
+   ],
+   "distinctIds": 1,
+   "frontPre": "30.5",
+   "forkComp": "8",
+   "feedback": "Front pushed on entry.",
+   "label": "Session 2"
+  },
+  "secondSaveAttempt": {
+   "count": 2
+  }
+ },
+ "refreshMidOuting": {
+  "twoSessions": {
+   "count": 2,
+   "distinctIds": 2,
+   "labels": [
+    "Session 2",
+    "Session 3"
+   ],
+   "frontPres": [
+    "30.5",
+    "31.0"
+   ],
+   "forkComps": [
+    "8",
+    "8"
+   ],
+   "identicalPayloads": false
+  },
+  "beforeRefresh": {
+   "stage": "post",
+   "copyOriginShown": false,
+   "draftRev": 1,
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  },
+  "afterRefresh": {
+   "stage": "post",
+   "bike": "Panigale V4 #21",
+   "label": "Session 2",
+   "frontPre": "30.0",
+   "frontPost": "33.5",
+   "forkComp": "8",
+   "preReadOnly": true,
+   "preStepperDisabled": true,
+   "postAvailable": true,
+   "postStepperUsable": true,
+   "status": "Draft restored \u00b7 not saved yet",
+   "footer": "A refresh brings your draft back.",
+   "savedCount": 1,
+   "copyOriginShown": true,
+   "copyOriginText": "Copied from Oct 1, 2026, 7:10 PM \u2014 Barber \u2014 Panigale V4 #21 \u00b7 Session 1. Saving creates a separate session and leaves that one unchanged."
+  },
+  "correctPreAfterRefresh": {
+   "stage": "pre",
+   "preEditable": true,
+   "stepperUsable": true,
+   "postStillAvailable": true
+  },
+  "copySaved": {
+   "count": 2,
+   "distinctIds": 2,
+   "labels": [
+    "Session 1",
+    "Session 2"
+   ]
+  }
+ }
+}
