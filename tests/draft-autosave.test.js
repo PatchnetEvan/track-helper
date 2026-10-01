@@ -925,3 +925,83 @@ test("Reset clears the promise along with the draft", () => {
   assert.equal(a.draft(), null);
   assert.ok(!/brings your draft back/.test(footer(a)), footer(a));
 });
+
+// ---------------------------------------------------------------------------
+// A tab must stop claiming protection when another tab takes over the key
+// ---------------------------------------------------------------------------
+
+test("A keeps a draft, B replaces it, A makes NO edit: A's promise disappears", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  assert.match(footer(a), /brings your draft back/, "A is protected to begin with");
+  assert.match(a.status(), /draft kept on this device/);
+  const aRev = a.draft().rev;
+
+  // B takes over the key with its own draft.
+  const b = reload(a);
+  b.type("bike", "B's outing");
+  b.clock.flush();
+  const theirs = b.storage.getItem(DRAFT);
+  assert.notEqual(JSON.parse(theirs).rev, aRev, "B moved the revision on");
+
+  // A does NOTHING - no keystroke, no navigation. It learns from the storage
+  // event alone.
+  assert.ok(!/brings your draft back/.test(footer(a)),
+    "A no longer promises a recovery: " + footer(a));
+  assert.ok(!/draft kept on this device/.test(a.status()),
+    "and no longer claims the draft is kept: " + a.status());
+  assert.match(a.status(), /no longer kept on this device/, a.status());
+
+  // And B's work is untouched throughout.
+  assert.equal(a.storage.getItem(DRAFT), theirs, "B's bytes are exactly as B left them");
+});
+
+test("A stops claiming protection when another tab DELETES the draft", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+  assert.match(footer(a), /brings your draft back/);
+
+  // Something outside this tab removes the key.
+  a.storage.removeItem(DRAFT);
+
+  assert.ok(!/brings your draft back/.test(footer(a)),
+    "the promise is gone without any edit here: " + footer(a));
+  assert.match(a.status(), /no longer kept on this device/, a.status());
+});
+
+test("a draft stored by another tab is never mistaken for this form's", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+  const mine = a.draft();
+
+  // Same revision number, different writer - the number alone is not identity.
+  a.storage.setItem(DRAFT, JSON.stringify(Object.assign({}, mine, { writer: "someone-else" })));
+  assert.ok(!/brings your draft back/.test(footer(a)),
+    "matching the revision is not enough: " + footer(a));
+
+  // Our writer, but a revision we never wrote.
+  a.storage.setItem(DRAFT, JSON.stringify(Object.assign({}, mine, { rev: mine.rev + 5 })));
+  assert.ok(!/brings your draft back/.test(footer(a)),
+    "matching the writer is not enough either: " + footer(a));
+});
+
+test("A regains the promise once it writes its own draft again", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+  a.storage.removeItem(DRAFT);
+  assert.ok(!/brings your draft back/.test(footer(a)));
+
+  a.type("bike", "typing again");
+  a.clock.flush();
+  assert.ok(a.draft(), "a new draft of its own");
+  assert.match(footer(a), /brings your draft back/, "and the promise is back");
+  assert.match(a.status(), /draft kept on this device/);
+});

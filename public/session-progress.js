@@ -294,6 +294,13 @@
       if (f.draftBehind) {
         return { key: "draft-keeping", tone: "dim", text: "Keeping draft\u2026" };
       }
+      // Gated on the same verified fact as the footer. Another tab can replace
+      // or delete the key at any moment, and this tab would otherwise go on
+      // claiming protection for entries that are no longer kept anywhere.
+      if (!f.draftPresent) {
+        return { key: "draft-not-kept", tone: "warn",
+          text: "Not saved yet \u00b7 this draft is no longer kept on this device" };
+      }
       return { key: "draft-kept", tone: "dim",
         text: "Not saved yet \u00b7 draft kept on this device" };
     }

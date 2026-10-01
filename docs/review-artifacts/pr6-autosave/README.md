@@ -424,3 +424,66 @@ is unchanged (7 fail). Control green.
 | **after Save & next** | Your most recent changes have not been kept yet. | bike carried, PSI cleared, draft `null`, label `Session 3` |
 | carried draft written | A refresh brings your draft back. | draft rev 1 |
 | refresh after that | A refresh brings your draft back. | bike + `31.0` + `Session 3` restored, still 1 saved |
+
+---
+
+## Correction round 4 — whose draft is it
+
+### The stored draft has to be THIS form's
+
+`draftIsStored()` asked only whether *a* readable draft existed. Another tab
+replacing the key leaves a perfectly readable draft — just not this form's — so
+the promise survived a takeover and would have offered to restore someone
+else's session instead of the entries on screen.
+
+It now matches **this tab's writer and the revision it last verified**:
+
+```js
+st.kind === "ok" && st.draft.writer === TAB_ID && st.draft.rev === _lastSeenRev
+```
+
+Neither half is sufficient on its own, and both are tested: a draft with our
+revision but a different writer, and one with our writer but a revision we
+never wrote, are both rejected.
+
+### The claim is re-checked when another tab moves the key
+
+A `storage` listener on the draft key re-renders the status and the footer.
+Without it the claim was only re-checked when something happened *in this tab*,
+so a tab left sitting idle went on promising a recovery that no longer existed.
+
+The status is gated on the same verified fact as the footer, so neither can
+claim protection the other has withdrawn:
+
+> **Not saved yet · this draft is no longer kept on this device**
+
+### Tests
+
+**165 pass / 0 fail** (161 → 165). The required scenario:
+
+> A keeps a draft → B replaces it → **A makes no edit** → A's recovery promise
+> disappears, A's status stops claiming the draft is kept, and **B's bytes are
+> exactly as B left them**.
+
+Plus: another tab deleting the key, a same-revision/different-writer draft, a
+same-writer/unknown-revision draft, and A regaining the promise once it writes
+its own draft again.
+
+All five mutants killed, control green: any stored draft counting as ours (the
+reported bug), writer ignored, revision ignored, no storage listener (4 fail),
+and the status not gated on presence.
+
+The harness now propagates **real storage events between windows** — a write
+notifies every other window and never the one that made it, as a browser does —
+so these are genuine cross-tab tests rather than simulated ones.
+
+### Browser acceptance, two real tabs
+
+| step | tab A | tab B |
+|---|---|---|
+| A keeps a draft (rev 1) | "A refresh brings your draft back." / "draft kept on this device" | — |
+| B loads and writes (rev 2) | — | writes "Tab B bike" |
+| **back to A, no edit, no navigation** | **"Your most recent changes have not been kept yet." / "this draft is no longer kept on this device"**, form still shows "Tab A bike" | — |
+| B's bytes | **untouched** | still "A refresh brings your draft back." |
+
+Screenshot: `11-A-after-B-took-over.png`.

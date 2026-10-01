@@ -466,6 +466,7 @@
       draftUnreadable: draftState.unreadable,
       draftDisposalFailed: draftState.disposalFailed,
       draftIdentityUnrecorded: draftState.identityUnrecorded,
+      draftPresent: _autosave && draftIsStored(),
       draftRestored: draftState.restored,
     });
     // The footer makes a claim about the same facts and must follow them even
@@ -668,11 +669,20 @@
   renderDock();
 
   // --- Auto-save switch wiring ---------------------------------------------
-  // Is a readable draft actually on disk at this moment? Checked rather than
-  // inferred, because every "it must be there" assumption was wrong in some
-  // window - just after a save, a reset, or before the first write lands.
+  // Is THIS form's own draft on disk at this moment?
+  //
+  // Not merely "some draft is stored": another tab replacing the key leaves a
+  // perfectly readable draft that is not this form's, and promising a refresh
+  // would then restore someone else's session, not the entries on screen. So
+  // the stored draft has to match the identity and revision this tab last
+  // verified for itself.
   function draftIsStored() {
-    try { return Store.readDraftState().kind === "ok"; } catch (e) { return false; }
+    try {
+      const st = Store.readDraftState();
+      return st.kind === "ok"
+        && st.draft.writer === TAB_ID
+        && st.draft.rev === _lastSeenRev;
+    } catch (e) { return false; }
   }
 
   function renderAutosaveUi() {
@@ -780,6 +790,18 @@
       renderAutosaveUi();
       renderSaveStatus();
       if (hasSessionContent()) scheduleDraftWrite();
+    });
+  }
+
+  // Another tab can replace or delete the draft at any moment. Without this,
+  // the claim was only re-checked when something happened HERE, so a tab left
+  // sitting idle went on promising a recovery that no longer existed.
+  if (window.addEventListener) {
+    window.addEventListener("storage", (event) => {
+      const key = event && event.key;
+      // A null key is a whole-storage clear, which takes the draft with it.
+      if (key !== null && key !== undefined && key !== Store.DRAFT_KEY) return;
+      renderSaveStatus();
     });
   }
 

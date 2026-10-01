@@ -86,5 +86,26 @@
    "footer": "A refresh brings your draft back.",
    "status": "Draft restored \u00b7 not saved yet"
   }
+ },
+ "crossTabTakeover": {
+  "A_protected": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  },
+  "A_rev": 1,
+  "B_wrote": {
+   "rev": 2,
+   "bike": "Tab B bike"
+  },
+  "A_after_B": {
+   "footer": "Your most recent changes have not been kept yet.",
+   "status": "Not saved yet \u00b7 this draft is no longer kept on this device",
+   "formUnchanged": "Tab A bike"
+  },
+  "B_bytes_untouched": true,
+  "B_still_protected": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  }
  }
 }

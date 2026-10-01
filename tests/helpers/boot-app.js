@@ -62,12 +62,46 @@ export function bootApp(opts) {
   const downloads = [];
   const dialogs = { alerts: [], confirms: [], confirmAnswer: true };
 
+  // A per-window VIEW over the shared storage. Writes go to the backing store
+  // and then notify the OTHER windows, exactly as a browser's storage event
+  // does - it fires in every tab except the one that made the change.
+  const views = storage._views || (storage._views = []);
+  const notifyOthers = (key, oldValue, newValue, source) => {
+    for (const v of views) {
+      if (v.win === source) continue;
+      v.win._fireStorage({ key, oldValue, newValue });
+    }
+  };
+  const storageView = {
+    getItem: (k) => storage.getItem(k),
+    setItem(k, v) {
+      const old = storage.getItem(k);
+      storage.setItem(k, v);
+      notifyOthers(k, old, String(v), win);
+    },
+    removeItem(k) {
+      const old = storage.getItem(k);
+      storage.removeItem(k);
+      notifyOthers(k, old, null, win);
+    },
+    get length() { return storage.length; },
+    key: (i) => storage.key(i),
+  };
+
+  const winListeners = new Map();
   const win = {
     document,
-    localStorage: storage,
+    localStorage: storageView,
     innerHeight: 844,
     scrollTo() {},
-    addEventListener() {},
+    addEventListener(type, fn) {
+      if (!winListeners.has(type)) winListeners.set(type, []);
+      winListeners.get(type).push(fn);
+    },
+    removeEventListener() {},
+    _fireStorage(ev) {
+      (winListeners.get("storage") || []).slice().forEach((fn) => fn(ev));
+    },
     matchMedia: (q) => ({ matches: false, media: q, addEventListener() {}, addListener() {} }),
     confirm: (msg) => { dialogs.confirms.push(String(msg)); return dialogs.confirmAnswer; },
     alert: (msg) => { dialogs.alerts.push(String(msg)); },
@@ -84,8 +118,10 @@ export function bootApp(opts) {
   };
   win.window = win;
 
+  views.push({ win });
+
   const g = {
-    window: win, document, localStorage: storage,
+    window: win, document, localStorage: storageView,
     // Referenced bare by app.js's download path, so they have to be in scope
     // and not only on `window`.
     Blob: win.Blob, URL: win.URL,
@@ -145,6 +181,26 @@ export function bootApp(opts) {
       return due.length;
     },
   };
+  // A test writing straight to `storage` is acting as something outside every
+  // tab, so every window hears about it.
+  if (!storage._notifyAll) {
+    const realSet = storage.setItem.bind(storage);
+    const realRemove = storage.removeItem.bind(storage);
+    storage._notifyAll = true;
+    storage.setItem = function (k, v) {
+      const old = storage.getItem(k);
+      const r = realSet(k, v);
+      notifyOthers(k, old, String(v), null);
+      return r;
+    };
+    storage.removeItem = function (k) {
+      const old = storage.getItem(k);
+      const r = realRemove(k);
+      notifyOthers(k, old, null, null);
+      return r;
+    };
+  }
+
   return { dom, document, win, storage, main, stageCells, field, bar, downloads, dialogs, clock,
            STORAGE_KEY: "mototrack.sessions.v1",
            saved: () => JSON.parse(storage.getItem("mototrack.sessions.v1") || "[]") };
