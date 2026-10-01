@@ -199,6 +199,7 @@
     let restored = false;
     let suspended = false;     // never write while the stored draft is unreadable
     let disposalFailed = false;  // a draft we meant to discard is still there
+    let identityUnrecorded = false;  // a save attempt the draft could not name
     return {
       get editSeq() { return editSeq; },
       get keptSeq() { return keptSeq; },
@@ -210,8 +211,10 @@
       get restored() { return restored; },
       get suspended() { return suspended; },
       get disposalFailed() { return disposalFailed; },
+      get identityUnrecorded() { return identityUnrecorded; },
+      markIdentityUnrecorded() { identityUnrecorded = true; return this; },
       markDisposalFailed() { disposalFailed = true; return this; },
-      disposalOk() { disposalFailed = false; return this; },
+      disposalOk() { disposalFailed = false; identityUnrecorded = false; return this; },
       // There are edits that are not on disk yet. This is the only question
       // the status asks, so it is the only one kept.
       get behind() { return editSeq > keptSeq; },
@@ -266,6 +269,10 @@
       return { key: "draft-conflict", tone: "warn",
         text: "Not saved yet \u00b7 another tab is keeping a draft" };
     }
+    if (f.autosave && f.draftIdentityUnrecorded) {
+      return { key: "draft-identity-unrecorded", tone: "warn",
+        text: "Saving, but this device could not record the attempt" };
+    }
     if (f.autosave && f.draftDisposalFailed) {
       return { key: "draft-not-discarded", tone: "warn",
         text: "A discarded draft is still on this device" };
@@ -296,8 +303,25 @@
     return { key: "none", tone: "dim", text: "" };
   }
 
+  // What the footer may truthfully promise about a refresh. "Your draft comes
+  // back" is a claim about the entries on screen RIGHT NOW, so it cannot rest
+  // on the switch alone: during the debounce, or after a failed write, the
+  // latest changes are not on disk and a refresh would not bring them back.
+  function footerDraftNote(f) {
+    const facts = f || {};
+    if (!facts.storageReady || !facts.autosave) return "Refresh wipes the current session.";
+    if (facts.draftUnreadable || facts.draftConflict || facts.draftFailed
+        || facts.draftIdentityUnrecorded) {
+      return "Your latest changes are not being kept right now.";
+    }
+    if (facts.draftBehind) return "Your most recent changes have not been kept yet.";
+    if (!facts.hasContent) return "Anything you enter is kept on this device.";
+    return "A refresh brings your draft back.";
+  }
+
   const api = {
     nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
+    footerDraftNote,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

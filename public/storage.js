@@ -311,18 +311,39 @@
   // Deleting is a mutation too, and the most destructive one. Saving or
   // resetting in one tab must not wipe a draft another tab is keeping - so a
   // caller must say whose draft it believes it is removing.
-  function clearDraft(owner, expectedRev) {
-    const current = readDraftState();
-    if (current.kind === "none") return true;      // nothing to remove
-    if (current.kind === "unreadable") {
-      // Only an explicit, owner-less call may remove something unreadable -
-      // that is the recovery path, after the rider has the bytes.
-      if (owner !== undefined) {
+  // Deleting is a mutation too, and the most destructive one. The caller must
+  // say WHICH draft it believes it is removing, and the removal only happens
+  // if that is still what is stored - never a newer one another tab wrote in
+  // the meantime.
+  //
+  //   expect = { writer, rev }  - remove exactly that draft
+  //   expect = { raw }          - remove exactly those bytes (the recovery
+  //                               path, where there is no parsed draft to
+  //                               name a revision)
+  //
+  // There is deliberately no unguarded form: every ownerless delete this had
+  // was a way for one tab to destroy another tab's work.
+  function clearDraft(expect) {
+    if (!expect || typeof expect !== "object") {
+      throw new Error("clearDraft needs to say which draft it is removing");
+    }
+    let raw;
+    try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) {
+      const err = new Error(DRAFT_UNREADABLE); err.code = DRAFT_UNREADABLE; throw err;
+    }
+    if (raw === null || raw === undefined) return true;      // nothing to remove
+
+    if (typeof expect.raw === "string") {
+      if (raw !== expect.raw) {
+        const e = new Error(DRAFT_CONFLICT); e.code = DRAFT_CONFLICT; throw e;
+      }
+    } else {
+      const current = readDraftState();
+      if (current.kind !== "ok") {
+        // Something is stored that this caller did not inspect.
         const e = new Error(DRAFT_UNREADABLE); e.code = DRAFT_UNREADABLE; throw e;
       }
-    } else if (owner !== undefined && current.draft.writer !== owner) {
-      if (expectedRev === undefined || expectedRev === null
-          || current.draft.rev !== expectedRev) {
+      if (current.draft.writer !== expect.writer || current.draft.rev !== expect.rev) {
         const e = new Error(DRAFT_CONFLICT); e.code = DRAFT_CONFLICT;
         e.theirRev = current.draft.rev; e.theirWriter = current.draft.writer;
         throw e;
@@ -340,10 +361,8 @@
   function markDraftSaved(sessionId, owner, expectedRev) {
     const state = readDraftState();
     if (state.kind !== "ok") return false;
-    if (owner !== undefined && state.draft.writer !== owner) {
-      if (expectedRev === undefined || expectedRev === null
-          || state.draft.rev !== expectedRev) return false;
-    }
+    // Same rule as a delete: only stamp the draft this caller inspected.
+    if (state.draft.writer !== owner || state.draft.rev !== expectedRev) return false;
     const next = Object.assign({}, state.draft, { savedAs: sessionId });
     const text = JSON.stringify(next);
     localStorage.setItem(DRAFT_KEY, text);

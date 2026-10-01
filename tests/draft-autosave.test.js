@@ -596,32 +596,47 @@ test("a draft that cannot be discarded is reported, not silently accepted", () =
   a.el("save-session").click();
   a.storage.setItem = realSet;
   assert.equal(a.saved().length, 1, "the save itself still succeeded");
-  assert.match(a.status(), /discarded draft is still on this device/, a.status());
+  // With the draft key unwritable the attempt could not be recorded either,
+  // and THAT is the more important truth to report.
+  assert.match(a.status(), /could not record the attempt/, a.status());
 });
 
-test("the reconciliation id survives a disposal that failed completely", () => {
+test("removal failing but the stamp landing is reconciled, with no duplicate", () => {
   const a = setup();
   a.el("autosave-switch").click();
   a.fill(); a.type("front-pre", "30.5");
   a.clock.flush();
-  const before = JSON.parse(a.storage.getItem(DRAFT));
+  a.storage.removeItem = () => {};            // removal fails; writes still work
+  a.go("review");
+  a.el("save-session").click();
+  const savedId = a.saved()[0].id;
+  const left = JSON.parse(a.storage.getItem(DRAFT));
+  assert.equal(left.savedAs, savedId, "stamped with the record it became");
+
+  const b = reload(a);
+  assert.equal(b.el("bike").value, "", "not offered back as unsaved work");
+  assert.equal(b.saved().length, 1, "and no second record");
+});
+
+test("when identity cannot be recorded, the limitation is REPORTED, not inferred", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  // Nothing can be written to the draft key from here on.
   a.storage.removeItem = () => {};
   const realSet = a.storage.setItem.bind(a.storage);
   a.storage.setItem = (k, v) => { if (k === DRAFT) return; return realSet(k, v); };
   a.go("review");
   a.el("save-session").click();
-  const savedId = a.saved()[0].id;
   a.storage.setItem = realSet;
 
-  const left = JSON.parse(a.storage.getItem(DRAFT));
-  assert.equal(left.pendingId, before.pendingId === null ? left.pendingId : left.pendingId,
-    "a draft is still there");
-  // The decisive property: re-saving after a reload cannot duplicate.
-  const b = reload(a);
-  b.go("review");
-  b.el("save-session").click();
-  assert.equal(b.saved().length, 1, "still exactly one record");
-  assert.equal(b.saved()[0].id, savedId, "reconciled onto the same record");
+  assert.equal(a.saved().length, 1, "the session still saved");
+  assert.match(a.status(), /could not record the attempt/,
+    "and the rider is told the attempt could not be recorded");
+  // The point of the report: nothing is guessed from values.
+  assert.match(a.el("footer-draft-note").textContent, /not being kept right now/,
+    "the footer stops promising a refresh brings the draft back");
 });
 
 // Stronger shape validation
@@ -655,3 +670,175 @@ for (const [label, stage, mutate] of MORE_INVALID) {
     assert.match(b.status(), /could not be read/, "and it is reported as unreadable");
   });
 }
+
+// ---------------------------------------------------------------------------
+// Identity must be RECORDED, never inferred from matching values
+// ---------------------------------------------------------------------------
+
+function saveOne(a, { bike, track, label, frontPre }) {
+  a.type("bike", bike); a.type("track", track);
+  a.type("session-label", label); a.type("front-pre", frontPre);
+  a.go("review");
+  a.el("save-session").click();
+  a.go("day");
+  return a.saved()[a.saved().length - 1];
+}
+
+test("Copy to form, refresh, save: a SEPARATE record, original untouched", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  const original = saveOne(a, { bike: "Panigale V4 #21", track: "Barber", label: "Session 2", frontPre: "30.5" });
+  assert.equal(a.saved().length, 1);
+
+  // Copy it to the form - identical values to the original, by definition.
+  a.win.confirm = () => true;
+  a.go("review");
+  const btn = a.dom.makeEl("", "BUTTON");
+  btn.dataset.action = "load"; btn.dataset.id = original.id;
+  a.el("history-list").appendChild(btn);
+  btn.click();
+  a.clock.flush();
+  const draft = a.draft();
+  assert.ok(draft, "the copy is kept as a draft");
+  assert.equal(draft.pendingId, null, "and carries NO save identity");
+
+  // Refresh, then save.
+  const b = reload(a);
+  assert.equal(b.el("bike").value, "Panigale V4 #21", "the copy was restored");
+  b.go("review");
+  b.el("save-session").click();
+
+  const all = b.saved();
+  assert.equal(all.length, 2, "a SEPARATE session was created, as promised");
+  const originalNow = all.filter((x) => x.id === original.id);
+  assert.equal(originalNow.length, 1, "the original is still there");
+  assert.deepEqual(
+    { bike: originalNow[0].setup.bike, label: originalNow[0].setup.sessionLabel },
+    { bike: original.setup.bike, label: original.setup.sessionLabel },
+    "and is unchanged",
+  );
+  assert.notEqual(all[1].id, original.id, "the copy has its own id");
+});
+
+test("two distinct outings with IDENTICAL values stay two records", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  const first = saveOne(a, { bike: "Panigale V4 #21", track: "Barber", label: "Session 2", frontPre: "30.5" });
+  assert.equal(a.saved().length, 1);
+
+  // A second outing the rider enters by hand, with exactly the same values.
+  a.win.confirm = () => true;
+  a.el("reset-all").click();
+  a.clock.flush();
+  a.type("bike", "Panigale V4 #21"); a.type("track", "Barber");
+  a.type("session-label", "Session 2"); a.type("front-pre", "30.5");
+  a.clock.flush();
+  assert.equal(a.draft().pendingId, null, "the new outing carries no identity from the first");
+
+  // Refresh before saving, then save.
+  const b = reload(a);
+  assert.equal(b.el("front-pre").value, "30.5");
+  b.go("review");
+  b.el("save-session").click();
+
+  const all = b.saved();
+  assert.equal(all.length, 2, "two separate records, not one collapsed record");
+  assert.notEqual(all[0].id, all[1].id, "with distinct ids");
+  assert.equal(all.filter((x) => x.id === first.id).length, 1, "the first is intact");
+});
+
+// ---------------------------------------------------------------------------
+// Every deletion names the exact draft it inspected
+// ---------------------------------------------------------------------------
+
+test("clearDraft refuses without an expectation", () => {
+  const a = setup();
+  assert.throws(() => a.win.Store.clearDraft(), /which draft/,
+    "an unguarded delete is not available at all");
+});
+
+test("reconciliation does not delete a draft written after the one it inspected", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  const realRemove = a.storage.removeItem.bind(a.storage);
+  a.storage.removeItem = () => {};             // removal fails, so it gets stamped
+  a.go("review");
+  a.el("save-session").click();
+  const stamped = a.storage.getItem(DRAFT);
+  assert.ok(JSON.parse(stamped).savedAs, "a stamped draft is left behind");
+  // Deletion works again from here, or the reconciliation below could not
+  // delete anything and this test would prove nothing.
+  a.storage.removeItem = realRemove;
+
+  // Now load again. Between reading that draft and removing it, another tab
+  // replaces the key - the exact window the expectation has to close.
+  const NEWER = JSON.stringify({
+    v: 1, rev: 99, writer: "other-tab", updatedAt: "2026-10-01T12:00:00.000Z",
+    stage: { name: "day", postUnlocked: false, preEditable: true },
+    pendingId: null, savedAs: null,
+    session: { setup: { bike: "Another tab outing" }, tires: {}, suspension: {}, laps: {}, riderFeedback: {} },
+  });
+  const third = bootApp({ storage: a.storage, beforeBoot: (win) => {
+    const realFind = win.Store.findById;
+    win.Store.findById = (id) => {
+      const r = realFind(id);
+      a.storage.setItem(DRAFT, NEWER);        // the other tab lands here
+      return r;
+    };
+  } });
+  assert.equal(third.storage.getItem(DRAFT), NEWER,
+    "the newer draft is exactly as the other tab left it");
+});
+
+test("the recovery discard removes only the bytes that were downloaded", () => {
+  const a = setup({ autosave: false });
+  a.storage.setItem(AUTOSAVE, "true");
+  const RAW = '{"v":1,"rev":9,BROKEN';
+  a.storage.setItem(DRAFT, RAW);
+  const b = reload(a);
+  b.win.confirm = () => true;                  // download AND discard
+  // Between the download and the discard, something else writes the key.
+  const realGetRecovery = b.win.Store.draftRecoveryText;
+  b.win.Store.draftRecoveryText = () => { const r = realGetRecovery(); b.storage.setItem(DRAFT, '{"v":1,"rev":10,NEWER'); return r; };
+  b.document.getElementById("draft-recovery").click();
+  assert.equal(b.storage.getItem(DRAFT), '{"v":1,"rev":10,NEWER',
+    "the newer bytes were not discarded with the old ones");
+});
+
+// ---------------------------------------------------------------------------
+// The footer may only promise what is actually kept
+// ---------------------------------------------------------------------------
+
+const footer = (a) => a.el("footer-draft-note").textContent;
+
+test("the footer does not promise a refresh during the debounce", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  assert.equal(a.clock.pending(), 1, "a write is outstanding");
+  assert.match(footer(a), /have not been kept yet/, footer(a));
+  assert.ok(!/brings your draft back/.test(footer(a)));
+  a.clock.flush();
+  assert.match(footer(a), /brings your draft back/, "and only then does it promise it");
+});
+
+test("the footer stops promising a refresh after a failed draft write", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+  assert.match(footer(a), /brings your draft back/);
+  a.storage.setItem = () => {};
+  a.type("bike", "will not land");
+  a.clock.flush();
+  assert.match(footer(a), /not being kept right now/, footer(a));
+});
+
+test("with auto-save off the footer says a refresh wipes the session", () => {
+  const a = setup({ autosave: false });
+  a.fill();
+  a.clock.flush();
+  assert.match(footer(a), /Refresh wipes the current session/);
+});

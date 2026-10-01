@@ -251,3 +251,101 @@ not. Re-run with unique anchors before drawing any conclusion from a survivor.
 - **Browser verification** of the new switch, the recovery messages and refresh
   behaviour. Not done: this round is Node-only.
 - **Real-phone keyboard check**, separate as always.
+
+---
+
+## Correction round 2 — identity (owner review of #79 at `629e203`)
+
+### The serious one: matching values are not identity
+
+`idOfMatchingSavedRecord()` stripped `id` and `savedAt` and then adopted any
+record whose remaining values matched. That is wrong in exactly the case the
+product promises otherwise:
+
+- **Copy to form** produces a draft whose values are, by construction,
+  identical to the original. Copy → autosave → refresh → save would have
+  **overwritten the original** instead of creating the separate session the
+  rider was told it would create.
+- **Two genuinely separate outings with the same entries** — same bike, track,
+  label and pressures — would have **collapsed into one record**.
+
+Content inference is **removed**. Identity now comes only from what was
+recorded, and it is recorded **before history is written**:
+
+1. `guardedSave()` claims the id and persists it into the draft **first**;
+2. only then is the session written to history.
+
+Anything in between — a crash, a refresh — leaves a record that the draft
+already names. If that first write cannot land, the save still proceeds and the
+limitation is **reported**: *"Saving, but this device could not record the
+attempt"*, with the footer dropping its refresh promise. Nothing is inferred
+from values.
+
+### Remaining ownerless deletions, closed
+
+`clearDraft()` no longer has an unguarded form at all — it throws if the caller
+does not say which draft it means. Two call sites were still ownerless:
+
+- **restore reconciliation** now names `{ writer, rev }` of the draft it
+  actually inspected;
+- **recovery discard** now names `{ raw }` — the exact bytes the rider
+  downloaded — so a draft written between the download and the discard is not
+  thrown away with them.
+
+`markDraftSaved()` takes the same expectation, since it rewrites the key.
+
+### A truthful footer
+
+"A refresh brings your draft back" rested on the switch alone. It is now
+derived from what is actually kept:
+
+| condition | footer |
+|---|---|
+| auto-save off, or storage blocked | Refresh wipes the current session. |
+| write outstanding (debounce) | Your most recent changes have not been kept yet. |
+| write failed, unreadable, conflict, or attempt unrecorded | Your latest changes are not being kept right now. |
+| on, nothing entered | Anything you enter is kept on this device. |
+| on, kept and current | A refresh brings your draft back. |
+
+### Tests
+
+**157 pass / 0 fail** (148 → 157). The two regressions this round required:
+
+- **Copy to form → refresh → save** ⇒ two records; the original is present and
+  unchanged; the copy has its own id.
+- **Two distinct outings with identical values** ⇒ two records with distinct
+  ids; the first intact.
+
+All seven mutants killed, control green — including the reported bug reinstated
+as a mutant (killed by *both* new regressions), identity recorded after instead
+of before history, `clearDraft` accepting a missing expectation, reconciliation
+and recovery deleting whatever is stored now, and the two footer rules.
+
+**A survivor that was my test's fault, not the code's.** The reconciliation-race
+test stubbed `removeItem` to a no-op earlier in the same test, so **no deletion
+could happen at all** and the mutant could not be distinguished. Restoring
+`removeItem` before the race made it real. Same lesson as the earlier rounds:
+confirm the mutation could have had an effect before reading a survivor as
+coverage.
+
+## Browser acceptance
+
+Headless Chromium 152 via chromedriver, server on 127.0.0.1 only.
+`measurements.json` holds the raw results; screenshots alongside.
+
+| check | result |
+|---|---|
+| switch off by default | `aria-checked=false`, "Off · refresh clears the draft" |
+| footer with it off | "Refresh wipes the current session." |
+| switch on | `aria-checked=true`, "On · drafts kept in this browser" |
+| during the debounce | status "Keeping draft…", footer "…have not been kept yet." |
+| after the debounce | "draft kept on this device", footer promises the refresh, draft at rev 1 |
+| **refresh recovery** | fields restored, status "Draft restored · not saved yet" |
+| draft write fails | "draft could not be kept", footer "…not being kept right now." |
+| unreadable draft | "a kept draft could not be read", **bytes untouched**, recovery offered, About explains it |
+| turning it off | draft gone, switch off, footer back to "Refresh wipes the current session." |
+
+## Still outstanding
+
+**Real-phone keyboard check**, separate as always — none of this exercises an
+on-screen keyboard.

@@ -119,6 +119,9 @@ export function bootApp(opts) {
   runIn(read("public", "session-progress.js"), "session-progress.js");
   g.Store = win.Store;
   g.SessionProgress = win.SessionProgress;
+  // Lets a test interleave something between the store being ready and the
+  // app booting - which is where load-time races actually live.
+  if (opts && typeof opts.beforeBoot === "function") opts.beforeBoot(win);
   runIn(read("public", "app.js"), "app.js");
 
   // The anchor's download name is set after createObjectURL, so it is linked
