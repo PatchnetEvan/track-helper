@@ -5,6 +5,9 @@
   // Thrown by the strict read so callers can tell "nothing saved" from
   // "something is saved and I cannot read it".
   const UNREADABLE = "mototrack:history-unreadable";
+  const DRAFT_UNREADABLE = "mototrack:draft-unreadable";
+  const DRAFT_UNVERIFIED = "mototrack:draft-unverified";
+  const DRAFT_CONFLICT = "mototrack:draft-conflict";
   const APP = "MotoTrack";
   const VERSION = 1;
 
@@ -186,8 +189,117 @@
     return { kind: "ok", payload: { app: APP, version: VERSION, exportedAt: new Date().toISOString(), sessions: sessions } };
   }
 
+  // --- Drafts (PR 6) --------------------------------------------------------
+  //
+  // A SEPARATE KEY, and that separation is the safety property rather than
+  // tidiness: nothing on the draft path reads or writes the saved-session key,
+  // so a failing or unreadable draft can never damage saved history, and an
+  // unreadable history can never cost the rider the outing in front of them.
+  const DRAFT_KEY = "mototrack.draft.v1";
+  const DRAFT_VERSION = 1;
+
+  // A draft is only restored when it is a COMPLETE, known-version record.
+  // Anything else is left exactly where it is for the recovery-copy path -
+  // never parsed past, never half-applied, never overwritten.
+  function validateDraft(d) {
+    if (!d || typeof d !== "object" || Array.isArray(d)) return "not a record";
+    if (d.v !== DRAFT_VERSION) return "unsupported version";
+    if (typeof d.rev !== "number" || !isFinite(d.rev) || d.rev < 0) return "bad revision";
+    if (typeof d.writer !== "string" || !d.writer) return "no writer";
+    if (typeof d.updatedAt !== "string" || !d.updatedAt) return "no timestamp";
+    var st = d.stage;
+    if (!st || typeof st !== "object") return "no stage";
+    if (typeof st.name !== "string") return "bad stage name";
+    if (typeof st.postUnlocked !== "boolean") return "bad postUnlocked";
+    if (typeof st.preEditable !== "boolean") return "bad preEditable";
+    if (d.pendingId !== null && typeof d.pendingId !== "string") return "bad pendingId";
+    if (d.savedAs !== null && typeof d.savedAs !== "string") return "bad savedAs";
+    var ses = d.session;
+    if (!ses || typeof ses !== "object" || Array.isArray(ses)) return "no session";
+    for (const part of ["setup", "tires", "suspension", "laps", "riderFeedback"]) {
+      if (!ses[part] || typeof ses[part] !== "object") return "session missing " + part;
+    }
+    return null;   // valid
+  }
+
+  // Strict, for anything that decides whether to restore or to replace.
+  //   none        - nothing stored
+  //   ok          - a complete draft of a version this build understands
+  //   unreadable  - something IS stored and must not be touched
+  function readDraftState() {
+    let raw;
+    try {
+      raw = localStorage.getItem(DRAFT_KEY);
+    } catch (e) {
+      return { kind: "unreadable", raw: null, reason: "storage refused the read" };
+    }
+    if (raw === null || raw === undefined) return { kind: "none" };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      return { kind: "unreadable", raw: raw, reason: "not valid JSON" };
+    }
+    const bad = validateDraft(parsed);
+    if (bad) return { kind: "unreadable", raw: raw, reason: bad };
+    return { kind: "ok", draft: parsed, raw: raw };
+  }
+
+  // Writes and VERIFIES. "Kept" is only ever claimed about a revision that was
+  // read back and matched, so a previous success never speaks for later edits.
+  //
+  // expectedRev guards against another tab: pass the revision this tab last
+  // saw, and the write is refused if the stored draft has moved on. The other
+  // tab's work is left intact - this one reports that it is not being kept.
+  function writeDraft(draft, expectedRev) {
+    const bad = validateDraft(draft);
+    if (bad) throw new Error("refusing to write an invalid draft: " + bad);
+    const current = readDraftState();
+    if (current.kind === "unreadable") {
+      const e = new Error(DRAFT_UNREADABLE); e.code = DRAFT_UNREADABLE; throw e;
+    }
+    if (current.kind === "ok" && expectedRev !== undefined && expectedRev !== null
+        && current.draft.rev !== expectedRev && current.draft.writer !== draft.writer) {
+      const e = new Error(DRAFT_CONFLICT); e.code = DRAFT_CONFLICT;
+      e.theirRev = current.draft.rev; e.theirWriter = current.draft.writer;
+      throw e;
+    }
+    const text = JSON.stringify(draft);
+    localStorage.setItem(DRAFT_KEY, text);
+    const back = localStorage.getItem(DRAFT_KEY);
+    if (back !== text) {
+      const e = new Error(DRAFT_UNVERIFIED); e.code = DRAFT_UNVERIFIED; throw e;
+    }
+    return draft.rev;
+  }
+
+  function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    if (localStorage.getItem(DRAFT_KEY) !== null) throw new Error(DRAFT_UNVERIFIED);
+  }
+
+  // Marks a draft as already written to history, for the case where clearing
+  // it failed. A draft carrying savedAs is reconciled, never restored.
+  function markDraftSaved(sessionId) {
+    const state = readDraftState();
+    if (state.kind !== "ok") return false;
+    const next = Object.assign({}, state.draft, { savedAs: sessionId });
+    const text = JSON.stringify(next);
+    localStorage.setItem(DRAFT_KEY, text);
+    return localStorage.getItem(DRAFT_KEY) === text;
+  }
+
+  // For the recovery copy of a draft that cannot be read: the original text,
+  // byte for byte, never re-serialised.
+  function draftRecoveryText() {
+    try { return localStorage.getItem(DRAFT_KEY); } catch (e) { return null; }
+  }
+
   window.Store = {
     available, readAll, readAllForWrite, add, put, findById, remove, clear, newId,
     importPayload, exportPayload, exportState, UNREADABLE,
+    DRAFT_KEY, DRAFT_VERSION, validateDraft, readDraftState, writeDraft,
+    clearDraft, markDraftSaved, draftRecoveryText,
+    DRAFT_UNREADABLE, DRAFT_UNVERIFIED, DRAFT_CONFLICT,
   };
 })();

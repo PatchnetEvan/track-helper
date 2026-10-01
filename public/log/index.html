@@ -567,6 +567,19 @@
         <button type="button" class="btn-danger" id="clear-history">Clear all history</button>
       </div>
 
+      <!-- Auto-save draft (C6). Off by default: with it off the app behaves
+           exactly as it always has and a refresh clears the form. Drafts are
+           kept under their own storage key, separate from saved sessions. -->
+      <div class="setting-row">
+        <button type="button" class="switch" id="autosave-switch" role="switch" aria-checked="false">
+          <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
+          <span class="switch-label">Auto-save draft</span>
+        </button>
+        <p class="switch-sub" id="autosave-sub">Off · refresh clears the draft</p>
+        <p class="hint" id="autosave-note" hidden></p>
+        <p><button type="button" class="btn-secondary" id="draft-recovery" hidden>Download the unreadable draft</button></p>
+      </div>
+
       <!-- Hidden by default; revealed by app.js ONLY after GET /api/feedback
            proves the feature is enabled. A build without FEEDBACK_ENABLED never
            shows this entry, so a rider is never offered a surface whose backend
@@ -635,7 +648,7 @@
   </div>
 
   <footer class="app-footer">
-    <p>No accounts. No server. Refresh wipes the current session. Saved history lives only on this device.</p>
+    <p>No accounts. No server. <span id="footer-draft-note">Refresh wipes the current session.</span> Saved history lives only on this device.</p>
     <p><a href="../privacy.html">Privacy</a> · <a href="../terms.html">Terms</a></p>
   </footer>
 

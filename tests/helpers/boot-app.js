@@ -7,10 +7,12 @@ const read = (...p) => readFileSync(join(ROOT, ...p), "utf8");
 
 // Boots the REAL public/app.js against the stub DOM, with the real storage.js
 // and session-progress.js beside it. Returns handles for driving it.
-export function bootApp() {
+export function bootApp(opts) {
   const dom = createDom();
   const { document } = dom;
-  const storage = createStorage();
+  // A shared storage lets a test boot a SECOND app over the same data, which
+  // is what a refresh - or a second tab - actually is.
+  const storage = (opts && opts.storage) || createStorage();
 
   // The elements app.js finds by selector rather than by id have to exist
   // before it runs; everything else is created on first lookup.
@@ -53,6 +55,10 @@ export function bootApp() {
 
   // Downloads are captured rather than performed, so a test can assert what
   // would have reached the rider's phone.
+  // Timers are captured rather than run, so a test can prove what happens at
+  // the debounce boundary and that a cancelled timer never fires.
+  const timers = new Map();
+  let timerSeq = 0;
   const downloads = [];
   const dialogs = { alerts: [], confirms: [], confirmAnswer: true };
 
@@ -86,7 +92,9 @@ export function bootApp() {
     ResizeObserver: undefined,
     Event: win.Event,
     console,
-    setTimeout, clearTimeout, setInterval, clearInterval,
+    setTimeout: (fn, ms) => { const id = ++timerSeq; timers.set(id, { fn, ms }); return id; },
+    clearTimeout: (id) => { timers.delete(id); },
+    setInterval, clearInterval,
     fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
     navigator: { onLine: true },
     Date, Math, JSON, String, Number, Array, Object, Boolean, Set, Map, RegExp, Error,
@@ -124,7 +132,17 @@ export function bootApp() {
     return el;
   };
 
-  return { dom, document, win, storage, main, stageCells, field, bar, downloads, dialogs,
+  const clock = {
+    pending: () => timers.size,
+    // Fire every timer that is due, the way a real clock would.
+    flush() {
+      const due = [...timers.entries()];
+      timers.clear();
+      due.forEach(([, t]) => t.fn());
+      return due.length;
+    },
+  };
+  return { dom, document, win, storage, main, stageCells, field, bar, downloads, dialogs, clock,
            STORAGE_KEY: "mototrack.sessions.v1",
            saved: () => JSON.parse(storage.getItem("mototrack.sessions.v1") || "[]") };
 }
