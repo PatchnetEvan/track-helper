@@ -227,7 +227,7 @@
     try { return localStorage.getItem(AUTOSAVE_KEY) === "true"; } catch (e) { return false; }
   }
 
-  function buildDraft(rev) {
+  function buildDraft(rev, pendingIdOverride) {
     return {
       v: 1,
       rev: rev,
@@ -241,7 +241,7 @@
       copiedFrom: _copiedFrom ? _copiedFrom.id : null,
       // Carried so a write that could not be verified is still reconciled
       // after a refresh, instead of being written a second time.
-      pendingId: saveState.pendingId || null,
+      pendingId: pendingIdOverride || saveState.pendingId || null,
       savedAs: null,
       session: collectSession(),
     };
@@ -264,7 +264,17 @@
     _draftTimer = setTimeout(writeDraftNow, DRAFT_DEBOUNCE_MS);
   }
 
-  function writeDraftNow() {
+  // A synchronous write, for the moments where waiting out the debounce would
+  // lose something that cannot be reconstructed after a reload.
+  function persistDraftImmediately(pendingIdOverride) {
+    if (!_autosave || draftState.suspended) return;
+    if (!hasSessionContent()) return;
+    cancelDraftWrite();
+    draftState.edited();
+    writeDraftNow(pendingIdOverride);
+  }
+
+  function writeDraftNow(pendingIdOverride) {
     _draftTimer = null;
     if (!_autosave || draftState.suspended) { draftState.cancelled(); return; }
     if (!hasSessionContent()) { discardDraft(); return; }
@@ -272,7 +282,7 @@
     draftState.writeStarted();
     const rev = (_lastSeenRev === null ? 0 : _lastSeenRev) + 1;
     try {
-      Store.writeDraft(buildDraft(rev), _lastSeenRev);
+      Store.writeDraft(buildDraft(rev, pendingIdOverride), _lastSeenRev);
       _lastSeenRev = rev;
       // The sequence written is recorded, not "now": edits made during the
       // write are still outstanding and must not be reported as kept.
@@ -287,11 +297,32 @@
 
   // Discards this tab's draft. Always cancels first, so a timer already in
   // flight cannot put it straight back.
+  //
+  // Returns whether the draft is really gone. A failure is NOT swallowed: an
+  // undisposed draft can come back after a refresh, and saying nothing would
+  // leave the rider believing discarded work was discarded.
   function discardDraft() {
     cancelDraftWrite();
-    if (draftState.suspended) { draftState.reset(); return; }
-    try { Store.clearDraft(); _lastSeenRev = null; } catch (e) { /* reported by the caller */ }
-    draftState.reset();
+    if (!_autosave) {
+      // With auto-save off this tab owns no draft. Touching the key here is
+      // how one tab's Reset used to delete another tab's work.
+      draftState.reset();
+      return true;
+    }
+    if (draftState.suspended) { draftState.reset(); return true; }
+    try {
+      Store.clearDraft(TAB_ID, _lastSeenRev);
+      _lastSeenRev = null;
+      draftState.reset();
+      draftState.disposalOk();
+      return true;
+    } catch (e) {
+      // Another tab's draft, or a storage that will not let go of it.
+      draftState.reset();
+      if (e && e.code === Store.DRAFT_CONFLICT) { draftState.writeConflicted(); return false; }
+      draftState.markDisposalFailed();
+      return false;
+    }
   }
 
   // A session has just been written to history. The draft that produced it is
@@ -302,14 +333,24 @@
   // carries is enough for the same reconciliation.
   function retireDraftAfterSave(sessionId) {
     cancelDraftWrite();
+    if (!_autosave) { draftState.reset(); return; }
     try {
-      Store.clearDraft();
+      Store.clearDraft(TAB_ID, _lastSeenRev);
       _lastSeenRev = null;
       draftState.reset();
+      draftState.disposalOk();
       return;
     } catch (e) { /* fall through - the save itself still stands */ }
-    try { Store.markDraftSaved(sessionId); } catch (e) { /* nothing more to try */ }
+    // Could not remove it: stamp it with the record it became, so a later
+    // load reconciles it away instead of offering it as unsaved work.
+    let stamped = false;
+    try { stamped = Store.markDraftSaved(sessionId, TAB_ID, _lastSeenRev); } catch (e) { stamped = false; }
     draftState.reset();
+    if (stamped) { draftState.disposalOk(); return; }
+    // Neither worked. The pendingId the draft already carries is still the
+    // reconciliation information - a retry writes under that id and the store
+    // upserts - but the rider is told, rather than left to find out.
+    draftState.markDisposalFailed();
   }
 
   // Does this stored draft describe a session that is already in history?
@@ -327,6 +368,29 @@
     // The stamp names a record that really is in history, so this draft has
     // already become a session.
     return true;
+  }
+
+  // The id of a saved record whose content is this session, if there is one.
+  // Used only to recover an identity that was never recorded - it never
+  // discards the draft, so the rider keeps their entries either way.
+  function idOfMatchingSavedRecord(session) {
+    if (!session) return null;
+    let all = [];
+    try { all = Store.readAll(); } catch (e) { return null; }
+    const want = (() => {
+      try {
+        const b = Object.assign({}, session); delete b.id; delete b.savedAt;
+        return JSON.stringify(b);
+      } catch (e) { return null; }
+    })();
+    if (!want) return null;
+    for (const record of all) {
+      try {
+        const a = Object.assign({}, record); delete a.id; delete a.savedAt;
+        if (JSON.stringify(a) === want) return record.id;
+      } catch (e) { /* skip */ }
+    }
+    return null;
   }
 
   // Restore on load. No prompt: a "restore?" dialog costs a tap and asks a
@@ -359,7 +423,11 @@
     if (draft.stage.preEditable) stageState.correctPre();
     renderPreEditable();
     // An unverified write survives the reload, so the retry reconciles.
-    saveState.adoptPendingId(draft.pendingId);
+    // If no id was recorded - a disposal that failed so completely it could
+    // not even stamp one - identity is recovered from the content instead:
+    // a record in history that IS this session names the id a re-save must
+    // use, so the store upserts onto it rather than minting a duplicate.
+    saveState.adoptPendingId(draft.pendingId || idOfMatchingSavedRecord(draft.session));
     saveState.markDirty();
     if (draft.copiedFrom) {
       let origin = null;
@@ -408,6 +476,7 @@
       draftFailed: draftState.failed,
       draftConflict: draftState.conflict,
       draftUnreadable: draftState.unreadable,
+      draftDisposalFailed: draftState.disposalFailed,
       draftRestored: draftState.restored,
     });
     // Written only when it actually changes. This is a polite live region:
@@ -1627,6 +1696,11 @@
       // place, so the rider can simply try again.
       if (r && r.ok) {
         saveState.saveSucceeded(r.id, r.savedAt || new Date().toISOString());
+        // Name the record in the draft BEFORE trying to dispose of it. If both
+        // the removal and the savedAs stamp fail, this is the only identity
+        // left - and without it a restored draft would mint a fresh id on the
+        // next save and duplicate the record that is already in history.
+        persistDraftImmediately(r.id);
         // The session is safely in history. Clearing the draft is best effort
         // and MUST NOT turn a successful save into a failure - but a draft
         // left behind must never come back later as a new unsaved session, so
@@ -1637,6 +1711,12 @@
         _copiedFrom = null;
       } else {
         saveState.saveFailed();
+        // The pending id was minted by THIS attempt, so the draft on disk -
+        // written before the attempt - does not carry it. Persist now, not on
+        // the debounce: a refresh in the next 800ms would otherwise restore a
+        // draft with no pending id, and the retry would mint a second id and
+        // duplicate the record that did land.
+        persistDraftImmediately();
       }
       renderSaveDock();
       renderSaveStatus();

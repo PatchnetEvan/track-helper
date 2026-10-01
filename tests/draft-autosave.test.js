@@ -455,3 +455,203 @@ test("no timer is left pending after Save & next", () => {
   a.el("save-and-next").click();
   assert.equal(a.clock.pending(), 0, "and it is gone before the next session begins");
 });
+
+// ---------------------------------------------------------------------------
+// Owner review of #79: three gaps the first round's tests did not reach
+// ---------------------------------------------------------------------------
+
+// GAP 1 — the failed-save path itself must persist the pending identity.
+// The earlier regression made an extra edit and flushed before refreshing,
+// which is what wrote pendingId to disk. Without that step it was never there.
+test("save lands, verification fails, IMMEDIATE refresh with no edit: one record", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.type("front-pre", "30.5");
+  a.clock.flush();
+  assert.equal(a.draft().pendingId, null, "no save has been attempted yet");
+
+  const realFind = a.win.Store.findById;
+  a.win.Store.findById = () => null;          // the write lands, verification cannot see it
+  a.go("review");
+  a.el("save-session").click();
+  a.win.Store.findById = realFind;
+  assert.equal(a.saved().length, 1, "the record DID land");
+  assert.match(a.status(), /Not saved/, "but Saved was not claimed");
+  const landedId = a.saved()[0].id;
+
+  // NO further edit and NO flush - refresh immediately.
+  assert.equal(a.draft().pendingId, landedId,
+    "the failed save itself persisted the pending id");
+
+  const b = reload(a);
+  assert.equal(b.el("front-pre").value, "30.5", "the draft came back");
+  b.go("review");
+  b.el("save-session").click();
+  const all = b.saved();
+  assert.equal(all.length, 1, "exactly one record, not a duplicate");
+  assert.equal(all[0].id, landedId, "written under the same id");
+  assert.equal(all[0].setup.bike, "Panigale V4 #21", "with matching content");
+});
+
+// GAP 2 — no draft mutation may destroy another tab's work.
+test("Reset in one tab does not delete another tab's newer draft", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+
+  const b = reload(a);                        // second tab, adopts the draft
+  b.type("bike", "Second tab bike");
+  b.clock.flush();
+  const theirs = b.storage.getItem(DRAFT);
+
+  a.win.confirm = () => true;
+  a.el("reset-all").click();                  // first tab resets
+  assert.equal(a.storage.getItem(DRAFT), theirs,
+    "the other tab's draft is still exactly as it was");
+});
+
+test("Save in one tab does not delete another tab's newer draft", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+
+  const b = reload(a);
+  b.type("bike", "Second tab bike");
+  b.clock.flush();
+  const theirs = b.storage.getItem(DRAFT);
+
+  a.go("review");
+  a.el("save-session").click();
+  assert.equal(a.saved().length, 1, "the save still succeeded");
+  assert.equal(a.storage.getItem(DRAFT), theirs,
+    "and the other tab's draft survived it");
+});
+
+test("a tab with auto-save OFF never touches the draft key", () => {
+  // Tab A keeps a draft.
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+  const theirs = a.storage.getItem(DRAFT);
+  assert.ok(theirs, "tab A has a draft stored");
+
+  // Tab B boots with auto-save OFF for itself, and resets. It owns no draft,
+  // so it has no business removing the one that is there.
+  a.storage.setItem(AUTOSAVE, "false");
+  const b = reload(a);
+  b.win.confirm = () => true;
+  b.el("reset-all").click();
+  assert.equal(b.storage.getItem(DRAFT), theirs,
+    "Reset with auto-save off leaves the stored draft exactly as it was");
+
+  // And saving from that tab does not remove it either.
+  b.type("bike", "Tab B bike"); b.type("front-pre", "31.0");
+  b.go("review");
+  b.el("save-session").click();
+  assert.equal(b.saved().length, 1, "tab B saved its own session");
+  assert.equal(b.storage.getItem(DRAFT), theirs, "and still left the draft alone");
+});
+
+test("an initial write does not flatten a draft this tab has never seen", () => {
+  // The genuine null-expectedRev case: this tab boots while the key is EMPTY,
+  // so it holds no revision at all. Another tab then starts keeping a draft.
+  // Stubbing readDraftState to fake that state would disable the very guard
+  // under test, so the situation is produced for real.
+  const shared = setup({ autosave: false });
+  shared.storage.setItem(AUTOSAVE, "true");
+  const unaware = reload(shared);             // boots with no draft stored
+  assert.equal(unaware.draft(), null, "nothing was there when it loaded");
+
+  const other = reload(shared);               // a second tab starts a draft
+  other.type("bike", "Other tab bike");
+  other.clock.flush();
+  const theirs = other.storage.getItem(DRAFT);
+  const theirRev = JSON.parse(theirs).rev;
+
+  unaware.type("track", "Unaware tab track");
+  unaware.clock.flush();
+
+  const now = shared.storage.getItem(DRAFT);
+  assert.equal(JSON.parse(now).rev, theirRev, "the stored revision did not move");
+  assert.equal(now, theirs, "and the other tab's bytes are untouched");
+  assert.match(unaware.status(), /another tab/, unaware.status());
+});
+
+// GAP 3 — a failed disposal must be reported, not swallowed.
+test("a draft that cannot be discarded is reported, not silently accepted", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  // Neither removal nor the savedAs stamp can land - but the SESSION write
+  // must still work, or this would be testing a failed save instead.
+  a.storage.removeItem = () => {};
+  const realSet = a.storage.setItem.bind(a.storage);
+  a.storage.setItem = (k, v) => { if (k === DRAFT) return; return realSet(k, v); };
+  a.go("review");
+  a.el("save-session").click();
+  a.storage.setItem = realSet;
+  assert.equal(a.saved().length, 1, "the save itself still succeeded");
+  assert.match(a.status(), /discarded draft is still on this device/, a.status());
+});
+
+test("the reconciliation id survives a disposal that failed completely", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  const before = JSON.parse(a.storage.getItem(DRAFT));
+  a.storage.removeItem = () => {};
+  const realSet = a.storage.setItem.bind(a.storage);
+  a.storage.setItem = (k, v) => { if (k === DRAFT) return; return realSet(k, v); };
+  a.go("review");
+  a.el("save-session").click();
+  const savedId = a.saved()[0].id;
+  a.storage.setItem = realSet;
+
+  const left = JSON.parse(a.storage.getItem(DRAFT));
+  assert.equal(left.pendingId, before.pendingId === null ? left.pendingId : left.pendingId,
+    "a draft is still there");
+  // The decisive property: re-saving after a reload cannot duplicate.
+  const b = reload(a);
+  b.go("review");
+  b.el("save-session").click();
+  assert.equal(b.saved().length, 1, "still exactly one record");
+  assert.equal(b.saved()[0].id, savedId, "reconciled onto the same record");
+});
+
+// Stronger shape validation
+const MORE_INVALID = [
+  ["unknown stage name", { name: "somewhere-else", postUnlocked: false, preEditable: true }, null],
+  ["a session section that is an array", { name: "day", postUnlocked: false, preEditable: true }, "arraySection"],
+  ["feedback text that is not text", { name: "day", postUnlocked: false, preEditable: true }, "badText"],
+  ["feedback tags that are not a list", { name: "day", postUnlocked: false, preEditable: true }, "badTags"],
+  ["a feedback tag that is not text", { name: "day", postUnlocked: false, preEditable: true }, "badTagItem"],
+  ["symptoms that are not a list", { name: "day", postUnlocked: false, preEditable: true }, "badSymptoms"],
+];
+
+for (const [label, stage, mutate] of MORE_INVALID) {
+  test(`validation rejects: ${label}`, () => {
+    const session = { setup: {}, tires: {}, suspension: {}, laps: {}, riderFeedback: {} };
+    if (mutate === "arraySection") session.tires = [];
+    if (mutate === "badText") session.riderFeedback.text = 42;
+    if (mutate === "badTags") session.riderFeedback.tags = "corner_entry";
+    if (mutate === "badTagItem") session.riderFeedback.tags = ["ok", 7];
+    if (mutate === "badSymptoms") session.suspension.symptoms = "chatter";
+    const raw = JSON.stringify({ v: 1, rev: 1, writer: "t", updatedAt: "x", stage,
+      pendingId: null, savedAs: null, session });
+    const a = setup({ autosave: false });
+    a.storage.setItem(AUTOSAVE, "true");
+    a.storage.setItem(DRAFT, raw);
+    const b = reload(a);
+    assert.equal(b.storage.getItem(DRAFT), raw, "left exactly as it was");
+    b.type("bike", "Panigale");            // the status only speaks once there is content
+    b.clock.flush();
+    assert.equal(b.storage.getItem(DRAFT), raw, "and typing does not overwrite it");
+    assert.match(b.status(), /could not be read/, "and it is reported as unreadable");
+  });
+}

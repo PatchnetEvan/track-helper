@@ -198,6 +198,7 @@
     let conflict = false;
     let restored = false;
     let suspended = false;     // never write while the stored draft is unreadable
+    let disposalFailed = false;  // a draft we meant to discard is still there
     return {
       get editSeq() { return editSeq; },
       get keptSeq() { return keptSeq; },
@@ -208,6 +209,9 @@
       get conflict() { return conflict; },
       get restored() { return restored; },
       get suspended() { return suspended; },
+      get disposalFailed() { return disposalFailed; },
+      markDisposalFailed() { disposalFailed = true; return this; },
+      disposalOk() { disposalFailed = false; return this; },
       // There are edits that are not on disk yet. This is the only question
       // the status asks, so it is the only one kept.
       get behind() { return editSeq > keptSeq; },
@@ -228,6 +232,9 @@
       // A new session, or a discarded draft: nothing is kept and nothing is
       // outstanding. Deliberately does NOT clear `unreadable`, because the
       // thing that could not be read is still sitting there.
+      // Deliberately leaves `unreadable` and `disposalFailed` alone: both
+      // describe something still sitting in storage, which resetting this
+      // tab's bookkeeping does not change.
       reset() {
         editSeq = 0; keptSeq = -1; scheduled = false; writing = false;
         failed = false; conflict = false; restored = false;
@@ -258,6 +265,10 @@
     if (f.autosave && f.draftConflict && f.hasContent) {
       return { key: "draft-conflict", tone: "warn",
         text: "Not saved yet \u00b7 another tab is keeping a draft" };
+    }
+    if (f.autosave && f.draftDisposalFailed) {
+      return { key: "draft-not-discarded", tone: "warn",
+        text: "A discarded draft is still on this device" };
     }
     if (f.autosave && f.draftFailed && f.hasContent) {
       return { key: "draft-failed", tone: "warn",

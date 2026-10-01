@@ -157,3 +157,97 @@ Unchanged and still open. Everything here is Node and headless; none of it
 exercises an on-screen keyboard. On a device: focus a PSI field so the keyboard
 opens, confirm the focused field stays reachable and the dock's state matches
 its measured size.
+
+---
+
+## Correction round (owner review of #79 at `098bc9c`)
+
+Three gaps, all real, plus stronger validation. Each is now covered by a test
+through the real app, and each fix is mutation-killed.
+
+### 1. An immediate refresh after a failed save duplicated the session
+
+The first round's regression made an extra edit and flushed autosave before
+refreshing — **and that extra step is what wrote `pendingId` to disk.** The
+failed-save path itself never did, so a refresh within the debounce restored a
+draft with no pending identity, and the retry minted a second id over a record
+that had already landed.
+
+The failed-save path now **persists the draft synchronously**, not on the
+debounce. Tested with no intervening edit and no flush: write lands →
+verification fails → immediate refresh → restore → retry ⇒ **one record**.
+
+### 2. Other tabs' drafts could still be deleted or overwritten
+
+Three holes, all closed:
+
+- **`writeDraft` skipped its conflict check when `expectedRev` was null.** That
+  is the most dangerous case, not the safest: a tab that has never read the key
+  would flatten whatever another tab was keeping. A null expectation now only
+  authorises a write when the key is genuinely empty or the stored draft is
+  this tab's own.
+- **`clearDraft()` had no guard at all.** Deleting is a mutation, and the most
+  destructive one. It now takes an owner and a revision.
+- **`markDraftSaved()` rewrites the key** and so could destroy another tab's
+  work exactly as a write can. Same guard.
+
+Plus: **a tab with auto-save off no longer touches the draft key**, which is
+how one tab's Reset used to delete another tab's work.
+
+### 3. A failed disposal could silently resurrect discarded work
+
+`discardDraft()` swallowed deletion errors and reset its state as though
+disposal had succeeded. It now **returns whether the draft is really gone** and
+reports failure through a new status row — *"A discarded draft is still on this
+device"*.
+
+Identity is preserved two ways, because the first can itself fail:
+
+1. A successful save **stamps the record's id into the draft before** disposal
+   is attempted, so a draft left behind names what it became.
+2. If even that write cannot land, restore **recovers identity from content**:
+   a saved record that *is* this session names the id a re-save must use, so
+   the store upserts onto it instead of minting a duplicate. The draft is never
+   discarded on this path — the rider keeps their entries either way.
+
+### Validation strengthened
+
+Now rejected, each tested, each leaving the stored bytes untouched: an unknown
+**stage name** (it was being handed straight to `showTab`), a session section
+that is an **array** (passes `typeof "object"` and would spread into the form as
+numeric keys), **feedback text** that is not a string, **tags** that are not a
+list, a **tag** that is not a string, and **symptoms** that are not a list.
+
+### Tests
+
+**148 pass / 0 fail** (135 → 148). Mutation results for this round:
+
+| mutation | result |
+|---|---|
+| failed save no longer persists identity | 1 fail |
+| `writeDraft` permits a null `expectedRev` | 1 fail |
+| `clearDraft` has no ownership guard | 2 fail |
+| a total disposal failure is reported as success | 1 fail |
+| no identity recovery from content | 1 fail |
+| stage name unchecked | 1 fail |
+| array sections accepted | 1 fail |
+| feedback tags unchecked | 1 fail |
+| *(control — unmutated)* | **0 fail** |
+
+**Two equivalent mutants, recorded rather than counted as coverage.** Removing
+the auto-save-off early return in `discardDraft` changes nothing observable,
+because `clearDraft`'s ownership guard refuses the delete anyway — defence in
+depth working as intended. Removing the pre-disposal id stamp likewise survives,
+because content recovery covers it. Both layers are kept; neither is claimed as
+tested on its own.
+
+I also constructed four malformed mutants during this round (ambiguous anchors
+matching two call sites, and a `false ||` edit that left the original condition
+reachable). Each produced a passing run that looked like a survivor and was
+not. Re-run with unique anchors before drawing any conclusion from a survivor.
+
+### Still outstanding
+
+- **Browser verification** of the new switch, the recovery messages and refresh
+  behaviour. Not done: this round is Node-only.
+- **Real-phone keyboard check**, separate as always.
