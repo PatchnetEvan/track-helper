@@ -155,6 +155,15 @@ export function bootApp(opts) {
   runIn(read("public", "session-progress.js"), "session-progress.js");
   g.Store = win.Store;
   g.SessionProgress = win.SessionProgress;
+  // Every saved-session field is a real input from the start. clearForm() finds
+  // what it clears by selector ('input[type="text"], textarea'), so a field
+  // that only becomes an INPUT when a test types into it is invisible to it -
+  // and a restored draft populates fields WITHOUT typing, which made Reset
+  // look broken when it was not.
+  for (const id of win.SessionProgress.SESSION_FIELD_IDS) {
+    field(id, "INPUT");
+  }
+
   // Lets a test interleave something between the store being ready and the
   // app booting - which is where load-time races actually live.
   if (opts && typeof opts.beforeBoot === "function") opts.beforeBoot(win);

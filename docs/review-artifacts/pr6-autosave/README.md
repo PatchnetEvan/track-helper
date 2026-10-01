@@ -487,3 +487,69 @@ so these are genuine cross-tab tests rather than simulated ones.
 | B's bytes | **untouched** | still "A refresh brings your draft back." |
 
 Screenshot: `11-A-after-B-took-over.png`.
+
+---
+
+## Correction round 5 — the verified pair
+
+### A restored draft belongs to the previous page load
+
+The last round compared the stored draft against **this tab's** id, which broke
+the case it was meant to protect: a restored draft was written by the *previous*
+page load, whose writer is gone, and it still protects the entries on screen.
+Comparing against `TAB_ID` dropped the promise the moment a refresh restored it.
+
+The form now tracks the exact **`{writer, rev}` it last verified**:
+
+- **adopted on restore**, from the draft that was restored;
+- **replaced after this tab writes**, with its own id and the new revision;
+- **cleared** when the draft is discarded or retired.
+
+Every decision about the stored draft compares against that pair — is the form
+protected, may this write go ahead, may this delete go ahead — so `Reset` and
+`Save` immediately after a restore act on the draft that is actually there
+rather than refusing it as someone else's.
+
+### "Draft restored" cannot outlive the draft either
+
+That row implies the draft is still there, so it is gated on the same verified
+presence. Another tab replacing or deleting the key withdraws it exactly as it
+withdraws "draft kept".
+
+### Tests
+
+**171 pass / 0 fail** (165 → 171):
+
+- keep → refresh → restore → **no edit**: the promise is still truthful, the
+  status says "Draft restored", and the stored bytes were not rewritten to make
+  that true;
+- then another tab **replaces** it: promise withdrawn, status "no longer kept",
+  **this form's fields untouched**, the other tab's bytes untouched;
+- then another tab **deletes** it: same;
+- **Reset immediately after a restore** removes the restored draft and clears
+  the form;
+- **Save immediately after a restore** saves and retires the restored draft;
+- Reset after a restore does **not** remove a draft another tab has since
+  written.
+
+Six mutants killed, control green: restore not adopting the pair (the
+regression, 4 fail), comparing against `TAB_ID`, ignoring the revision, writes
+not updating the pair (12 fail), deletes ignoring it, and the restored row
+surviving a takeover.
+
+**A harness defect this exposed:** restored fields were never tagged as inputs,
+so `clearForm()`'s selector could not see them and Reset looked broken when it
+was not. Every saved-session field is now a real input from boot. That is the
+second time a harness gap has impersonated a product bug in this lane; both
+times the giveaway was that the browser disagreed with Node.
+
+### Browser acceptance
+
+| step | footer | status | fields |
+|---|---|---|---|
+| after restore, **no edit** | A refresh brings your draft back. | Draft restored · not saved yet | Tab A bike / 30.5, draft bytes unchanged |
+| another tab replaces it, **still no edit** | Your most recent changes have not been kept yet. | this draft is no longer kept on this device | **unchanged**; other tab's bytes **untouched** |
+| **Reset** right after a restore | Anything you enter is kept on this device. | — | form cleared, draft `null` |
+| **Save** right after a restore | Session saved. Refresh clears the form; saved history remains. | Saved on this device · HH:MM | 1 saved, draft `null` |
+
+Screenshots `12-` to `14-`.

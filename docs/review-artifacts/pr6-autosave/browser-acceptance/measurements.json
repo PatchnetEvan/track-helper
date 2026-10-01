@@ -107,5 +107,32 @@
    "footer": "A refresh brings your draft back.",
    "status": "Not saved yet \u00b7 draft kept on this device"
   }
+ },
+ "restoreIdentity": {
+  "afterRestoreNoEdit": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Draft restored \u00b7 not saved yet",
+   "bike": "Tab A bike",
+   "frontPre": "30.5",
+   "draftUnchanged": true
+  },
+  "afterOtherTabReplaced": {
+   "footer": "Your most recent changes have not been kept yet.",
+   "status": "Not saved yet \u00b7 this draft is no longer kept on this device",
+   "bike": "Tab A bike",
+   "frontPre": "30.5",
+   "otherBytesUntouched": true
+  },
+  "resetAfterRestore": {
+   "draft": null,
+   "bike": "",
+   "footer": "Anything you enter is kept on this device."
+  },
+  "saveAfterRestore": {
+   "saved": 1,
+   "draft": null,
+   "footer": "Session saved. Refresh clears the form; saved history remains.",
+   "status": "Saved on this device \u00b7 03:20 PM"
+  }
  }
 }

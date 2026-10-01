@@ -285,7 +285,10 @@
       return { key: "saved", tone: "good",
         text: "Saved on this device \u00b7 " + f.savedAtLabel };
     }
-    if (f.autosave && f.draftRestored && f.hasContent) {
+    // "Draft restored" implies the draft is still there protecting the form, so
+    // it must not outlive the draft: another tab replacing or deleting the key
+    // withdraws this exactly as it withdraws "draft kept".
+    if (f.autosave && f.draftRestored && f.hasContent && f.draftPresent) {
       return { key: "draft-restored", tone: "dim", text: "Draft restored \u00b7 not saved yet" };
     }
     if (f.autosave && f.hasContent) {

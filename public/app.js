@@ -60,7 +60,15 @@
   const AUTOSAVE_KEY = "mototrack.autosave";
   const DRAFT_DEBOUNCE_MS = 800;
   let _draftTimer = null;
-  let _lastSeenRev = null;     // the revision this tab last wrote or read
+  // The exact {writer, rev} this form last verified to be ITS draft on disk.
+  //
+  // Not "this tab's id and revision": a restored draft was written by the
+  // PREVIOUS page load, whose writer is gone, and it still protects the
+  // entries on screen. So the pair is adopted on restore and replaced after
+  // this tab writes, and every decision about the stored draft - is the form
+  // protected, may this write go ahead, may this delete go ahead - compares
+  // against it.
+  let _verified = null;        // { writer, rev } | null
   let _recoveryRaw = null;     // the exact bytes handed to the rider to recover
   let _autosave = false;
   // Assigned once the listeners are wired; calculators that write into the
@@ -286,10 +294,11 @@
     if (!hasSessionContent()) { discardDraft(); return; }
     const seq = draftState.editSeq;
     draftState.writeStarted();
-    const rev = (_lastSeenRev === null ? 0 : _lastSeenRev) + 1;
+    const rev = (_verified === null ? 0 : _verified.rev) + 1;
     try {
-      Store.writeDraft(buildDraft(rev, pendingIdOverride), _lastSeenRev);
-      _lastSeenRev = rev;
+      Store.writeDraft(buildDraft(rev, pendingIdOverride), _verified === null ? null : _verified.rev);
+      // This tab is now the verified writer of that revision.
+      _verified = { writer: TAB_ID, rev: rev };
       // The sequence written is recorded, not "now": edits made during the
       // write are still outstanding and must not be reported as kept.
       draftState.writeSucceeded(seq);
@@ -317,8 +326,8 @@
     }
     if (draftState.suspended) { draftState.reset(); return true; }
     try {
-      Store.clearDraft({ writer: TAB_ID, rev: _lastSeenRev });
-      _lastSeenRev = null;
+      Store.clearDraft(verifiedExpectation());
+      _verified = null;
       draftState.reset();
       draftState.disposalOk();
       return true;
@@ -341,8 +350,8 @@
     cancelDraftWrite();
     if (!_autosave) { draftState.reset(); return; }
     try {
-      Store.clearDraft({ writer: TAB_ID, rev: _lastSeenRev });
-      _lastSeenRev = null;
+      Store.clearDraft(verifiedExpectation());
+      _verified = null;
       draftState.reset();
       draftState.disposalOk();
       return;
@@ -350,7 +359,11 @@
     // Could not remove it: stamp it with the record it became, so a later
     // load reconciles it away instead of offering it as unsaved work.
     let stamped = false;
-    try { stamped = Store.markDraftSaved(sessionId, TAB_ID, _lastSeenRev); } catch (e) { stamped = false; }
+    try {
+      stamped = _verified
+        ? Store.markDraftSaved(sessionId, _verified.writer, _verified.rev)
+        : false;
+    } catch (e) { stamped = false; }
     draftState.reset();
     if (stamped) { draftState.disposalOk(); return; }
     // Neither worked. The pendingId the draft already carries is still the
@@ -398,7 +411,7 @@
         // Exactly the draft just inspected - never a newer one another tab
         // wrote while this load was in progress.
         Store.clearDraft({ writer: draft.writer, rev: draft.rev });
-        _lastSeenRev = null;
+        _verified = null;
       } catch (e) { /* another tab has moved on; leaving it is the safe act */ }
       return;
     }
@@ -424,7 +437,9 @@
         _copiedFrom = { id: origin.id, summary: sessionDateLabel(origin.savedAt) + " \u2014 " + sessionTitle(origin) };
       }
     }
-    _lastSeenRev = draft.rev;
+    // Adopt the restored draft's identity: it was written by the previous page
+    // load, and it is exactly what protects the form now on screen.
+    _verified = { writer: draft.writer, rev: draft.rev };
     draftState.reset();
     draftState.writeSucceeded(draftState.editSeq);   // what is on disk IS the form
     draftState.markRestored();
@@ -676,12 +691,20 @@
   // would then restore someone else's session, not the entries on screen. So
   // the stored draft has to match the identity and revision this tab last
   // verified for itself.
+  // What this form believes is on disk, in the shape the store's guards take.
+  // Null when nothing has been verified, which every guard treats as "do not
+  // assume anything is mine".
+  function verifiedExpectation() {
+    return _verified ? { writer: _verified.writer, rev: _verified.rev } : { writer: TAB_ID, rev: null };
+  }
+
   function draftIsStored() {
     try {
       const st = Store.readDraftState();
+      if (!_verified) return false;
       return st.kind === "ok"
-        && st.draft.writer === TAB_ID
-        && st.draft.rev === _lastSeenRev;
+        && st.draft.writer === _verified.writer
+        && st.draft.rev === _verified.rev;
     } catch (e) { return false; }
   }
 
@@ -781,7 +804,7 @@
         // Only the bytes the rider actually downloaded, so a draft written
         // since the download is not thrown away with them.
         Store.clearDraft({ raw: _recoveryRaw });
-        _lastSeenRev = null;
+        _verified = null;
         draftState.resume();
         draftState.reset();
       } catch (e) {

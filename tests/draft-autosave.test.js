@@ -30,7 +30,8 @@ function setup({ autosave = true, storage = null } = {}) {
   };
   const saved = () => JSON.parse(app.storage.getItem(SESSIONS) || "[]");
   const fill = () => { type("bike", "Panigale V4 #21"); type("track", "Barber"); type("session-label", "Session 2"); };
-  return { ...app, type, el, status, draft, saved, fill, go: (s) => app.stageCells[s].click() };
+  const footerText = () => document.getElementById("footer-draft-note").textContent;
+  return { ...app, type, el, status, draft, saved, fill, footerText, go: (s) => app.stageCells[s].click() };
 }
 
 // A fresh app on the SAME storage, as a refresh would be.
@@ -46,6 +47,7 @@ function reload(a) {
   next.draft = () => { const r = next.storage.getItem(DRAFT); return r === null ? null : JSON.parse(r); };
   next.saved = () => JSON.parse(next.storage.getItem(SESSIONS) || "[]");
   next.go = (s) => next.stageCells[s].click();
+  next.footerText = () => next.document.getElementById("footer-draft-note").textContent;
   return next;
 }
 
@@ -1004,4 +1006,120 @@ test("A regains the promise once it writes its own draft again", () => {
   assert.ok(a.draft(), "a new draft of its own");
   assert.match(footer(a), /brings your draft back/, "and the promise is back");
   assert.match(a.status(), /draft kept on this device/);
+});
+
+// ---------------------------------------------------------------------------
+// The verified pair is adopted on restore, so a restored draft still protects
+// ---------------------------------------------------------------------------
+
+test("keep, refresh, restore, NO edit: the promise is still truthful", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+  const kept = a.draft();
+
+  const b = reload(a);
+  assert.equal(b.el("front-pre").value, "30.5", "the draft was restored");
+  // No edit of any kind. The draft on disk was written by the PREVIOUS page
+  // load, so comparing against this tab's own id would wrongly drop the claim.
+  assert.match(b.footerText(), /brings your draft back/,
+    "the restored draft still protects the form: " + b.footerText());
+  // Right after a restore the status says so, which is the more specific truth
+  // and still asserts the draft is there.
+  assert.match(b.status(), /Draft restored/, b.status());
+  assert.ok(!/no longer kept/.test(b.status()));
+  assert.equal(b.storage.getItem(DRAFT), JSON.stringify(kept),
+    "and nothing was rewritten just to make that true");
+});
+
+test("after a restore, another tab REPLACING the draft withdraws the promise", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+
+  const b = reload(a);                         // restores, adopts the pair
+  assert.match(b.footerText(), /brings your draft back/);
+
+  const c = reload(a);                         // a third tab takes the key
+  c.type("bike", "Another tab's outing");
+  c.clock.flush();
+  const theirs = c.storage.getItem(DRAFT);
+
+  assert.ok(!/brings your draft back/.test(b.footerText()),
+    "B's promise is withdrawn with no edit in B: " + b.footerText());
+  assert.match(b.status(), /no longer kept on this device/, b.status());
+  assert.equal(b.el("front-pre").value, "30.5", "B's fields are untouched");
+  assert.equal(b.el("bike").value, "Panigale V4 #21");
+  assert.equal(b.storage.getItem(DRAFT), theirs, "and the other tab's bytes are untouched");
+});
+
+test("after a restore, another tab DELETING the draft withdraws the promise", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+
+  const b = reload(a);
+  assert.match(b.footerText(), /brings your draft back/);
+
+  b.storage.removeItem(DRAFT);                 // something outside B
+
+  assert.ok(!/brings your draft back/.test(b.footerText()),
+    "the promise is gone: " + b.footerText());
+  assert.match(b.status(), /no longer kept on this device/, b.status());
+  assert.equal(b.el("front-pre").value, "30.5", "B's fields are untouched");
+});
+
+// ---------------------------------------------------------------------------
+// Reset and Save immediately after a restore use the same expectation
+// ---------------------------------------------------------------------------
+
+test("Reset immediately after a restore removes the restored draft", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+
+  const b = reload(a);
+  assert.ok(b.draft(), "a restored draft is on disk");
+  b.win.confirm = () => true;
+  b.el("reset-all").click();                   // no edit first
+  assert.equal(b.draft(), null, "the restored draft was removed, not refused");
+  assert.equal(b.el("bike").value, "", "and the form is cleared");
+  assert.ok(!/brings your draft back/.test(b.footerText()), b.footerText());
+});
+
+test("Save immediately after a restore retires the restored draft", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill(); a.type("front-pre", "30.5");
+  a.clock.flush();
+
+  const b = reload(a);
+  assert.ok(b.draft(), "a restored draft is on disk");
+  b.go("review");
+  b.el("save-session").click();                // no edit first
+  assert.equal(b.saved().length, 1, "the session saved");
+  assert.equal(b.draft(), null, "and the restored draft was retired, not left behind");
+  assert.equal(b.footerText(), "Session saved. Refresh clears the form; saved history remains.");
+});
+
+test("Reset after a restore does NOT remove a draft another tab has since written", () => {
+  const a = setup();
+  a.el("autosave-switch").click();
+  a.fill();
+  a.clock.flush();
+
+  const b = reload(a);                         // restores, adopts the pair
+  const c = reload(a);                         // another tab replaces it
+  c.type("bike", "Another tab's outing");
+  c.clock.flush();
+  const theirs = c.storage.getItem(DRAFT);
+
+  b.win.confirm = () => true;
+  b.el("reset-all").click();
+  assert.equal(b.storage.getItem(DRAFT), theirs,
+    "the other tab's draft survived B's Reset");
 });
