@@ -282,3 +282,57 @@ The card grew by 78px and the fold did not move: CURRENT BIKE STATE sits
 **below** both tire rows, so it pushes nothing above it. Nothing was shrunk.
 Both Edits measure 48px, no cell is clipped, and there is no horizontal page
 scroll at either text size.
+
+---
+
+# Negative suspension values (`0.1.0-beta.18`)
+
+All six adjusters go either way of their reference, in clicks and in turns.
+Tire pressures are untouched and still refuse to go below zero.
+
+| shot | shows |
+|---|---|
+| `NEG_shock_comp_-2_clicks.png` | shock compression stepped to **−2 clicks** with the − button alone |
+| `NEG_shock_reb_-1.5_turns.png` | shock rebound in turns at **−1.5** |
+| `NEG_pre_summary.png` | the PRE summary carrying both |
+
+## Verified on the preview
+
+| | |
+|---|---|
+| stored value | `-2` and `-1.5` — a plain hyphen, as an ordinary number |
+| shown value | `−2 clicks`, `−1.5 turns`, big value `−2` — true minus (U+2212) |
+| PRE summary | `FORK 3t 0 2` / `SHOCK 1.5t −2 −1.5t` |
+| ASCII hyphen anywhere in the grid | none |
+| zero | shown as `0`, a real setting; blank still `—` |
+| positives | no `+` |
+
+## How it is built
+
+`stepValue` gained an **`allowNegative` option** rather than a changed default,
+exactly as the brief asks. Pressures call it as before and still refuse a
+decrement through zero; only `adjusterStep` opts in. Routing the adjusters
+through that shared arithmetic also keeps the tenths exact: four presses from
+zero land on `-2.0`, not on a drifting float.
+
+**Range** is ±40 clicks and ±10 turns. At an end `adjusterStep` returns null,
+which is what already disables the button — nothing is clamped, so a rider who
+presses and sees nothing move is at the limit rather than looking at a control
+that silently stopped responding.
+
+**Typing** accepts a leading `-`, `−` (U+2212) or `–` (U+2013), plus the other
+dashes in that block, and folds them to a plain hyphen as they land, so what is
+stored and saved stays an ordinary number. Only a *leading* sign is rewritten.
+The − button remains the reliable route on an Android decimal keypad with no
+minus key.
+
+**Saved data** is unchanged: a negative is just a number in the same field, so
+existing sessions read exactly as before.
+
+## Tests
+
+**264 pass / 0 fail** (+7 for this change), covering each case the brief lists:
+stepping 0 → −1 → −2 and back, all three minus characters, turns 0 → −0.5,
+both range ends disabling the button, and the pressure guard still refusing
+below zero — including that `stepValue`'s default behaviour is unchanged and
+only an explicit opt-in allows a negative.

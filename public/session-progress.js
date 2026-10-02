@@ -410,7 +410,7 @@
   // The rule, as a pure function. Returns the new text, or null when there is
   // no legitimate step to take - blank, not a number, or a decrement that
   // would cross below zero.
-  function stepValue(currentText, step, direction) {
+  function stepValue(currentText, step, direction, opts) {
     const plan = stepPlan(currentText, step);
     if (plan === null) return null;              // same rule the buttons use
     const scaled = plan.scaledValue + (direction < 0 ? -1 : 1) * plan.scaledStep;
@@ -418,7 +418,12 @@
     // take a field below zero. It does not clamp and it never rewrites what
     // the rider typed - a value already below zero simply refuses to go lower,
     // and increments are always allowed.
-    if (direction < 0 && scaled < 0) return null;
+    //
+    // Suspension opts out: a clicker can legitimately sit below its reference,
+    // so those fields pass allowNegative. Pressures never do, and the default
+    // is unchanged so nothing else has to know about this.
+    const allowNegative = !!(opts && opts.allowNegative);
+    if (!allowNegative && direction < 0 && scaled < 0) return null;
     const next = scaled / plan.scale;
     if (!Number.isFinite(next)) return null;
     const text = next.toFixed(plan.places);
@@ -633,8 +638,19 @@
     return ADJUSTER_DEFAULT_UNIT[id] || "clicks";
   }
 
+  // How far an adjuster may be wound either way.
+  const ADJUSTER_LIMIT = { clicks: 40, turns: 10 };
+  // A true minus for display; a plain hyphen for anything stored or parsed.
+  const MINUS = "\u2212";
+  // Android's decimal keypad often has no minus key, so riders paste or type
+  // whichever dash they can reach. All of them mean the same thing.
+  function normalizeMinus(text) {
+    return String(text == null ? "" : text)
+      .replace(/^\s*[\u2212\u2013\u2014\u2010\u2011\u2012\u2015]/, "-");
+  }
+
   function readAdjuster(text) {
-    const raw = String(text == null ? "" : text).trim();
+    const raw = normalizeMinus(text).trim();
     if (raw === "" || !ORDINARY_PSI.test(raw)) return null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
@@ -651,20 +667,31 @@
     const u = unit === "turns" ? "turns" : "clicks";
     const step = UNIT_STEP[u];
     const dir = direction < 0 ? -1 : 1;
-    const raw = String(currentText == null ? "" : currentText).trim();
-    // Blank starts at zero: an adjuster is counted from fully closed, so the
+    const raw = normalizeMinus(currentText).trim();
+    // Blank starts at zero: an adjuster is counted from a reference, so the
     // first press is a real reading rather than a guess.
     const from = raw === "" ? 0 : readAdjuster(raw);
     if (from === null) return null;
-    const next = Math.round((from + dir * step) * 10) / 10;
-    if (next < 0) return null;
+    // Through zero and out the other side - a clicker can sit either way of
+    // its reference. The shared arithmetic keeps the tenths exact.
+    const stepped = stepValue(from.toFixed(UNIT_PLACES[u]), String(step), dir,
+      { allowNegative: true });
+    if (stepped === null) return null;
+    const next = Number(stepped);
+    // At the ends the button goes dead. It never clamps: a rider who presses
+    // and sees nothing move knows they are at the limit, where a value that
+    // silently stopped changing would just look broken.
+    const limit = ADJUSTER_LIMIT[u];
+    if (next > limit || next < -limit) return null;
     return formatAdjuster(next, u);
   }
 
   // A trailing ".0" is noise on a collar reading: 3 turns, not 3.0 turns.
   function compactAdjuster(value, unit) {
     const text = formatAdjuster(value, unit);
-    return text.indexOf(".") === -1 ? text : text.replace(/\.0$/, "");
+    const trimmed = text.indexOf(".") === -1 ? text : text.replace(/\.0$/, "");
+    // Shown, not stored: the field keeps a plain "-2".
+    return trimmed.replace(/^-/, MINUS);
   }
 
   // What the closed row shows: "12 clicks", "2.5 turns", or a dash.
@@ -795,7 +822,8 @@
     readPsi, usablePsi, pressureState, pressureReferences, lastMatchingSession, sessionTag,
     todayLabel, pressureNote, postDelta, tiresSummary,
     ADJUSTERS, ADJUSTER_DEFAULT_UNIT, adjusterUnit, readAdjuster, formatAdjuster,
-    adjusterStep, adjusterDisplay, adjusterOnUnitChange, suspensionSummary, compactAdjuster, headerBikeLine, headerTrackLine,
+    adjusterStep, adjusterDisplay, adjusterOnUnitChange, suspensionSummary, compactAdjuster,
+    ADJUSTER_LIMIT, normalizeMinus, MINUS, headerBikeLine, headerTrackLine,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

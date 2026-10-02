@@ -668,6 +668,18 @@
   }
 
   function wireAdjusters() {
+    // Android's decimal keypad often has no minus key, so a rider may paste or
+    // type a true minus or an en dash. Those are folded to a plain hyphen as
+    // they land, so what is stored and saved stays an ordinary "-2".
+    SP.ADJUSTERS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("input", () => {
+        const normalized = SP.normalizeMinus(el.value);
+        if (normalized !== el.value) el.value = normalized;
+      });
+    });
+
     const done = document.getElementById("suspension-done");
     if (done) {
       done.addEventListener("click", () => {

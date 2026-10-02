@@ -225,3 +225,81 @@ test("the POST pill and chip each read as one line", () => {
   assert.deepEqual(refs.sources.map((x) => x.text + " " + x.value), ["S2 hot 33.5", "PRE 30.5"]);
   assert.equal(SPx.deltaChip("35.7", refs), "+2.2 vs S2 · +5.2 vs PRE");
 });
+
+// ---------------------------------------------------------------------------
+// Negative suspension adjusters
+// ---------------------------------------------------------------------------
+
+test("a click adjuster steps down through zero and back", () => {
+  const S = globalThis.SessionProgress;
+  assert.equal(S.adjusterStep("0", -1, "clicks"), "-1");
+  assert.equal(S.adjusterStep("-1", -1, "clicks"), "-2");
+  assert.equal(S.adjusterStep("-2", 1, "clicks"), "-1");
+  assert.equal(S.adjusterStep("-1", 1, "clicks"), "0");
+  // Blank still starts from the reference, and may go either way.
+  assert.equal(S.adjusterStep("", -1, "clicks"), "-1");
+});
+
+test("turns step down through zero in halves", () => {
+  const S = globalThis.SessionProgress;
+  assert.equal(S.adjusterStep("0", -1, "turns"), "-0.5");
+  assert.equal(S.adjusterStep("-0.5", -1, "turns"), "-1.0");
+  assert.equal(S.adjusterStep("-1.5", 1, "turns"), "-1.0");
+  // Tenths stay exact through zero rather than drifting.
+  let v = "0";
+  for (let i = 0; i < 4; i += 1) v = S.adjusterStep(v, -1, "turns");
+  assert.equal(v, "-2.0");
+});
+
+test("all three minus characters are read, and a plain hyphen is stored", () => {
+  const S = globalThis.SessionProgress;
+  for (const text of ["-2", "−2", "–2"]) {
+    assert.equal(S.readAdjuster(text), -2, `${JSON.stringify(text)} reads as -2`);
+    assert.equal(S.normalizeMinus(text), "-2", "and normalizes to a plain hyphen");
+  }
+  assert.equal(S.normalizeMinus("−1.5"), "-1.5");
+  // Only a LEADING sign is rewritten; nothing else in the text is touched.
+  assert.equal(S.normalizeMinus("2"), "2");
+});
+
+test("the range ends disable the button rather than clamping", () => {
+  const S = globalThis.SessionProgress;
+  assert.deepEqual(S.ADJUSTER_LIMIT, { clicks: 40, turns: 10 });
+  assert.equal(S.adjusterStep("40", 1, "clicks"), null, "+ is dead at the top");
+  assert.equal(S.adjusterStep("-40", -1, "clicks"), null, "- is dead at the bottom");
+  assert.equal(S.adjusterStep("39", 1, "clicks"), "40", "and live just inside it");
+  assert.equal(S.adjusterStep("-39", -1, "clicks"), "-40");
+  assert.equal(S.adjusterStep("10", 1, "turns"), null);
+  assert.equal(S.adjusterStep("-10", -1, "turns"), null);
+  assert.equal(S.adjusterStep("9.5", 1, "turns"), "10.0");
+});
+
+test("a pressure still refuses to go below zero", () => {
+  const S = globalThis.SessionProgress;
+  assert.equal(S.rulerStep("0.0", -1, null), null, "the pressure guard is untouched");
+  assert.equal(S.stepValue("0", "1", -1), null, "and stepValue still refuses by default");
+  assert.equal(S.stepValue("0", "1", -1, { allowNegative: true }), "-1",
+    "only an explicit opt-in allows it");
+});
+
+test("a true minus is shown, and zero is a real value", () => {
+  const S = globalThis.SessionProgress;
+  assert.equal(S.adjusterDisplay("-2", "clicks"), "−2 clicks");
+  assert.equal(S.adjusterDisplay("-1.5", "turns"), "−1.5 turns");
+  assert.equal(S.adjusterDisplay("0", "clicks"), "0 clicks", "zero is a setting, not an absence");
+  assert.equal(S.adjusterDisplay("", "clicks"), "—", "blank means not set");
+  // Positive values carry no sign.
+  assert.equal(S.adjusterDisplay("2", "clicks"), "2 clicks");
+});
+
+test("the PRE summary shows a true minus and no plus", () => {
+  const S = globalThis.SessionProgress;
+  const summary = S.suspensionSummary(
+    { "shock-comp": "-2", "shock-reb": "-1.5", "fork-comp": "0", "fork-reb": "2" },
+    { "shock-reb": "turns" });
+  assert.match(summary, /C−2/, "clicks carry a true minus");
+  assert.match(summary, /R−1\.5t/, "turns carry the minus and the t");
+  assert.match(summary, /C0/, "zero is shown as zero");
+  assert.ok(!summary.includes("+"), "a positive value gets no plus");
+  assert.ok(!summary.includes("-"), "no ASCII hyphen is ever displayed");
+});
