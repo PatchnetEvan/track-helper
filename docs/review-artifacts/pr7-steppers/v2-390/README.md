@@ -206,3 +206,79 @@ lost nothing, and the figure held at 546.
   mapping rather than trusting the markup.
 - `tests/browser/cdp.js` broke the CI contract that every file under `tests/`
   matching the runner's glob must be a suite. Moved to `tests/helpers/`.
+
+---
+
+# Bike-state readability (`0.1.0-beta.17`)
+
+## 1. Suspension as a grid
+
+Headers once (PRELOAD / COMP / REB, 13px muted uppercase), FORK and SHOCK at
+14px bold letter-spaced, values 22px mono with a muted "t" after turns and an
+en dash where there is no value. The row is 302px wide and the four columns
+come to exactly 302px at normal text, so they align without wrapping.
+
+It is built from **wrapping rows, not a CSS grid**. The first attempt used
+`grid-template-columns: auto repeat(3, minmax(0,1fr))`, and a grid cannot
+reflow: at 200% the headers overlapped into "PRECOMPREB" and `1.5` broke into
+"1 . 5" down three lines. Values now carry `white-space: nowrap`, so a reading
+is one token.
+
+**At 200% the three values wrap under the label, as asked — but they wrap two
+to a line, not one, and the header row wraps separately.** The association
+between a value and its column is weaker there than at normal text. Making it
+exact needs either a per-cell label (which drops "headers shown once") or a
+breakpoint on text size, which CSS cannot express. Flagged rather than decided.
+
+The card grew from 266px to 344px, about 78px rather than the estimated 30px,
+because the header row and two value rows each need a line.
+
+## 2. One Edit per row
+
+The card-header Edit is gone. Tires and Suspension each carry a trailing Edit,
+**48px measured**, right-aligned on its own row. Tires toggles the tire fields
+in place (and reads "Done" while open); Suspension goes to DAY, opens the
+group and offers "Done · back to PRE". On POST the Suspension row has no Edit.
+
+The Tires button updates itself in place rather than re-rendering the card,
+because rebuilding the control the rider just pressed throws away its focus.
+
+## 3. Dock sub-line clipped by the stage bar — hardened, NOT reproduced
+
+I could not reproduce it. Measured at four viewport states (initial, address
+bar collapsed, expanded, and collapsed after scrolling): gap between dock and
+bar **0px** in every case, and the sub-line never crossed the bar. In desktop
+Chromium `window.innerHeight` and `visualViewport.height` stay equal, so the
+divergence Android has does not occur here.
+
+The mechanism is still clear: the dock is `position: sticky` and the bar is
+`position: fixed`, so they resolve against different viewports. When Chrome
+collapses the address bar the fixed bar is pinned to the visual viewport while
+the sticky dock is placed against the layout viewport, and the bar lands over
+the dock's lower edge.
+
+Two changes against that, neither of which shrinks anything:
+
+- `--stage-bar-h` now reserves the distance from the bar's **top** to the
+  bottom of the viewport, never less than the bar's own height. Where the two
+  viewports agree it is identical (60px, verified); where they diverge the dock
+  rises by however far the bar actually sits.
+- The measurement re-runs on `visualViewport` **resize and scroll**, which is
+  what fires when the address bar moves. Previously only window `resize` and a
+  `ResizeObserver` on the bar did, and neither fires when only the visual
+  viewport changes.
+
+No screenshot of the defect was attached to the brief, so this is worked from
+the description. It needs the device to confirm.
+
+## PRE fit at 701 — unchanged
+
+| case | usable | needs | dock top | result |
+|---|---|---|---|---|
+| PRE, FRONT open | 701 | 546 | 556 | fits, 10px spare |
+| PRE, FRONT open | 844 | 546 | 699 | fits |
+
+The card grew by 78px and the fold did not move: CURRENT BIKE STATE sits
+**below** both tire rows, so it pushes nothing above it. Nothing was shrunk.
+Both Edits measure 48px, no cell is clipped, and there is no horizontal page
+scroll at either text size.

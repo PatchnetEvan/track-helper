@@ -941,6 +941,53 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   border-top: 1px solid var(--border);
 }
 .state-row:first-child { border-top: 0; padding-top: 0; }
+.state-row--head { padding-bottom: 2px; }
+
+/* The two ends read as a small table: the columns line Fork up against Shock,
+   which is how a rider compares them. */
+.susp-grid { padding-bottom: 8px; }
+/* Flex, not grid: a grid cannot reflow, and at 200% the headers ran into each
+   other and the values were squeezed. With a shared basis the columns line up
+   at normal size and fall under the label when the text grows. */
+.susp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+/* Bases chosen with slack: at 4.5rem + 3x4rem the row came to 299px against
+   302px available and sub-pixel rounding wrapped the last column. */
+/* The basis is in rem, so it scales with the text while the card does not.
+   At normal size three columns fit on one line (64 + 3x64 + 30 = 286 of 302);
+   at 200% one column is wider than half the row, so they fall ONE per line
+   under the label rather than two, which would scramble which value is which. */
+.susp-corner, .susp-end { flex: 0 0 4rem; min-width: 0; }
+.susp-head, .susp-cell { flex: 1 1 4rem; min-width: 0; }
+.susp-head {
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  /* No letter-spacing: it pushed PRELOAD past its column and split it. */
+  text-transform: uppercase;
+}
+.susp-end {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.susp-cell { display: flex; align-items: baseline; gap: 3px; }
+.susp-value {
+  /* A reading is one token: 1.5 must never break into "1 . 5". */
+  white-space: nowrap;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.susp-value--none { color: var(--text-dim); }
+.susp-unit { color: var(--text-dim); font-size: 0.875rem; }
 .state-label { color: var(--text-dim); font-size: 0.875rem; }
 .state-value { min-width: 0; color: var(--text); font-size: 0.875rem; overflow-wrap: anywhere; text-align: right; }
 .tire-fields { margin-bottom: 12px; }
@@ -1252,7 +1299,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .unit-opt + .unit-opt { border-left: 1px solid var(--text-dim); }
 .unit-opt.is-on { background: var(--accent); color: var(--bg); }
 .susp-done { margin-bottom: 14px; }
-.state-edit { flex: 0 0 auto; width: auto; min-height: 44px; padding: 8px 12px; margin-left: 8px; }
+.state-edit { flex: 0 0 auto; width: auto; min-height: 48px; padding: 10px 14px; margin-left: auto; }
 
 /* --- Auto-save switch (C6) ------------------------------------------------ */
 

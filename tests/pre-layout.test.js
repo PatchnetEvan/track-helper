@@ -23,7 +23,22 @@ function setup(opts) {
       (r.children || []).some((c) => c.textContent === label));
     return found ? (found.children || []).map((c) => c.textContent).join("|") : null;
   };
-  return { ...app, el, type, check, stateRow, summary: () => {
+  // The Edit buttons are created by renderBikeState, so they are found in the
+  // rendered card rather than by a bare getElementById - which in the stub DOM
+  // would auto-create an inert placeholder and quietly pass.
+  const cardButton = (id) => {
+    const rows = app.document.getElementById("bike-state-rows");
+    const walk = (node) => {
+      for (const child of (node.children || [])) {
+        if (child.id === id) return child;
+        const found = walk(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    return walk(rows);
+  };
+  return { ...app, el, type, check, stateRow, cardButton, summary: () => {
     const t = stateRow("Tires");
     return t === null ? null : t.split("|")[1];
   } };
@@ -96,7 +111,7 @@ test("the fields keep their ids and stay in the document while collapsed", () =>
 
 test("Edit tires opens and closes in place", () => {
   const a = setup();
-  const btn = a.el("edit-tires");
+  const btn = a.cardButton("edit-tires");
   assert.equal(btn.getAttribute("aria-expanded"), "false");
   btn.click();
   assert.equal(a.el("tire-fields").hidden, false, "opened");
@@ -110,9 +125,9 @@ test("Edit tires opens and closes in place", () => {
 
 test("values entered while open survive closing", () => {
   const a = setup();
-  a.el("edit-tires").click();
+  a.cardButton("edit-tires").click();
   a.type("tire-brand", "Michelin");
-  a.el("edit-tires").click();
+  a.cardButton("edit-tires").click();
   assert.equal(a.el("tire-brand").value, "Michelin");
   assert.equal(a.summary(), "Michelin");
 });

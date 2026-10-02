@@ -727,65 +727,102 @@
     const out = document.getElementById("bike-state-rows");
     if (!out) return;
     const on = document.getElementById("warmer-on");
-    const values = {};
-    const units = {};
-    SP.ADJUSTERS.forEach((id) => { values[id] = str(id); units[id] = unitOf(id); });
-    const rows = [
-      ["Tires", SP.tiresSummary(str("tire-brand"), str("tire-model"),
-        !!(on && on.checked), str("warmer-time"))],
-      ["Suspension", SP.suspensionSummary(values, units)],
-    ];
     while (out.firstChild) out.removeChild(out.firstChild);
-    rows.forEach(([label, value]) => {
-      const row = document.createElement("div");
-      row.className = "state-row";
-      const l = document.createElement("span");
-      l.className = "state-label";
-      l.textContent = label;
-      const v = document.createElement("span");
-      v.className = "state-value";
-      v.textContent = value;
-      row.appendChild(l);
-      row.appendChild(v);
-      // PRE confirms the setup and can send the rider back to DAY to change
-      // it. POST only shows it: the bike is as it was ridden.
-      if (label === "Suspension" && _stage === "pre") {
-        const edit = document.createElement("button");
-        edit.type = "button";
-        edit.className = "btn-secondary state-edit";
-        edit.id = "edit-suspension";
-        edit.textContent = "Edit";
-        edit.addEventListener("click", () => {
-          _suspensionReturn = _stage;
-          showTab("day");
-          openAdjuster(SP.ADJUSTERS[0]);
-          renderSuspensionDone();
-          const panel = document.getElementById("panel-suspension");
-          if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "start" });
-        });
-        row.appendChild(edit);
-      }
-      out.appendChild(row);
-    });
-  }
 
-  function renderTireSummary() { renderBikeState(); }
+    const mk = (tag, cls, text) => {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      if (text !== undefined) el.textContent = text;
+      return el;
+    };
+    // One Edit per row, each doing the thing its own row is about.
+    const editButton = (id, label, onClick) => {
+      const b = mk("button", "btn-secondary state-edit");
+      b.type = "button";
+      b.id = id;
+      b.textContent = "Edit";
+      b.setAttribute("aria-label", label);
+      b.addEventListener("click", onClick);
+      return b;
+    };
 
-  function wireTireDisclosure() {
-    const btn = document.getElementById("edit-tires");
-    const fields = document.getElementById("tire-fields");
-    if (!btn || !fields) return;
-    btn.addEventListener("click", () => {
+    // --- Tires -------------------------------------------------------------
+    const tires = mk("div", "state-row");
+    tires.appendChild(mk("span", "state-label", "Tires"));
+    tires.appendChild(mk("span", "state-value", SP.tiresSummary(
+      str("tire-brand"), str("tire-model"), !!(on && on.checked), str("warmer-time"))));
+    const tireFields = document.getElementById("tire-fields");
+    const tireOpen = !!(tireFields && !tireFields.hidden);
+    const tireEdit = editButton("edit-tires", "Edit tires", () => {
+      const fields = document.getElementById("tire-fields");
+      if (!fields) return;
+      // The same control closes it again, so the fields are never stuck open.
+      // Updated in place rather than re-rendering the card: rebuilding the
+      // button the rider just pressed would throw away its focus.
       const open = fields.hidden;
       fields.hidden = !open;
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
-      btn.textContent = open ? "Done" : "Edit";
+      tireEdit.textContent = open ? "Done" : "Edit";
+      tireEdit.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) {
         const first = document.getElementById("tire-brand");
         if (first && first.focus && !first.readOnly) first.focus();
+        if (fields.scrollIntoView) fields.scrollIntoView({ block: "nearest" });
       }
     });
+    tireEdit.textContent = tireOpen ? "Done" : "Edit";
+    tireEdit.setAttribute("aria-expanded", tireOpen ? "true" : "false");
+    tireEdit.setAttribute("aria-controls", "tire-fields");
+    tires.appendChild(tireEdit);
+    out.appendChild(tires);
+
+    // --- Suspension --------------------------------------------------------
+    const head = mk("div", "state-row state-row--head");
+    head.appendChild(mk("span", "state-label", "Suspension"));
+    if (_stage === "pre") {
+      // PRE can send the rider back to DAY to change it. POST only shows it.
+      head.appendChild(editButton("edit-suspension", "Edit suspension", () => {
+        _suspensionReturn = _stage;
+        showTab("day");
+        openAdjuster(SP.ADJUSTERS[0]);
+        renderSuspensionDone();
+        const panel = document.getElementById("panel-suspension");
+        if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "start" });
+      }));
+    }
+    out.appendChild(head);
+
+    // A small grid reads far better than one long line: the columns line the
+    // two ends up against each other, which is how a rider compares them.
+    // Rows that wrap rather than a rigid grid: at large text the value columns
+    // fall under the label instead of being squeezed into each other.
+    const grid = mk("div", "susp-grid");
+    const headRow = mk("div", "susp-row");
+    headRow.appendChild(mk("span", "susp-corner", ""));
+    ["Preload", "Comp", "Reb"].forEach((h) => headRow.appendChild(mk("span", "susp-head", h)));
+    grid.appendChild(headRow);
+    [["FORK", "fork"], ["SHOCK", "shock"]].forEach(([name, prefix]) => {
+      const row = mk("div", "susp-row");
+      row.appendChild(mk("span", "susp-end", name));
+      ["preload", "comp", "reb"].forEach((part) => {
+        const id = prefix + "-" + part;
+        const unit = unitOf(id);
+        const value = SP.readAdjuster(str(id));
+        const cell = mk("span", "susp-cell");
+        if (value === null) {
+          cell.appendChild(mk("span", "susp-value susp-value--none", "\u2013"));
+        } else {
+          cell.appendChild(mk("span", "susp-value", SP.compactAdjuster(value, unit)));
+          // Turns are marked; clicks are the unmarked default.
+          if (unit === "turns") cell.appendChild(mk("span", "susp-unit", "t"));
+        }
+        row.appendChild(cell);
+      });
+      grid.appendChild(row);
+    });
+    out.appendChild(grid);
   }
+
+  function renderTireSummary() { renderBikeState(); }
 
   function wirePressureRulers() {
     wireTireCards();
@@ -1255,12 +1292,19 @@
       const rect = bar.getBoundingClientRect();
       // Floor, not ceil: rounding the bar UP left the dock sitting a fraction
       // of a pixel above it, which rendered as a hairline gap with page
-      // content behind it. Rounding down makes them overlap instead.
-      const h = rect ? Math.floor(rect.height) : 0;
-      // The MEASURED height, not a floor. A 64px floor against a 60px bar left
-      // a 4px gap the dock sat above, and page content showed through it. The
+      // content behind it. Rounding down makes them overlap instead. The
       // measurement already includes the bar's safe-area padding, so nothing
       // else may add env(safe-area-inset-bottom) on top of this value.
+      const measured = rect ? Math.floor(rect.height) : 0;
+      // The dock is sticky and the bar is fixed, so the two resolve against
+      // different viewports. On Android Chrome the address bar collapsing
+      // leaves the fixed bar sitting lower than the sticky dock expects, and
+      // it covers the dock's sub-line. Reserving the distance from the bar's
+      // TOP to the bottom of the viewport - never less than the bar's own
+      // height - keeps the dock clear of wherever the bar actually landed.
+      const viewportBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+      const fromBottom = rect ? Math.round(viewportBottom - rect.top) : 0;
+      const h = Math.max(measured, fromBottom > 0 ? fromBottom : 0);
       if (h > 0) root.style.setProperty("--stage-bar-h", h + "px");
     };
     apply();
@@ -1285,7 +1329,6 @@
   renderPreEditable();
   wireSteppers();
   wirePressureRulers();
-  wireTireDisclosure();
   wireAdjusters();
   renderTireSummary();
   renderDock();
