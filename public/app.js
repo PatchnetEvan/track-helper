@@ -99,6 +99,7 @@
     // edit, so the buttons are re-synced wherever the lock is applied - which
     // is also restore, Correct PRE, Copy to form, Reset and Save & next.
     syncSteppers();
+    renderAllPressures();
   }
 
 
@@ -250,6 +251,9 @@
     if (!el || el.readOnly || el.disabled) return false;
     const step = STEPPER_STEPS[id];
     if (!step) return false;
+    if (PRESSURE_FIELDS.indexOf(id) !== -1) {
+      return SP.rulerStep(el.value, -1) !== null || SP.rulerStep(el.value, 1) !== null;
+    }
     // The SAME rule stepValue applies. Number() alone was too generous: it
     // reads "1e-2" and "0x1A" as numbers this stepper cannot describe, so the
     // buttons offered to step values they would then have mangled.
@@ -271,7 +275,12 @@
         const step = STEPPER_STEPS[id];
         if (!id || !step || !stepperUsable(id)) return;
         const el = document.getElementById(id);
-        const next = SP.stepValue(el.value, step, Number(btn.dataset.stepDir) < 0 ? -1 : 1);
+        const dir = Number(btn.dataset.stepDir) < 0 ? -1 : 1;
+        // A pressure follows the ruler: one notch, held at the ends of the
+        // interaction range, and outside that range only toward it.
+        const next = PRESSURE_FIELDS.indexOf(id) !== -1
+          ? SP.rulerStep(el.value, dir)
+          : SP.stepValue(el.value, step, dir);
         // A refused step - blank, unreadable, or below zero - changes nothing,
         // and must not mark the session dirty or schedule a draft write.
         if (next === null || next === el.value) return;
@@ -284,9 +293,210 @@
         // avoiding, and would make a second tap land somewhere else.
         if (btn.focus) btn.focus();
         syncSteppers();
+        if (PRESSURE_FIELDS.indexOf(id) !== -1) renderPressure(id);
       });
     });
     syncSteppers();
+  }
+
+  // --- Pressure ruler (C8 revised) ------------------------------------------
+  //
+  // A reference is NOT a measurement. The ruler may centre itself on last
+  // session's figure and print "last 31.0" beside the value, but the field
+  // stays empty until the rider drags, taps or types. Nothing is ever written
+  // on their behalf, on PRE or POST.
+  const PRESSURE_FIELDS = ["front-pre", "rear-pre", "front-post", "rear-post"];
+  const RULER_NEUTRAL = 30;        // where an empty ruler sits with no reference
+
+  function pressureContext() {
+    return { bike: str("bike"), brand: str("tire-brand"), model: str("tire-model") };
+  }
+
+  // Same bike, same tire fitment, most recently saved - or nothing at all.
+  function referenceFor(field) {
+    let sessions = [];
+    try { sessions = Store.readAll(); } catch (e) { return null; }
+    return SP.pressureReference(sessions, pressureContext(), field);
+  }
+
+  function drawRuler(field) {
+    const strip = document.getElementById(field + "-strip");
+    const ruler = document.getElementById(field + "-ruler");
+    if (!strip || !ruler) return;
+    const el = document.getElementById(field);
+    const raw = (el && el.value || "").trim();
+    const value = raw === "" ? null : Number(raw);
+    const ref = referenceFor(field);
+    const centre = (value !== null && Number.isFinite(value) && SP.psiInRulerRange(value))
+      ? value
+      : (ref !== null ? Number(ref) : RULER_NEUTRAL);
+    const w = Math.max(1, Math.round(ruler.getBoundingClientRect().width));
+    const half = Math.ceil(w / 2) + SP.NOTCH_PX * 2;
+    // Built with createElement and positioned through the CSSOM, NOT with
+    // innerHTML carrying style attributes: log/index.html sets
+    // style-src 'self', so an inline style attribute is dropped and the ticks
+    // render as 0x0 with no colour. Setting el.style from script is CSSOM and
+    // is not what that directive blocks.
+    while (strip.firstChild) strip.removeChild(strip.firstChild);
+    for (let i = 0; i <= Math.round((SP.PSI_MAX - SP.PSI_MIN) / SP.PSI_NOTCH); i += 1) {
+      const psi = Number((SP.PSI_MIN + i * SP.PSI_NOTCH).toFixed(1));
+      const x = (psi - centre) / SP.PSI_NOTCH * SP.NOTCH_PX + w / 2;
+      if (x < -half || x > w + half) continue;
+      const whole = Math.abs(psi - Math.round(psi)) < 1e-9;
+      const isRef = ref !== null && Math.abs(psi - Number(ref)) < 1e-9;
+      const tick = document.createElement("i");
+      tick.className = "tick" + (whole ? " tick-whole" : "") + (isRef ? " tick-ref" : "");
+      tick.style.left = x.toFixed(1) + "px";
+      strip.appendChild(tick);
+      if (whole) {
+        const label = document.createElement("b");
+        label.className = "tick-label";
+        label.textContent = String(Math.round(psi));
+        label.style.left = x.toFixed(1) + "px";
+        strip.appendChild(label);
+      }
+    }
+    ruler.classList.toggle("is-out-of-range",
+      value !== null && Number.isFinite(value) && !SP.psiInRulerRange(value));
+  }
+
+  function renderPressure(field) {
+    const el = document.getElementById(field);
+    const valueBtn = document.getElementById(field + "-value");
+    const refEl = document.getElementById(field + "-ref");
+    const ruler = document.getElementById(field + "-ruler");
+    if (!el || !valueBtn || !ruler) return;
+    const raw = (el.value || "").trim();
+    valueBtn.innerHTML = (raw === "" ? "&mdash;" : escapeHtml(raw))
+      + '<span class="pressure-unit">psi</span>';
+    const ref = referenceFor(field);
+    if (refEl) {
+      // Shown only when the same bike on the same tires has a recorded value.
+      refEl.hidden = ref === null;
+      refEl.textContent = ref === null ? "" : "last " + ref;
+    }
+    const locked = el.readOnly;
+    valueBtn.disabled = locked;
+    ruler.setAttribute("aria-disabled", locked ? "true" : "false");
+    ruler.setAttribute("tabindex", locked ? "-1" : "0");
+    if (raw === "" || !Number.isFinite(Number(raw))) {
+      ruler.removeAttribute("aria-valuenow");
+      ruler.setAttribute("aria-valuetext", raw === "" ? "not set" : raw);
+    } else {
+      ruler.setAttribute("aria-valuenow", String(Number(raw)));
+      ruler.setAttribute("aria-valuetext", raw + " psi");
+    }
+    drawRuler(field);
+  }
+
+  function renderAllPressures() { PRESSURE_FIELDS.forEach(renderPressure); }
+
+  // One place that commits a pressure, so every path - drag, keyboard, the
+  // buttons - goes through the same edit signal and the same safeguards.
+  function setPressure(field, text) {
+    const el = document.getElementById(field);
+    if (!el || el.readOnly) return false;
+    const next = String(text);
+    if (next === el.value) return false;
+    el.value = next;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    renderPressure(field);
+    return true;
+  }
+
+  function wirePressureRulers() {
+    PRESSURE_FIELDS.forEach((field) => {
+      const ruler = document.getElementById(field + "-ruler");
+      const valueBtn = document.getElementById(field + "-value");
+      const typeWrap = document.getElementById(field + "-typewrap");
+      const el = document.getElementById(field);
+      if (!ruler || !el) return;
+
+      // Tapping the value reveals the ordinary typed input for a big jump.
+      if (valueBtn && typeWrap) {
+        valueBtn.addEventListener("click", () => {
+          if (el.readOnly) return;
+          typeWrap.hidden = !typeWrap.hidden;
+          if (!typeWrap.hidden && el.focus) el.focus();
+        });
+      }
+
+      let drag = null;
+      ruler.addEventListener("pointerdown", (e) => {
+        if (el.readOnly) return;
+        const raw = (el.value || "").trim();
+        const value = raw === "" ? null : Number(raw);
+        if (value !== null && Number.isFinite(value) && !SP.psiInRulerRange(value)) return;
+        drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false,
+                 start: (value === null || !Number.isFinite(value))
+                   ? (referenceFor(field) !== null ? Number(referenceFor(field)) : RULER_NEUTRAL)
+                   : value,
+                 moved: false };
+      });
+
+      ruler.addEventListener("pointermove", (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        if (!drag.captured) {
+          // Until the gesture is clearly horizontal the page keeps it, so an
+          // ordinary vertical scroll that begins on the ruler still scrolls.
+          if (!SP.shouldCaptureDrag(dx, dy)) return;
+          drag.captured = true;
+          if (ruler.setPointerCapture) { try { ruler.setPointerCapture(e.pointerId); } catch (err) {} }
+        }
+        if (e.cancelable) e.preventDefault();
+        const next = SP.psiFromDrag(drag.start, dx);
+        if (next === null) return;
+        const text = next.toFixed(1);
+        if (text !== el.value) {
+          drag.moved = true;
+          if (setPressure(field, text) && navigator.vibrate) {
+            try { navigator.vibrate(8); } catch (err) {}
+          }
+        }
+      });
+
+      const endDrag = (e) => {
+        if (!drag || (e && e.pointerId !== undefined && e.pointerId !== drag.id)) return;
+        // Release keeps the notch the value is already on. A cancelled pointer
+        // - a system gesture taking over, for instance - simply ends the drag
+        // and leaves the control usable, with whatever was committed intact.
+        if (drag.captured && ruler.releasePointerCapture) {
+          try { ruler.releasePointerCapture(drag.id); } catch (err) {}
+        }
+        drag = null;
+      };
+      ruler.addEventListener("pointerup", endDrag);
+      ruler.addEventListener("pointercancel", endDrag);
+      ruler.addEventListener("lostpointercapture", endDrag);
+
+      ruler.addEventListener("keydown", (e) => {
+        if (el.readOnly) return;
+        const step = { ArrowLeft: -SP.PSI_NOTCH, ArrowRight: SP.PSI_NOTCH,
+                       ArrowDown: -SP.PSI_NOTCH, ArrowUp: SP.PSI_NOTCH,
+                       PageDown: -1, PageUp: 1 }[e.key];
+        if (step === undefined) return;
+        const raw = (el.value || "").trim();
+        if (raw === "") {
+          const ref = referenceFor(field);
+          const base = ref !== null ? Number(ref) : RULER_NEUTRAL;
+          if (e.preventDefault) e.preventDefault();
+          setPressure(field, SP.snapPsi(base).toFixed(1));
+          return;
+        }
+        const value = Number(raw);
+        if (!Number.isFinite(value)) return;
+        if (e.preventDefault) e.preventDefault();
+        if (!SP.psiInRulerRange(value)) {
+          const next = SP.rulerStep(raw, step < 0 ? -1 : 1);
+          if (next !== null) setPressure(field, next);
+          return;
+        }
+        setPressure(field, SP.snapPsi(value + step).toFixed(1));
+      });
+    });
+    renderAllPressures();
   }
 
   // --- Auto-save draft (C6) -------------------------------------------------
@@ -765,6 +975,7 @@
   // Start in a known state: PRE editable, POST locked, dock rendered for DAY.
   renderPreEditable();
   wireSteppers();
+  wirePressureRulers();
   renderDock();
 
   // --- Auto-save switch wiring ---------------------------------------------
@@ -1005,6 +1216,7 @@
       // its own guard against rewriting unchanged text, so a live region is
       // still not re-announced on every keystroke.
       renderSaveStatus();
+      renderAllPressures();
       // Typing can make a field steppable or stop it being so - emptying it,
       // or leaving text that is not a number.
       syncSteppers();

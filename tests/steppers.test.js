@@ -245,10 +245,29 @@ test("one activation produces exactly one increment", () => {
 
 test("there is no hold-to-repeat anywhere in the stepper wiring", () => {
   const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
+  // End the slice at the ruler section, not at auto-save: the ruler sits
+  // between them and uses pointer events by design. This guard is about the
+  // -/+ buttons never repeating while held.
   const start = appJs.indexOf("function wireSteppers()");
-  const body = appJs.slice(start, appJs.indexOf("// --- Auto-save draft (C6)", start));
+  const body = appJs.slice(start, appJs.indexOf("// --- Pressure ruler (C8 revised)", start));
+  assert.ok(body.length > 200, "the stepper wiring was found");
   for (const forbidden of ["setInterval", "pointerdown", "mousedown", "touchstart", "repeat"]) {
     assert.ok(!body.includes(forbidden), `the stepper must not use ${forbidden}`);
+  }
+});
+
+test("the ruler has no hold-to-repeat either", () => {
+  const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
+  const start = appJs.indexOf("// --- Pressure ruler (C8 revised)");
+  const body = appJs.slice(start, appJs.indexOf("// --- Auto-save draft (C6)", start));
+  assert.ok(body.length > 200, "the ruler wiring was found");
+  for (const forbidden of ["setInterval", "requestAnimationFrame", "setTimeout"]) {
+    assert.ok(!body.includes(forbidden), `the ruler must not use ${forbidden} - no inertia, no repeat`);
+  }
+  // It must use pointer events, and release capture on cancellation.
+  for (const required of ["pointerdown", "pointermove", "pointerup", "pointercancel",
+                          "setPointerCapture", "releasePointerCapture"]) {
+    assert.ok(body.includes(required), `the ruler must handle ${required}`);
   }
 });
 

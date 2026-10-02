@@ -852,6 +852,110 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    the input, opening the keyboard the stepper exists to avoid. */
 .field-label { display: block; }
 
+/* --- Pressure ruler (C8 revised) ------------------------------------------ */
+
+/* Front above Rear, one tire per row, never side by side at phone widths -
+   side-by-side is what produced the cut-off "e." in the previous build. */
+.pressure-stack { display: block; }
+.pressure { margin-bottom: 18px; }
+.pressure-head {
+  display: flex;
+  flex-wrap: wrap;              /* intrinsic: the value and reference drop to
+                                   their own lines when the text grows, with no
+                                   percentage threshold to guess at */
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 8px;
+}
+.pressure-label {
+  flex: none;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.pressure-value {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 2.75rem;           /* 44px at the default root, and it scales */
+  font-weight: 700;
+  line-height: 1.1;
+  cursor: pointer;
+  overflow-wrap: break-word;
+}
+.pressure-value:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pressure-unit {
+  margin-left: 6px;
+  color: var(--text-dim);
+  font-family: Barlow, system-ui, sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.pressure-ref {
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+  overflow-wrap: break-word;
+}
+.pressure-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.ruler {
+  position: relative;
+  flex: 1 1 6rem;
+  min-width: 0;
+  height: 64px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev-2);
+  overflow: hidden;
+  /* The page keeps vertical scrolling; only a clearly horizontal gesture is
+     taken over, and that decision is made in app.js. */
+  touch-action: pan-y;
+  cursor: ew-resize;
+}
+.ruler:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ruler-strip { position: absolute; inset: 0; will-change: transform; }
+/* Notches and their whole-PSI labels are positioned, not flowed - without
+   this they stack into one unreadable run of digits. */
+.tick {
+  position: absolute;
+  bottom: 8px;
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  transform: translateX(-50%);
+}
+.tick-whole { height: 26px; }
+/* The reference gets its own dim tick, in an existing token, so the rider can
+   see how far they have moved from last session. */
+.tick-ref { width: 2px; height: 30px; background: var(--text-dim); }
+.tick-label {
+  position: absolute;
+  top: 7px;
+  transform: translateX(-50%);
+  color: var(--text-dim);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.ruler-centre {
+  position: absolute;
+  top: 6px; bottom: 6px; left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+.ruler.is-out-of-range { opacity: 0.55; cursor: default; }
+.pressure-type { display: block; margin-top: 10px; }
+.pressure-type span { display: block; margin-bottom: 6px; color: var(--text-dim); font-size: 0.875rem; }
+
 /* One stepper per row (C8): minus, the value, plus - so the number is never
    squeezed between two fixed buttons. Replaces a 400px media query that put
    the value on its own line below that width and crushed it to ~28px above

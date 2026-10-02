@@ -427,9 +427,100 @@
     return ORDINARY_DECIMAL.test(text) ? text : null;
   }
 
+  // --- Pressure ruler (C8 revised) ------------------------------------------
+  //
+  // 10-45 PSI is the RULER'S INTERACTION RANGE, not a recommended operating
+  // range and not a validation rule. A value the rider typed outside it is
+  // kept exactly as typed: the strip pins at the nearest end, dragging has no
+  // position to work from, and the buttons will only move the value TOWARD
+  // the range. Nothing is ever rewritten on the rider's behalf.
+  const PSI_MIN = 10;
+  const PSI_MAX = 45;
+  const PSI_NOTCH = 0.5;      // one notch
+  const NOTCH_PX = 32;        // ...is 32px of drag
+  const DRAG_INTENT_PX = 10;  // before which the page keeps the gesture
+
+  function psiInRulerRange(value) {
+    return Number.isFinite(value) && value >= PSI_MIN && value <= PSI_MAX;
+  }
+
+  // Snap to the notch grid and hold inside the range. Used only for values the
+  // ruler itself produces - never to correct something typed.
+  function snapPsi(value) {
+    if (!Number.isFinite(value)) return null;
+    const snapped = Math.round(value / PSI_NOTCH) * PSI_NOTCH;
+    const held = Math.min(PSI_MAX, Math.max(PSI_MIN, snapped));
+    return Number(held.toFixed(1));
+  }
+
+  // Where a drag of dx pixels from startPsi lands.
+  function psiFromDrag(startPsi, dx) {
+    if (!Number.isFinite(startPsi)) return null;
+    return snapPsi(startPsi + (dx / NOTCH_PX) * PSI_NOTCH);
+  }
+
+  // Take over the gesture only once it is clearly horizontal, so an ordinary
+  // vertical scroll that happens to start on the ruler still scrolls the page.
+  function shouldCaptureDrag(dx, dy) {
+    return Math.abs(dx) > DRAG_INTENT_PX && Math.abs(dx) > Math.abs(dy);
+  }
+
+  // A button press on a value that sits outside the ruler's range may only
+  // move it closer to the range. Returns null when it would move it further
+  // out, so nothing is rewritten and no edit is recorded.
+  function rulerStep(currentText, direction) {
+    const raw = String(currentText == null ? "" : currentText).trim();
+    if (raw === "") return null;                       // blank: the ruler sets the first value
+    const plan = stepPlan(raw, String(PSI_NOTCH));
+    if (plan === null) return null;                    // unreadable text is left alone
+    const value = Number(raw);
+    const dir = direction < 0 ? -1 : 1;
+    if (!psiInRulerRange(value)) {
+      const towards = value < PSI_MIN ? 1 : -1;
+      if (dir !== towards) return null;                // refuse to go further out
+    }
+    const next = stepValue(raw, String(PSI_NOTCH), dir);
+    if (next === null) return null;
+    // Inside the range the ruler holds its ends; outside, the typed magnitude
+    // is preserved as it walks back in.
+    const n = Number(next);
+    if (psiInRulerRange(value) && !psiInRulerRange(n)) return null;
+    return next;
+  }
+
+  // The reference is the SAME bike on the SAME tire fitment, most recently
+  // saved. Anything less exact is omitted rather than guessed at: a pressure
+  // from a different bike or a different tire is not a reference, it is a
+  // misleading number next to the one the rider is about to set.
+  function pressureReference(sessions, context, field) {
+    if (!Array.isArray(sessions) || !context) return null;
+    const bike = String(context.bike || "").trim().toLowerCase();
+    const brand = String(context.brand || "").trim().toLowerCase();
+    const model = String(context.model || "").trim().toLowerCase();
+    if (!bike || !brand || !model) return null;        // not enough to match on
+    const key = { "front-pre": "frontPre", "rear-pre": "rearPre",
+                  "front-post": "frontPost", "rear-post": "rearPost" }[field];
+    if (!key) return null;
+    let best = null;
+    for (const s of sessions) {
+      if (!s || !s.setup || !s.tires) continue;
+      if (String(s.setup.bike || "").trim().toLowerCase() !== bike) continue;
+      if (String(s.tires.brand || "").trim().toLowerCase() !== brand) continue;
+      if (String(s.tires.model || "").trim().toLowerCase() !== model) continue;
+      const v = String(s.tires[key] == null ? "" : s.tires[key]).trim();
+      if (v === "" || !Number.isFinite(Number(v))) continue;
+      if (best === null || String(s.savedAt || "") > String(best.savedAt || "")) {
+        best = { savedAt: s.savedAt, value: v };
+      }
+    }
+    return best ? best.value : null;
+  }
+
   const api = {
     nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
     footerDraftNote, stepValue, decimalsOf, canStep, stepPlan,
+    PSI_MIN, PSI_MAX, PSI_NOTCH, NOTCH_PX, DRAG_INTENT_PX,
+    psiInRulerRange, snapPsi, psiFromDrag, shouldCaptureDrag, rulerStep, pressureReference,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;
