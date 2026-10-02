@@ -90,6 +90,16 @@ export function createDom() {
       querySelector(sel) { return dom.document.querySelector(sel, this); },
       querySelectorAll(sel) { return dom.document.querySelectorAll(sel, this); },
       appendChild(child) { child.parent = this; this.children.push(child); return child; },
+      // Without these the "while (el.firstChild) el.removeChild(...)" clearing
+      // loop app.js uses never runs, so re-rendered lists silently accumulate
+      // and a test reads the FIRST, stalest row as if it were current.
+      get firstChild() { return this.children.length ? this.children[0] : null; },
+      removeChild(child) {
+        const i = this.children.indexOf(child);
+        if (i !== -1) this.children.splice(i, 1);
+        if (child) child.parent = null;
+        return child;
+      },
     };
     el.classList = makeClassList();
     all.push(el);
