@@ -204,14 +204,18 @@ input:focus, textarea:focus {
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* The whole row is the target, not just the box: 48px tall and the label is
+   part of it, so a gloved tap anywhere along it toggles the checkbox. */
 .checkbox-row {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: var(--tap);
+  padding: 0 4px;
   margin-bottom: 10px;
+  cursor: pointer;
 }
-.checkbox-row input { width: 22px; height: 22px; }
+.checkbox-row input { width: 22px; height: 22px; accent-color: var(--accent); }
 
 .symptoms {
   display: flex;
@@ -688,6 +692,20 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
    gets a chance, and the whole page scrolls sideways at very large text. */
 .context-row .brand-name { min-width: 0; }
 .brand-name { overflow-wrap: break-word; }
+/* Stage chip (C3). Never a solid fill - the rail already carries the active
+   state; this names the stage the context line is describing. */
+.stage-chip {
+  flex: none;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: #ff8a3d;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  overflow-wrap: break-word;
+}
 .context-line {
   margin: 6px 0 0;
   display: flex;
@@ -834,10 +852,16 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    the input, opening the keyboard the stepper exists to avoid. */
 .field-label { display: block; }
 
+/* One stepper per row (C8): minus, the value, plus - so the number is never
+   squeezed between two fixed buttons. Replaces a 400px media query that put
+   the value on its own line below that width and crushed it to ~28px above
+   it, which is what a 412px phone was showing. */
+.stepper-stack { display: block; }
 .stepper {
   display: flex;
   align-items: stretch;
   gap: 8px;                     /* the handoff's 8px between targets */
+  flex-wrap: wrap;
 }
 /* 64px floor, well above the 48px --tap, because these are pressed in gloves.
    min-width/height rather than fixed, so they grow with the rider's text. */
@@ -845,7 +869,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   flex: none;
   min-width: 64px;
   min-height: 64px;
-  border: 1px solid var(--border);
+  border: 1px solid #4a4a4a;
   border-radius: 10px;
   background: var(--bg-elev-2);
   color: var(--text);
@@ -865,16 +889,22 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   min-height: 64px;
   text-align: center;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 1.25rem;
+  /* 28px at the default root, scaling with the rider's text setting. */
+  font-size: 1.75rem;
+}
+.stepper-sub {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  overflow-wrap: break-word;
 }
 
 /* At large text two 64px buttons plus a readable number stop fitting side by
    side. The row wraps instead of shrinking the targets or clipping the value:
    the number takes its own line and the buttons stay full size. */
-@media (max-width: 400px) {
-  .stepper { flex-wrap: wrap; }
-  .stepper > input { flex: 1 0 100%; order: -1; }
-}
+/* No breakpoint: the row wraps when the number cannot sit comfortably beside
+   the buttons, which is a question about available space, not viewport width. */
+.stepper > input { flex: 1 1 6rem; }
 
 /* --- Auto-save switch (C6) ------------------------------------------------ */
 

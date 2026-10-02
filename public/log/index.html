@@ -35,6 +35,7 @@
     <p class="context-line" id="context-line" hidden>
       <span class="context-bike" id="context-bike"></span>
       <span class="context-where" id="context-where"></span>
+      <span class="stage-chip" id="stage-chip" hidden></span>
     </p>
     <!-- Save status (C7). One short line, hidden entirely until there is
          something true to say. It never claims cloud, sync, a queued upload or
@@ -163,7 +164,7 @@
 
       <!-- Split by stage (C1). The ids, the inputs and the saved-session shape
            are untouched; only which stage shows them changes. -->
-      <div class="grid-2" data-stage="pre">
+      <div class="stepper-stack" data-stage="pre">
         <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
              inside it, activating one counts as activating the label and
              focuses the input, which opens the keyboard the stepper exists
@@ -195,7 +196,7 @@
         <p class="pre-ref-line">Went out on <strong id="pre-ref-front">—</strong> front · <strong id="pre-ref-rear">—</strong> rear</p>
         <button type="button" class="btn-secondary" id="correct-pre">Correct PRE</button>
       </div>
-      <div class="grid-2" data-stage="post">
+      <div class="stepper-stack" data-stage="post">
         <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
              inside it, activating one counts as activating the label and
              focuses the input, which opens the keyboard the stepper exists
@@ -234,7 +235,11 @@
         <input type="text" id="warmer-time" inputmode="numeric" placeholder="e.g. 45" />
       </label>
 
-      <button type="button" class="btn-secondary" id="calc-tires">Calculate deltas &amp; suggestions</button>
+      <!-- Moved to POST: a delta needs both readings, and on PRE there is
+           nothing yet to compare against. -->
+      <div data-stage="post">
+        <button type="button" class="btn-secondary" id="calc-tires">Calculate deltas &amp; suggestions</button>
+      </div>
 
       <div class="result" id="tire-result" aria-live="polite"></div>
     </section>

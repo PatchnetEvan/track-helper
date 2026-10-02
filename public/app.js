@@ -123,6 +123,7 @@
       activeCell.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     _stage = stage;
+    renderContext();
     renderDock();
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
   }
@@ -681,6 +682,22 @@
   // is worse than no context at all, so an empty Setup leaves the line hidden.
   // The rider's session label is shown exactly as entered - it is free text
   // they own, not a number for us to parse.
+  // C3: which stage the context line is describing. Wording follows the stage
+  // the rider is actually on; PRE and POST get the handoff's fuller phrasing
+  // because those two are the ones with a before/after meaning.
+  const STAGE_CHIP = {
+    day: "DAY", pre: "PRE \u00b7 BEFORE ROLLOUT", post: "POST \u00b7 JUST IN",
+    laps: "LAPS", notes: "NOTES", review: "REVIEW",
+  };
+
+  function renderStageChip() {
+    const chip = document.getElementById("stage-chip");
+    if (!chip) return;
+    const text = STAGE_CHIP[_stage] || "";
+    chip.textContent = text;
+    chip.hidden = !text;
+  }
+
   function renderContext() {
     const line = document.getElementById("context-line");
     if (!line) return;
@@ -690,7 +707,11 @@
     const where = [track, label].filter(Boolean).join(" · ");
     document.getElementById("context-bike").textContent = bike;
     document.getElementById("context-where").textContent = where;
-    line.hidden = !(bike || where);
+    renderStageChip();
+    // The chip is part of this line and belongs on every stage, so the line
+    // stays visible whenever there is a chip to show - even before the rider
+    // has named a bike.
+    line.hidden = !(bike || where || !document.getElementById("stage-chip").hidden);
   }
   ["bike", "track", "session-label"].forEach((id) => {
     const el = document.getElementById(id);
