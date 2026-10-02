@@ -601,9 +601,9 @@
     if (isPost) {
       const pre = readPsi(thisSessionPre);
       if (pre !== null) {
-        out.sources.push({ tag: "PRE", text: "PRE this session", value: pre.toFixed(1) });
+        out.sources.push({ tag: "PRE", text: "PRE", value: pre.toFixed(1) });
         if (out.primary === null) {
-          out.primary = { value: pre.toFixed(1), tag: "PRE", text: "PRE this session",
+          out.primary = { value: pre.toFixed(1), tag: "PRE", text: "PRE",
                           button: "Same as PRE" };
         }
       }
@@ -664,10 +664,10 @@
       return shown + " is outside the drag range (" + PSI_MIN + "\u2013" + PSI_MAX
         + "). Kept as typed. Use \u2212 / + or type to change it.";
     }
-    if (state === "blank") {
-      return "Not measured yet. Type the whole number, then drag or use "
-        + "\u2212 / + for tenths.";
-    }
+    // The blank state needs no sentence: the placeholder says what to type and
+    // the pad says what a notch is worth. Notes are for things that only apply
+    // sometimes.
+    if (state === "blank") return "";
     return "";
   }
 
@@ -681,7 +681,7 @@
       const ref = usablePsi(srcItem.value);
       if (ref === null) continue;
       const d = tenths(value - ref);
-      const label = srcItem.tag || (srcItem.text === "PRE this session" ? "PRE" : "last");
+      const label = srcItem.tag || "last";
       parts.push((d >= 0 ? "+" : "\u2212") + Math.abs(d).toFixed(1) + " vs " + label);
     }
     return parts.join(" \u00b7 ");

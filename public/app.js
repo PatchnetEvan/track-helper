@@ -361,8 +361,14 @@
     const hasRef = refs.primary !== null;
     const locked = el.readOnly;
 
+    const chipText = SP.deltaChip(raw, refs);
     const today = document.getElementById(field + "-today");
-    if (today) today.textContent = SP.todayLabel(raw);
+    if (today) {
+      // The chip takes the caption's place once there is a value, so a closed
+      // row stays within its 72px minimum.
+      today.textContent = SP.todayLabel(raw);
+      today.hidden = chipText !== "";
+    }
 
     const num = document.getElementById(field + "-num");
     if (num) {
@@ -375,14 +381,13 @@
     if (pill) {
       pill.hidden = refs.sources.length === 0;
       pill.textContent = refs.sources
-        .map((srcItem) => srcItem.text + " " + srcItem.value).join("   ");
+        .map((srcItem) => srcItem.text + " " + srcItem.value).join(" \u00b7 ");
     }
 
     const delta = document.getElementById(field + "-delta");
     if (delta) {
-      const chip = SP.deltaChip(raw, refs);
-      delta.hidden = chip === "";
-      delta.textContent = chip;
+      delta.hidden = chipText === "";
+      delta.textContent = chipText;
     }
 
     const note = document.getElementById(field + "-note");
@@ -430,12 +435,32 @@
     _openTire[stageOf(field)] = open ? field : (_openTire[stageOf(field)] === field ? null : _openTire[stageOf(field)]);
   }
 
+  // Bring a newly opened card's controls above the dock. Without this, opening
+  // the second tire can leave its pad behind the dock on a short viewport.
+  function revealTire(field) {
+    const panel = document.getElementById(field + "-panel");
+    const dock = document.getElementById("dock");
+    if (!panel || !dock || typeof panel.getBoundingClientRect !== "function") return;
+    const panelRect = panel.getBoundingClientRect();
+    const dockRect = dock.getBoundingClientRect();
+    const overlap = panelRect.bottom - dockRect.top;
+    if (overlap <= 0) return;
+    const reduced = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const top = (window.scrollY || 0) + overlap + 8;
+    if (typeof window.scrollTo === "function") {
+      window.scrollTo(reduced ? { top: top, behavior: "auto" }
+                              : { top: top, behavior: "smooth" });
+    }
+  }
+
   function openTire(field) {
     // Opening one closes the other on the same stage.
     PRESSURE_FIELDS.forEach((f) => {
       if (stageOf(f) === stageOf(field)) setTireOpen(f, f === field);
     });
     renderAllPressures();
+    revealTire(field);
   }
 
   // On arriving at a stage, the first tire still to be measured is the one the
@@ -448,6 +473,7 @@
     });
     fields.forEach((f) => setTireOpen(f, blank ? f === blank : false));
     renderAllPressures();
+    if (blank) revealTire(blank);
   }
 
   // Every path that changes a pressure - drag, keyboard, buttons, "Same as" -

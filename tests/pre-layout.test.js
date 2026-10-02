@@ -166,3 +166,47 @@ test("the pad dims and refuses drag for a value typed outside the range", () => 
   assert.match(appJs, /drag-pad--off/, "there is an off state");
   assert.match(appJs, /TYPE OR &minus; \/ \+/, "and it says what still works");
 });
+
+// ---------------------------------------------------------------------------
+// v2 round 2: the closed row stays compact, and opening one reveals it
+// ---------------------------------------------------------------------------
+
+test("the delta chip replaces the Today caption once there is a value", () => {
+  const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
+  const start = appJs.indexOf("function renderTire");
+  const body = appJs.slice(start, appJs.indexOf("function renderAllPressures", start));
+  assert.match(body, /today\.hidden = chipText !== ""/,
+    "the caption gives way to the chip, so the closed row keeps its 72px minimum");
+  assert.match(body, /delta\.hidden = chipText === ""/,
+    "and the chip only appears when there is something to compare");
+});
+
+test("a blank tire carries no note, so the open card has no footer text", () => {
+  const SPx = globalThis.SessionProgress;
+  assert.equal(SPx.pressureNote("", true), "");
+  assert.equal(SPx.pressureNote("", false), "");
+  // The notes that remain are the ones that only apply sometimes.
+  assert.match(SPx.pressureNote("48.0", true), /outside the drag range/);
+  assert.equal(SPx.pressureNote("abc", true), "Type a number, for example 30.5.");
+});
+
+test("opening a tire brings its controls above the dock, and respects reduced motion", () => {
+  const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
+  const start = appJs.indexOf("function revealTire");
+  const body = appJs.slice(start, appJs.indexOf("function openTire", start));
+  assert.match(body, /prefers-reduced-motion: reduce/, "reduced motion is honoured");
+  assert.match(body, /behavior: "auto"/, "and it jumps rather than animates when asked to");
+  assert.match(body, /panelRect\.bottom - dockRect\.top/,
+    "it scrolls by the actual overlap with the dock, not a guess");
+  assert.ok(body.includes("if (overlap <= 0) return;"),
+    "nothing scrolls when the controls already clear the dock");
+});
+
+test("the POST pill and chip each read as one line", () => {
+  const SPx = globalThis.SessionProgress;
+  const sess = [{ savedAt: "2026-09-27", sessionLabel: "Session 2", setup: { bike: "B" },
+                  tires: { brand: "P", model: "M", frontPost: "33.5" } }];
+  const refs = SPx.pressureReferences(sess, { bike: "B", brand: "P", model: "M" }, "front-post", "30.5");
+  assert.deepEqual(refs.sources.map((x) => x.text + " " + x.value), ["S2 hot 33.5", "PRE 30.5"]);
+  assert.equal(SPx.deltaChip("35.7", refs), "+2.2 vs S2 · +5.2 vs PRE");
+});

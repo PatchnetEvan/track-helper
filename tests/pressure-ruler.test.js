@@ -102,10 +102,10 @@ test("blank with NO reference starts the pad at 30.0 (v2)", () => {
   assert.equal(S.rulerStep("", 1, null), "30.1");
   assert.equal(S.rulerStep("", -1, null), "29.9");
   assert.equal(S.rulerDraggable("", null), true);
-  // The note drops the "Not measured yet" contrast only when there is nothing
-  // to contrast against - and never claims a reference exists.
-  assert.equal(S.pressureNote("", false),
-    "Not measured yet. Type the whole number, then drag or use − / + for tenths.");
+  // The blank state carries no note at all now: the placeholder says what to
+  // type and the pad says what a notch is worth.
+  assert.equal(S.pressureNote("", false), "");
+  assert.equal(S.pressureNote("", true), "");
 });
 
 test("a starting position is never a recorded value", () => {
@@ -164,8 +164,9 @@ test("PRE references the most recent session on the SAME bike and tires", () => 
 
 test("POST shows last session's hot value and this session's PRE", () => {
   const r = S.pressureReferences(SESSIONS, CTX, "front-post", "30.5");
+  // One line in the pill: "S2 hot 33.5 · PRE 30.5".
   assert.deepEqual(r.sources.map((x) => x.text + " " + x.value),
-    ["S2 hot 33.5", "PRE this session 30.5"]);
+    ["S2 hot 33.5", "PRE 30.5"]);
   assert.equal(r.primary.value, "33.5", "the hot reading leads");
 });
 

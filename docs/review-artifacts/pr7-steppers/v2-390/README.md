@@ -1,81 +1,78 @@
-# Pressure entry v2 — review rulings applied (`0.1.0-beta.14`)
+# Pressure entry v2 — fit rulings round 2 (`0.1.0-beta.15`)
 
-## Fit, measured at both heights
+## Fit table
 
-Both tire rows **and** the open tire's controls must clear the dock.
+PRE: both tire rows, the open tire's controls and the dock, without scrolling.
+POST at 701: the open tire's controls and the dock (the other row may sit
+below the fold). POST at 844: both rows as well.
 
-| case | usable height | content needs | dock top | result |
-|---|---|---|---|---|
-| PRE, default text | **701** | 670 | 556 | **114px short** |
-| POST, default text | **701** | 799 | 546 | **253px short** |
-| PRE, default text | 844 | 670 | 699 | **fits, 29px spare** |
-| POST, default text | 844 | 799 | 689 | 110px short |
-| PRE, 200% text | 701 | 1500 | 442 | scrolls; nothing clipped |
+| case | usable | content needs | dock top | both rows | open controls | result |
+|---|---|---|---|---|---|---|
+| PRE, default | **701** | 546 | 556 | yes | yes | **meets target** |
+| PRE, default | 844 | 546 | 699 | yes | yes | **meets target** |
+| POST, default | **701** | 607 | 546 | no (by design) | **yes** | **meets target** |
+| POST, default | 844 | 607 | 689 | yes | yes | **meets target** |
+| PRE, 200% | 701 | 1294 | 442 | no | no | scrolls, nothing clipped |
 
-Dock 85px, stage bar 60px, dock-to-bar gap **0px** in every case. No horizontal
-page scroll anywhere.
+Dock-to-bar gap 0px everywhere. No horizontal page scroll in any case.
 
-## The ~36px estimate was low, and the two changes recovered more than that
+## PRE: 670 → 546 (124px)
 
-The 36px came from the 844 measurement, where PRE was already 3px inside. The
-two ordered changes recovered **54px** at any height:
-
-- the header dropped **175 → 145px**, and
-- the section row dropped **44 → 20px**.
-
-The sub-line itself contributed almost nothing, because `.section-row` is a
-wrapping flex row and "Right before you roll out." was already sitting *beside*
-the label rather than under it. Removing it narrowed the row; it did not
-shorten it. The height came from removing the row's second line and the header
-gap.
-
-At 701 that leaves **114px**. Nothing was shrunk to close it: the 72px rows,
-the 72px pad and buttons and the 64px dock floor were all left alone, as
-instructed. What the remaining space is spent on, at 390px default text:
-
-| block | height |
+| change | saved |
 |---|---|
-| header (bike + About on one row, track · session + chip, status) | 145 |
-| section label | 20 |
-| FRONT row (72px floor, 85 actual: the dashed pill wraps under the label) | 85 |
-| open panel: control row 77, typed field 62, note + "Same as" 99, gaps 16 | 265 |
-| REAR row (72px floor, 104 actual: pill **and** delta chip under the label) | 104 |
-| **content to the bottom of the REAR row** | **670** |
-| available above the dock | 556 |
+| blank-state note removed; the placeholder and the pad's "0.1 per notch" carry it | 43 |
+| "Same as" moved onto the typed-field row | 17 |
+| delta chip moved under the value, replacing the "Today" caption | 16 |
+| the typed field's flex basis cut from 8rem to 6rem, so the button stops wrapping | 48 |
 
-The two rows exceed their 72px floor only because the reference pill and the
-delta chip stack under the label. The open panel's 265px is the control row,
-the typed field and the note/button foot at their specified sizes.
+The last one was not in the ruling and is worth a look. At 390px an 8rem basis
+plus the button came to 309px against 300px of card — **9px over**, so the
+button took its own line and cost 64px of height. A 6rem basis lets it sit
+beside the field. It still wraps at 320px and at large text, which is what the
+ruling asks for.
+
+Row heights are now 84 (FRONT) and 88 (REAR) against the 72px minimum. The
+remainder is the dashed pill sitting under the label, which is where the ruling
+puts it.
+
+## Two things to look at
+
+**The placeholder is "e.g. 30", not "Type, e.g. 30".** Beside the button the
+field is 119px, and "Type, e.g. 30" in 20px mono needs about 156px — it
+rendered as "Type,". The choice was a clipped placeholder, a wrapped button
+(giving back 48px and missing the 701 target), or the shorter text. I took the
+shorter text. Say the word and I will restore the exact wording with the button
+wrapped.
+
+**"Today · typed" no longer shows on a closed row that has a reference**, because
+the chip replaces the caption whenever there is a value. For a value typed
+outside the range the row shows the chip and the value, and the "outside the
+drag range" note still appears when the card is open. If the typed caption
+matters on a closed row, the two can stack instead, at about 16px.
 
 ## POST
 
-The "Went out on 30.5 front · 28.0 rear" block is gone — each tire's dashed
-pill already carries its PRE reference. Correct PRE moved below CURRENT BIKE
-STATE as an outlined secondary button at the 48px tap target.
+Both references read as one line in the pill — "S2 hot 33.5 · PRE 30.5" — and
+the chip as "+2.2 vs S2 · +5.2 vs PRE". POST rows are 84 and 149.
 
-POST is **253px short at 701** and 110px at 844. Its rows are taller than PRE's
-(146 and 173 against 85 and 104) because each POST pill carries two reference
-sources — "S2 hot 33.5" and "PRE this session 30.5" — and the delta chip
-carries two comparisons. Nothing was shrunk.
+Opening a tire now scrolls the list so its controls clear the dock
+(`window.scrollTo` by the measured overlap, not a guess; nothing moves when it
+already clears). `prefers-reduced-motion: reduce` switches it from `smooth` to
+`auto`.
 
 ## 200% text
 
-Scrolls, with nothing clipped and no horizontal page scroll. One real defect
-found and fixed: `.tire-note` had a fixed `10rem` flex basis, which at 200% is
-wider than the card and pushed the foot past its own box. The basis is now
-`min(10rem, 100%)` and the "Same as" button may wrap.
+Scrolls, nothing clipped, no horizontal page scroll. (`.drag-pad` reports
+overflow because the tick pattern is clipped by `overflow: hidden`; that is how
+the pad is drawn.)
 
-(The checker also flags `.drag-pad` as overflowing. That is the tick pattern
-being clipped by `overflow: hidden`, which is how the pad is drawn.)
+## Unchanged
+
+72px minimum for rows, pad and ±; 64px dock; Flag F, Undo, the leave-page
+guard and the save controls.
 
 ## Real-phone check — NOT DONE
 
-Still outstanding, and no measurement here substitutes for it:
-
-- iPhone Safari, toolbar shown
-- iPhone Safari, toolbar collapsed
-- one Android phone, Chrome
-
-For each: do both tire rows, the open tire's controls and the dock fit without
-scrolling? The 701/844 split above is exactly what this resolves — Safari with
-the toolbar shown sits near the low figure, collapsed near the high one.
+iPhone Safari with the toolbar shown, iPhone Safari with it collapsed, and one
+Android phone in Chrome. For each: do the tire rows, the open controls and the
+dock fit? The 701/844 split is what this settles.
