@@ -330,14 +330,16 @@ test("a stepped value is saved exactly as a typed one would be", () => {
 
 test("every stepper button has a field-specific accessible name", () => {
   const html = readFileSync(join(import.meta.dirname, "..", "public", "log", "index.html"), "utf8");
-  const names = [...html.matchAll(/data-step-for="[^"]*"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(names.length, 16, "two buttons for each of the eight fields");
-  assert.equal(new Set(names).size, 16, "and every name is distinct");
+  // Pressures use data-step-for; suspension adjusters use data-adj-for. Both
+  // must name the thing they change.
+  const names = [...html.matchAll(/data-(?:step|adj)-for="[^"]*"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(names.length, 20, "two buttons for each of the four pressures and six adjusters");
+  assert.equal(new Set(names).size, 20, "and every name is distinct");
   for (const n of names) {
     assert.match(n, /^(Increase|Decrease) /, `${n} says which direction`);
-    // Pressures follow the C8 wording ("Decrease front pressure"); the click
-    // fields still name their unit, because nothing else announces it.
-    assert.match(n, /(pressure|by 1 click)$/, `${n} names what it changes`);
+    // Each name ends in the thing it changes: a pressure, or the adjuster.
+    assert.match(n, /(pressure|preload|compression|rebound)$/,
+      `${n} names what it changes`);
   }
 });
 

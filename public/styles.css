@@ -1034,6 +1034,9 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 }
 .drag-pad:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .drag-pad--off { opacity: 0.5; cursor: default; }
+/* Nothing inside the pad may take the pointer: on touch the child under the
+   finger captures it implicitly, and the drag then fights the pad for it. */
+.drag-pad > * { pointer-events: none; }
 .pad-lines { position: absolute; inset: 0; }
 .pad-line { position: absolute; top: 22px; bottom: 22px; width: 1px; background: var(--border); }
 .pad-line--long { top: 8px; bottom: 8px; }
@@ -1172,6 +1175,84 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 /* No breakpoint: the row wraps when the number cannot sit comfortably beside
    the buttons, which is a question about available space, not viewport width. */
 .stepper > input { flex: 1 1 6rem; }
+
+/* --- Suspension adjusters (v2) -------------------------------------------- */
+
+.adj-group { margin-bottom: 14px; }
+.adj-group > .section-label { margin-bottom: 8px; }
+.adj-card {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+}
+.adj-card--open { border: 2px solid var(--accent); }
+.adj-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.adj-name { font-size: 0.9375rem; font-weight: 700; }
+.adj-value {
+  min-width: 0;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.adj-panel { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+/* No drag pad here: a click is a detent you count, not a value you sweep to. */
+.adj-controls {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 72px;
+  align-items: center;
+  gap: 8px;
+}
+.adj-big {
+  min-width: 0;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+/* Two options, both a full tap target, the chosen one carrying the tint. */
+.unit-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.unit-opt {
+  min-height: 48px;
+  padding: 10px 8px;
+  border: 0;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.unit-opt + .unit-opt { border-left: 1px solid var(--text-dim); }
+.unit-opt.is-on { background: var(--accent); color: var(--bg); }
+.susp-done { margin-bottom: 14px; }
+.state-edit { flex: 0 0 auto; width: auto; min-height: 44px; padding: 8px 12px; margin-left: 8px; }
 
 /* --- Auto-save switch (C6) ------------------------------------------------ */
 

@@ -417,77 +417,168 @@
     <!-- Suspension -->
     <section class="panel" id="panel-suspension" role="tabpanel" hidden>
       <h2>Suspension</h2>
+      <!-- Set on the stand before the day starts, so this lives on DAY. One
+           adjuster is open at a time, the same pattern as the tire rows. -->
+      <!-- Shown only when the rider came here from CURRENT BIKE STATE, so the
+           way back is the way they came. -->
+      <button type="button" class="btn-outline susp-done" id="suspension-done" hidden></button>
 
-      <!-- Clicks are set before going out, so they belong to PRE. -->
-      <div data-stage="pre">
-      <h3>Fork</h3>
-      <div class="grid-3">
-        <label class="field">
-          <span>Preload</span>
-          <input type="text" id="fork-preload" autocomplete="off" placeholder="turns / lines" />
-        </label>
-        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
-             inside it, activating one counts as activating the label and
-             focuses the input, which opens the keyboard the stepper exists
-             to avoid. The input, its id, its inputmode and the label text
-             are unchanged. -->
-        <div class="field">
-          <label class="field-label" for="fork-comp"><span>Compression</span></label>
-          <div class="stepper">
-          <button type="button" class="stepper-btn" data-step-for="fork-comp" data-step-dir="-1" aria-label="Decrease fork compression by 1 click">&minus;</button>
-          <input type="text" id="fork-comp" autocomplete="off" placeholder="clicks" />
-          <button type="button" class="stepper-btn" data-step-for="fork-comp" data-step-dir="1" aria-label="Increase fork compression by 1 click">+</button>
+      <div class="adj-group">
+        <p class="section-label">FORK</p>
+        <div class="adj-card" data-adjuster="fork-preload">
+          <button type="button" class="adj-row" id="fork-preload-row"
+                  aria-expanded="false" aria-controls="fork-preload-panel">
+            <span class="adj-name">Preload</span>
+            <span class="adj-value" id="fork-preload-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="fork-preload-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="fork-preload" data-adj-dir="-1"
+                      aria-label="Decrease fork preload">&minus;</button>
+              <span class="adj-big" id="fork-preload-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="fork-preload" data-adj-dir="1"
+                      aria-label="Increase fork preload">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Fork Preload</span>
+              <input type="text" id="fork-preload" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Fork Preload unit">
+              <button type="button" class="unit-opt" data-unit-for="fork-preload" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="fork-preload" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="fork-preload-unit" value="" />
           </div>
         </div>
-        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
-             inside it, activating one counts as activating the label and
-             focuses the input, which opens the keyboard the stepper exists
-             to avoid. The input, its id, its inputmode and the label text
-             are unchanged. -->
-        <div class="field">
-          <label class="field-label" for="fork-reb"><span>Rebound</span></label>
-          <div class="stepper">
-          <button type="button" class="stepper-btn" data-step-for="fork-reb" data-step-dir="-1" aria-label="Decrease fork rebound by 1 click">&minus;</button>
-          <input type="text" id="fork-reb" autocomplete="off" placeholder="clicks" />
-          <button type="button" class="stepper-btn" data-step-for="fork-reb" data-step-dir="1" aria-label="Increase fork rebound by 1 click">+</button>
+        <div class="adj-card" data-adjuster="fork-comp">
+          <button type="button" class="adj-row" id="fork-comp-row"
+                  aria-expanded="false" aria-controls="fork-comp-panel">
+            <span class="adj-name">Compression</span>
+            <span class="adj-value" id="fork-comp-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="fork-comp-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="fork-comp" data-adj-dir="-1"
+                      aria-label="Decrease fork compression">&minus;</button>
+              <span class="adj-big" id="fork-comp-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="fork-comp" data-adj-dir="1"
+                      aria-label="Increase fork compression">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Fork Compression</span>
+              <input type="text" id="fork-comp" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Fork Compression unit">
+              <button type="button" class="unit-opt" data-unit-for="fork-comp" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="fork-comp" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="fork-comp-unit" value="" />
+          </div>
+        </div>
+        <div class="adj-card" data-adjuster="fork-reb">
+          <button type="button" class="adj-row" id="fork-reb-row"
+                  aria-expanded="false" aria-controls="fork-reb-panel">
+            <span class="adj-name">Rebound</span>
+            <span class="adj-value" id="fork-reb-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="fork-reb-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="fork-reb" data-adj-dir="-1"
+                      aria-label="Decrease fork rebound">&minus;</button>
+              <span class="adj-big" id="fork-reb-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="fork-reb" data-adj-dir="1"
+                      aria-label="Increase fork rebound">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Fork Rebound</span>
+              <input type="text" id="fork-reb" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Fork Rebound unit">
+              <button type="button" class="unit-opt" data-unit-for="fork-reb" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="fork-reb" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="fork-reb-unit" value="" />
           </div>
         </div>
       </div>
 
-      <h3>Shock</h3>
-      <div class="grid-3">
-        <label class="field">
-          <span>Preload</span>
-          <input type="text" id="shock-preload" autocomplete="off" placeholder="turns" />
-        </label>
-        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
-             inside it, activating one counts as activating the label and
-             focuses the input, which opens the keyboard the stepper exists
-             to avoid. The input, its id, its inputmode and the label text
-             are unchanged. -->
-        <div class="field">
-          <label class="field-label" for="shock-comp"><span>Compression</span></label>
-          <div class="stepper">
-          <button type="button" class="stepper-btn" data-step-for="shock-comp" data-step-dir="-1" aria-label="Decrease shock compression by 1 click">&minus;</button>
-          <input type="text" id="shock-comp" autocomplete="off" placeholder="clicks" />
-          <button type="button" class="stepper-btn" data-step-for="shock-comp" data-step-dir="1" aria-label="Increase shock compression by 1 click">+</button>
+      <div class="adj-group">
+        <p class="section-label">SHOCK</p>
+        <div class="adj-card" data-adjuster="shock-preload">
+          <button type="button" class="adj-row" id="shock-preload-row"
+                  aria-expanded="false" aria-controls="shock-preload-panel">
+            <span class="adj-name">Preload</span>
+            <span class="adj-value" id="shock-preload-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="shock-preload-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="shock-preload" data-adj-dir="-1"
+                      aria-label="Decrease shock preload">&minus;</button>
+              <span class="adj-big" id="shock-preload-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="shock-preload" data-adj-dir="1"
+                      aria-label="Increase shock preload">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Shock Preload</span>
+              <input type="text" id="shock-preload" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Shock Preload unit">
+              <button type="button" class="unit-opt" data-unit-for="shock-preload" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="shock-preload" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="shock-preload-unit" value="" />
           </div>
         </div>
-        <!-- Stepper (C8). The buttons sit OUTSIDE the label on purpose:
-             inside it, activating one counts as activating the label and
-             focuses the input, which opens the keyboard the stepper exists
-             to avoid. The input, its id, its inputmode and the label text
-             are unchanged. -->
-        <div class="field">
-          <label class="field-label" for="shock-reb"><span>Rebound</span></label>
-          <div class="stepper">
-          <button type="button" class="stepper-btn" data-step-for="shock-reb" data-step-dir="-1" aria-label="Decrease shock rebound by 1 click">&minus;</button>
-          <input type="text" id="shock-reb" autocomplete="off" placeholder="clicks" />
-          <button type="button" class="stepper-btn" data-step-for="shock-reb" data-step-dir="1" aria-label="Increase shock rebound by 1 click">+</button>
+        <div class="adj-card" data-adjuster="shock-comp">
+          <button type="button" class="adj-row" id="shock-comp-row"
+                  aria-expanded="false" aria-controls="shock-comp-panel">
+            <span class="adj-name">Compression</span>
+            <span class="adj-value" id="shock-comp-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="shock-comp-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="shock-comp" data-adj-dir="-1"
+                      aria-label="Decrease shock compression">&minus;</button>
+              <span class="adj-big" id="shock-comp-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="shock-comp" data-adj-dir="1"
+                      aria-label="Increase shock compression">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Shock Compression</span>
+              <input type="text" id="shock-comp" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Shock Compression unit">
+              <button type="button" class="unit-opt" data-unit-for="shock-comp" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="shock-comp" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="shock-comp-unit" value="" />
           </div>
         </div>
-      </div>
-
+        <div class="adj-card" data-adjuster="shock-reb">
+          <button type="button" class="adj-row" id="shock-reb-row"
+                  aria-expanded="false" aria-controls="shock-reb-panel">
+            <span class="adj-name">Rebound</span>
+            <span class="adj-value" id="shock-reb-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="shock-reb-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="shock-reb" data-adj-dir="-1"
+                      aria-label="Decrease shock rebound">&minus;</button>
+              <span class="adj-big" id="shock-reb-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="shock-reb" data-adj-dir="1"
+                      aria-label="Increase shock rebound">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Shock Rebound</span>
+              <input type="text" id="shock-reb" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Shock Rebound unit">
+              <button type="button" class="unit-opt" data-unit-for="shock-reb" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="shock-reb" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="shock-reb-unit" value="" />
+          </div>
+        </div>
       </div>
 
       <!-- Symptoms are observed after the outing, so they belong to POST, and

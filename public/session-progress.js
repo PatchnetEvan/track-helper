@@ -611,6 +611,97 @@
     return out;
   }
 
+  // --- Suspension adjusters (v2) --------------------------------------------
+  //
+  // Clicks are whole detents; turns are read off a collar to a tenth. The unit
+  // belongs to the adjuster, not the bike, because forks and shocks are marked
+  // differently and riders record what their own kit shows.
+  const ADJUSTERS = ["fork-preload", "fork-comp", "fork-reb",
+                     "shock-preload", "shock-comp", "shock-reb"];
+  // Preload is almost always turns; damping is almost always clicks.
+  const ADJUSTER_DEFAULT_UNIT = {
+    "fork-preload": "turns", "shock-preload": "turns",
+    "fork-comp": "clicks", "fork-reb": "clicks",
+    "shock-comp": "clicks", "shock-reb": "clicks",
+  };
+  const UNIT_STEP = { clicks: 1, turns: 0.5 };
+  const UNIT_PLACES = { clicks: 0, turns: 1 };
+
+  function adjusterUnit(stored, id) {
+    const raw = String(stored == null ? "" : stored).trim().toLowerCase();
+    if (raw === "clicks" || raw === "turns") return raw;
+    return ADJUSTER_DEFAULT_UNIT[id] || "clicks";
+  }
+
+  function readAdjuster(text) {
+    const raw = String(text == null ? "" : text).trim();
+    if (raw === "" || !ORDINARY_PSI.test(raw)) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // Clicks round to whole detents; turns to a tenth. Nothing invents digits.
+  function formatAdjuster(value, unit) {
+    if (!Number.isFinite(value)) return "";
+    const places = UNIT_PLACES[unit] === undefined ? 0 : UNIT_PLACES[unit];
+    return value.toFixed(places);
+  }
+
+  function adjusterStep(currentText, direction, unit) {
+    const u = unit === "turns" ? "turns" : "clicks";
+    const step = UNIT_STEP[u];
+    const dir = direction < 0 ? -1 : 1;
+    const raw = String(currentText == null ? "" : currentText).trim();
+    // Blank starts at zero: an adjuster is counted from fully closed, so the
+    // first press is a real reading rather than a guess.
+    const from = raw === "" ? 0 : readAdjuster(raw);
+    if (from === null) return null;
+    const next = Math.round((from + dir * step) * 10) / 10;
+    if (next < 0) return null;
+    return formatAdjuster(next, u);
+  }
+
+  // A trailing ".0" is noise on a collar reading: 3 turns, not 3.0 turns.
+  function compactAdjuster(value, unit) {
+    const text = formatAdjuster(value, unit);
+    return text.indexOf(".") === -1 ? text : text.replace(/\.0$/, "");
+  }
+
+  // What the closed row shows: "12 clicks", "2.5 turns", or a dash.
+  function adjusterDisplay(text, unit) {
+    const value = readAdjuster(text);
+    if (value === null) return "\u2014";
+    const u = unit === "turns" ? "turns" : "clicks";
+    return compactAdjuster(value, u) + " " + u;
+  }
+
+  // Changing the unit re-reads the same number in the new unit's precision.
+  // It does not convert: a click is not a turn, and pretending otherwise would
+  // invent a measurement the rider never took.
+  function adjusterOnUnitChange(text, unit) {
+    const value = readAdjuster(text);
+    if (value === null) return String(text == null ? "" : text);
+    return formatAdjuster(value, unit === "turns" ? "turns" : "clicks");
+  }
+
+  // "Fork P 2.5t \u00b7 C12 \u00b7 R10 / Shock P 3t \u00b7 C8 \u00b7 R12".
+  // Clicks carry no suffix; turns carry "t"; a missing value is an en dash.
+  function suspensionSummary(values, units) {
+    const part = (id, letter) => {
+      const unit = adjusterUnit(units && units[id], id);
+      const value = readAdjuster(values && values[id]);
+      // Preload carries a space, damping does not - as the summary is specified.
+      const lead = letter === "P" ? "P " : letter;
+      if (value === null) return lead + "\u2013";
+      return lead + compactAdjuster(value, unit) + (unit === "turns" ? "t" : "");
+    };
+    const fork = "Fork " + ["P", "C", "R"].map((l, i) =>
+      part(["fork-preload", "fork-comp", "fork-reb"][i], l)).join(" \u00b7 ");
+    const shock = "Shock " + ["P", "C", "R"].map((l, i) =>
+      part(["shock-preload", "shock-comp", "shock-reb"][i], l)).join(" \u00b7 ");
+    return fork + " / " + shock;
+  }
+
   // --- Tires summary and header copy ----------------------------------------
   //
   // The summary must never imply a setup that was not entered. With nothing
@@ -702,7 +793,9 @@
     PSI_MIN, PSI_MAX, PSI_STEP, TICK_PX, DRAG_INTENT_PX, PAD_DEFAULT, padStart, deltaChip,
     psiInRulerRange, snapPsi, psiFromDrag, shouldCaptureDrag, rulerStep, rulerDraggable,
     readPsi, usablePsi, pressureState, pressureReferences, lastMatchingSession, sessionTag,
-    todayLabel, pressureNote, postDelta, tiresSummary, headerBikeLine, headerTrackLine,
+    todayLabel, pressureNote, postDelta, tiresSummary,
+    ADJUSTERS, ADJUSTER_DEFAULT_UNIT, adjusterUnit, readAdjuster, formatAdjuster,
+    adjusterStep, adjusterDisplay, adjusterOnUnitChange, suspensionSummary, compactAdjuster, headerBikeLine, headerTrackLine,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

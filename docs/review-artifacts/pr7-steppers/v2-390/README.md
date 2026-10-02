@@ -113,3 +113,96 @@ About its own row frees width but adds a 48px row, which is the net loss above.
 A real-phone shortfall of 5px or more therefore needs the owner's ruling, not
 this fallback. The escalation path in the ruling — stop and send the numbers —
 applies from the first pixel, not from 30.
+
+---
+
+# Drag fix and suspension rework (`0.1.0-beta.16`)
+
+## 1. Touch drag — fixed, but NOT verified against the reported failure
+
+All four changes are in: `pointer-events: none` on every child of `.drag-pad`,
+`setPointerCapture` on `pointerdown`, `lostpointercapture` ending the drag only
+when `e.target === pad`, and the pad's label rewritten only when `usable`
+changes.
+
+**The test cannot see the bug.** A real-touch test was added
+(`tests/browser/touch-drag.test.js`, opt-in with `BROWSER_TESTS=1`): it drives
+headless Chromium over CDP with touch emulation, dispatches real
+`Input.dispatchTouchEvent` sequences, drags five notches and expects +0.5. It
+passes — **and it also passes against the unfixed code.** Reverting each of the
+four fixes individually, and all of them together, leaves it green.
+
+The event trace explains why. With the children still taking pointer events,
+the touch target is a child, but the capture still lands on the pad and is only
+released at the end:
+
+```
+pointerdown@pad-line/touch        <- target IS the child
+gotpointercapture@drag-pad/touch  <- capture goes straight to the pad
+pointermove@drag-pad/touch  x6
+pointerup@drag-pad/touch
+lostpointercapture@drag-pad/touch <- target === pad, at the end
+```
+
+Headless Chromium never gives the child an implicit capture, so the
+`lostpointercapture` that kills the gesture on Android Chrome never fires here.
+The fixes follow the diagnosis and are each defensible on their own, but the
+only thing that can confirm them is the device.
+
+What the test *does* guard: that a real touch drag of five notches moves the
+value by exactly 0.5, and that a vertical touch drag starting on the pad
+scrolls the page instead of changing the value.
+
+## 2. Suspension on DAY
+
+`panel-suspension` moved out of `STAGE_PANELS.pre` and `.post` and into `day`.
+FORK and SHOCK groups, each with Preload, Compression and Rebound as rows in
+the tire-row pattern, one adjuster open at a time across both groups.
+
+Measured at 390px: closed rows **72px exactly** (the minimum), − / + **77px**,
+unit switch **50px**, no horizontal scroll. At 200% rows grow to 132px.
+
+Steps are 1 for clicks and 0.5 for turns; clicks format whole, turns to one
+decimal. Changing the unit re-reads the number at the new precision and never
+converts — a click is not a turn, and converting would invent a reading.
+
+## 3 and 4. PRE confirms, POST shows
+
+CURRENT BIKE STATE carries a Suspension row reading
+**`Fork P 2.5t · C12 · R10 / Shock P 3t · C8 · R12`** — clicks unsuffixed,
+turns with `t`, missing values as `–`. On PRE the row has an Edit button that
+goes to DAY, opens the Suspension group and shows a "Done · back to PRE"
+control. On POST the row is present with no Edit. Locking is untouched.
+
+## Data
+
+A `units` object is added to the saved suspension shape
+(`forkPreload`, `forkComp`, … as `"clicks"|"turns"`). It is additive: a session
+saved without it falls back to the adjuster's default, so existing numbers read
+exactly as they were saved. Preload defaults to turns, damping to clicks. The
+units carry over through Save & next, because `clearTransientFields` has never
+touched suspension.
+
+## PRE fit, with suspension gone
+
+| case | usable | needs | dock top | result |
+|---|---|---|---|---|
+| PRE, default | 701 | 546 | 556 | fits |
+| PRE, default | 844 | 546 | 699 | fits |
+
+Unchanged from beta.15: suspension was already on its own panel, so moving it
+frees nothing on PRE. The CURRENT BIKE STATE card gained a Suspension row and
+lost nothing, and the figure held at 546.
+
+## Three defects found while building
+
+- The `units` object made **every empty form look like it had content**, because
+  `sessionHasContent` treats any truthy value in `suspension` as a reading. A
+  unit is a preference, not a measurement, and is now excluded — the same
+  treatment `geometryConstants` already gets.
+- The panel's initial `hidden` flags in the markup were hand-matched to the old
+  stage list, so Suspension stayed hidden on DAY until the rider selected
+  another stage and came back. Boot now calls `showTab("day")` and applies the
+  mapping rather than trusting the markup.
+- `tests/browser/cdp.js` broke the CI contract that every file under `tests/`
+  matching the runner's glob must be a suite. Moved to `tests/helpers/`.
