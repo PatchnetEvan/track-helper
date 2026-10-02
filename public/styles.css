@@ -883,18 +883,42 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    the input, opening the keyboard the stepper exists to avoid. */
 .field-label { display: block; }
 
+/* The tire details collapse to one line so the pressures are reachable
+   without scrolling. */
+.tire-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.tire-summary { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-dim); font-size: 0.875rem; overflow-wrap: anywhere; }
+/* .btn-secondary is full-width by default; next to the summary it must size
+   to its own text, or the summary collapses to one character per line. */
+.tire-edit { flex: 0 0 auto; width: auto; min-height: 44px; padding: 10px 14px; }
+.tire-fields { margin-bottom: 14px; }
+.section-label {
+  margin: 0 0 2px;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.section-sub { margin: 0 0 10px; color: var(--text-dim); font-size: 0.875rem; }
+
 /* --- Pressure control (C8 revised: centred value + tenths ruler) ---------- */
 
 /* Front above Rear, one tire per card, never side by side at phone widths. */
 .pressure-stack { display: block; }
-.pressure { margin-bottom: 22px; text-align: center; }
+.pressure { margin-bottom: 10px; text-align: center; }
 .pressure-tire {
   margin: 0 0 6px;
   font-size: 0.9375rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
-.pressure-today { margin: 0 0 8px; color: var(--text-dim); font-size: 0.8125rem; }
+.pressure-today { margin: 0 0 4px; color: var(--text-dim); font-size: 0.8125rem; }
 .pressure-box {
   display: inline-flex;
   align-items: baseline;
@@ -902,7 +926,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  padding: 10px 16px;
+  padding: 2px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elev-2);
@@ -917,7 +941,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 2rem;           /* 32px at the default root, and it scales */
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.05;
   text-align: center;
 }
 .pressure-box input:focus { outline: none; }
@@ -936,8 +960,8 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .pressure-ref {
   display: inline-block;
   max-width: 100%;
-  margin: 10px 0 0;
-  padding: 5px 12px;
+  margin: 8px 0 0;
+  padding: 4px 12px;
   border: 1px dashed var(--text-dim);
   border-radius: 8px;
   color: var(--text-dim);
@@ -950,7 +974,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr) 64px;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 .ruler {
   position: relative;
@@ -958,6 +982,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   /* 64px normally, growing to the 72px the design asks for at large text -
      intrinsically, with no threshold to detect. */
   height: clamp(64px, 4rem, 72px);
+  box-sizing: border-box;   /* 64px overall, not 64 plus borders */
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elev-2);
@@ -971,12 +996,19 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .ruler[aria-disabled="true"] { cursor: default; }
 .ruler-strip { position: absolute; inset: 0; }
 /* Ticks and labels are positioned, not flowed. */
-.tick { position: absolute; bottom: 10px; width: 1px; height: 10px; background: var(--border); transform: translateX(-50%); }
+.tick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 10px;
+  background: var(--text-dim);
+  transform: translateX(-50%);
+}
 .tick-half { height: 18px; }
 .tick-whole { width: 2px; height: 26px; }
 .tick-label {
   position: absolute;
-  top: 8px;
+  top: 6px;
   transform: translateX(-50%);
   color: var(--text-dim);
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -1016,12 +1048,12 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .ruler-pin.pin-low { left: 8px; }
 
 .pressure-note {
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   color: var(--text-dim);
   font-size: 0.8125rem;
-  line-height: 1.45;
+  line-height: 1.35;
 }
-.pressure-same { margin-top: 10px; min-height: var(--tap); }
+.pressure-same { margin-top: 8px; min-height: var(--tap); }
 
 /* Large text: the value grows and the ruler gets taller, and everything keeps
    wrapping intrinsically rather than at a guessed threshold. */
@@ -1182,7 +1214,9 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    that turns out to be. */
 .dock {
   position: sticky;
-  bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px));
+  /* --stage-bar-h is measured from the live bar and already includes its
+     safe-area padding, so adding env() here again would re-open the gap. */
+  bottom: var(--stage-bar-h);
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -1360,3 +1394,15 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .tools-disclosure > summary > .tools-sub { min-width: 0; overflow-wrap: break-word; }
 .tools-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tools-sub { font-size: 0.8125rem; color: var(--text-dim); }
+
+/* The wordmark costs vertical space a rider needs for the pressures, and the
+   context header already says which bike and session this is. Phone only -
+   the desktop rail keeps it. */
+@media (max-width: 899px) {
+  .brand { display: none; }
+  /* The section label below says which pressure this is, so the panel heading
+     is redundant on a phone and costs a line the rider needs. */
+  #panel-tires > h2 { display: none; }
+  .app-header { padding: 10px 16px 8px; }
+  .save-status { margin: 6px 0 0; }
+}

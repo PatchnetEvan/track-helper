@@ -179,6 +179,18 @@ export function bootApp(opts) {
     }
   }
 
+  // The tire disclosure ships collapsed, with its fields present in the DOM.
+  // The stub DOM has no markup to read that from, so it is set up here - a
+  // stub that starts open would let a broken disclosure pass.
+  const tireFields = field("tire-fields", "DIV");
+  tireFields.hidden = true;
+  const editTires = field("edit-tires", "BUTTON");
+  editTires.setAttribute("aria-expanded", "false");
+  editTires.textContent = "Edit tires";
+  for (const id of ["tire-brand", "tire-model", "warmer-time"]) field(id, "INPUT");
+  field("warmer-on", "INPUT").type = "checkbox";
+  field("tire-summary", "P");
+
   // Lets a test interleave something between the store being ready and the
   // app booting - which is where load-time races actually live.
   if (opts && typeof opts.beforeBoot === "function") opts.beforeBoot(win);

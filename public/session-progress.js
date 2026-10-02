@@ -603,6 +603,38 @@
     return out;
   }
 
+  // --- Tires summary and header copy ----------------------------------------
+  //
+  // The summary must never imply a setup that was not entered. With nothing
+  // set it says so plainly; with a partial setup it names only what is there.
+  function tiresSummary(brand, model, warmersOn, warmerTime) {
+    const parts = [];
+    const b = String(brand == null ? "" : brand).trim();
+    const m = String(model == null ? "" : model).trim();
+    const t = String(warmerTime == null ? "" : warmerTime).trim();
+    if (b) parts.push(b);
+    if (m) parts.push(m);
+    if (warmersOn) parts.push(t ? "warmers " + t + " min" : "warmers");
+    if (parts.length === 0) return "No tires set";
+    return parts.join(" \u00b7 ");
+  }
+
+  // An unset field says it is unset rather than leaving the line blank, so the
+  // header never reads as though a bike or track were already chosen.
+  function headerBikeLine(bike, stageLabel) {
+    const b = String(bike == null ? "" : bike).trim();
+    if (b) return b;
+    const stage = String(stageLabel == null ? "" : stageLabel).trim();
+    return stage ? "No bike set \u00b7 " + stage : "No bike set";
+  }
+
+  function headerTrackLine(track, sessionLabel) {
+    const t = String(track == null ? "" : track).trim();
+    const sLabel = String(sessionLabel == null ? "" : sessionLabel).trim();
+    const left = t || "No track set";
+    return sLabel ? left + " \u00b7 " + sLabel : left;
+  }
+
   // --- Copy -----------------------------------------------------------------
 
   function todayLabel(text) {
@@ -646,7 +678,7 @@
     PSI_MIN, PSI_MAX, PSI_STEP, TICK_PX, DRAG_INTENT_PX,
     psiInRulerRange, snapPsi, psiFromDrag, shouldCaptureDrag, rulerStep, rulerDraggable,
     readPsi, usablePsi, pressureState, pressureReferences, lastMatchingSession, sessionTag,
-    todayLabel, pressureNote, postDelta,
+    todayLabel, pressureNote, postDelta, tiresSummary, headerBikeLine, headerTrackLine,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

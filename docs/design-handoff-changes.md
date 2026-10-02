@@ -209,3 +209,24 @@ controls.
 A third: "never below 0" was briefly applied to increments too, which stranded
 a typed `-2` with buttons that refused to touch it. It now governs the
 decrement only.
+
+## Pressure fix notes 1-5 (`0.1.0-beta.12`)
+
+Items 1, 3, 4, 5 and 6 are done. Item 2 is improved but one acceptance line is
+not met; the measured breakdown is in
+`docs/review-artifacts/pr7-steppers/c8-fix-390/README.md`.
+
+Two defects behind the reported symptoms:
+
+- **The 4px gap** came from `--stage-bar-h` being floored at 64px against a
+  60px bar, and from the dock adding `env(safe-area-inset-bottom)` on top of a
+  measurement that already included it. Both fixed; measured gap is now 0.
+- **The bunched ruler labels** came from deriving the tick count from the box
+  width. Ticks are now placed from the centre at a fixed 32px pitch.
+
+A third, found while building: `.btn-secondary` is full width, so **Edit tires**
+beside the summary squeezed it to one character per line and made that row
+453px tall. The button now sizes to its own text.
+
+The wordmark is hidden below 900px, as item 4 allows, and the `Tires` panel
+heading with it: the section label beneath says which pressure it is.

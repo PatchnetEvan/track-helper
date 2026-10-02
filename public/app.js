@@ -99,6 +99,7 @@
     // edit, so the buttons are re-synced wherever the lock is applied - which
     // is also restore, Correct PRE, Copy to form, Reset and Save & next.
     syncSteppers();
+    renderTireSummary();
     renderAllPressures();
   }
 
@@ -336,59 +337,52 @@
     if (!strip || !ruler) return;
     const el = document.getElementById(field);
     const raw = (el && el.value || "").trim();
-    const value = SP.readPsi(raw);
-    const refValue = refs.primary ? SP.readPsi(refs.primary.value) : null;
+    const value = SP.usablePsi(raw);
+    const refValue = refs.primary ? SP.usablePsi(refs.primary.value) : null;
     const inRange = value !== null && SP.psiInRulerRange(value);
-    // A blank ruler is centred on the reference. With no reference there is
-    // nothing to centre on, so it sits at the middle of its own range - and it
-    // stays inactive, so that is never mistaken for a starting value.
-    const centre = inRange ? value
-      : (refValue !== null ? refValue : (SP.PSI_MIN + SP.PSI_MAX) / 2);
-    const w = Math.max(1, Math.round(ruler.getBoundingClientRect().width));
-    const span = Math.ceil(w / 2) + SP.TICK_PX;
-    // Built with createElement and positioned through the CSSOM, never with
-    // innerHTML carrying style attributes: log/index.html sets
-    // style-src 'self', which drops an inline style attribute outright.
+    // A blank ruler centres on the reference; with none, on 30.0. Neither is a
+    // value - the field stays empty and the orange marker stays hidden.
+    const centre = inRange ? value : (refValue !== null ? refValue : 30);
+    // Ticks are laid out from the centre of the box, which is why they spread
+    // across its full width instead of bunching at the left edge. Anything
+    // past the edges is clipped by overflow:hidden on .ruler.
     while (strip.firstChild) strip.removeChild(strip.firstChild);
-    const steps = Math.ceil(span / SP.TICK_PX);
-    for (let i = -steps; i <= steps; i += 1) {
+    const place = (node, i) => {
+      node.style.left = "calc(50% + " + (i * SP.TICK_PX) + "px)";
+      strip.appendChild(node);
+    };
+    for (let i = -8; i <= 8; i += 1) {
       const psi = Math.round((centre + i * SP.PSI_STEP) * 10) / 10;
       if (psi < SP.PSI_MIN - 1e-9 || psi > SP.PSI_MAX + 1e-9) continue;
-      const x = w / 2 + i * SP.TICK_PX;
       const whole = Math.abs(psi - Math.round(psi)) < 1e-9;
       const half = !whole && Math.abs((psi * 10) % 5) < 1e-9;
       const tick = document.createElement("i");
       tick.className = "tick" + (whole ? " tick-whole" : half ? " tick-half" : "");
-      tick.style.left = x.toFixed(1) + "px";
-      strip.appendChild(tick);
-      // Every tick is labelled: the visible window is only about +/-0.3 PSI,
-      // so this is what guarantees a number is always on screen.
+      place(tick, i);
+      // Every tick is labelled, because the visible window is less than a PSI
+      // wide and a bare tick would say nothing about where the rider is.
       const label = document.createElement("b");
       label.className = "tick-label";
       label.textContent = whole ? String(Math.round(psi))
         : "." + Math.round(Math.abs(psi * 10) % 10);
-      label.style.left = x.toFixed(1) + "px";
-      strip.appendChild(label);
+      place(label, i);
     }
-    if (refValue !== null && refValue >= SP.PSI_MIN && refValue <= SP.PSI_MAX) {
-      const x = w / 2 + (refValue - centre) / SP.PSI_STEP * SP.TICK_PX;
-      if (x >= -2 && x <= w + 2) {
+    if (refValue !== null) {
+      const i = Math.round((refValue - centre) / SP.PSI_STEP);
+      if (i >= -8 && i <= 8 && refValue >= SP.PSI_MIN && refValue <= SP.PSI_MAX) {
         const mark = document.createElement("div");
         mark.className = "ruler-ref";
-        mark.style.left = x.toFixed(1) + "px";
-        strip.appendChild(mark);
+        place(mark, i);
         const tag = document.createElement("span");
         tag.className = "ruler-ref-tag";
         tag.textContent = refs.primary.tag || "Last";
-        tag.style.left = x.toFixed(1) + "px";
-        strip.appendChild(tag);
+        place(tag, i);
       }
     }
-    // The orange centre marker means "today's value is here". It is shown only
-    // when there is one, and only when it is somewhere the ruler can show.
+    // The orange centre line means "today's value is here", so it appears only
+    // once there is one.
     const centreEl = document.getElementById(field + "-centre");
     if (centreEl) centreEl.hidden = !inRange;
-    // A value typed past the end pins to that end instead.
     const pin = document.getElementById(field + "-pin");
     if (pin) {
       if (value !== null && !SP.psiInRulerRange(value)) {
@@ -461,6 +455,33 @@
   }
 
   function renderAllPressures() { PRESSURE_FIELDS.forEach(renderPressure); }
+
+  // The summary reflects what is actually in the fields, so it is re-rendered
+  // wherever they can change: typing, a loaded session, a restored draft,
+  // Copy to form and Reset all route through here.
+  function renderTireSummary() {
+    const out = document.getElementById("tire-summary");
+    if (!out) return;
+    const on = document.getElementById("warmer-on");
+    out.textContent = SP.tiresSummary(str("tire-brand"), str("tire-model"),
+      !!(on && on.checked), str("warmer-time"));
+  }
+
+  function wireTireDisclosure() {
+    const btn = document.getElementById("edit-tires");
+    const fields = document.getElementById("tire-fields");
+    if (!btn || !fields) return;
+    btn.addEventListener("click", () => {
+      const open = fields.hidden;
+      fields.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      btn.textContent = open ? "Done" : "Edit tires";
+      if (open) {
+        const first = document.getElementById("tire-brand");
+        if (first && first.focus && !first.readOnly) first.focus();
+      }
+    });
+  }
 
   // Every path that changes a pressure - drag, keyboard, the buttons, "Same
   // as" - goes through here, so they share one edit signal and one set of
@@ -969,8 +990,12 @@
     const bike = str("bike");
     const track = str("track");
     const label = str("session-label");
-    const where = [track, label].filter(Boolean).join(" · ");
-    document.getElementById("context-bike").textContent = bike;
+    // An unset bike or track says so rather than leaving the line empty.
+    // The short stage name only: "No bike set \u00b7 DAY", not the whole chip.
+    const chipText = String(STAGE_CHIP[_stage] || "").split(" \u00b7 ")[0];
+    const bikeLine = SP.headerBikeLine(bike, chipText);
+    const where = SP.headerTrackLine(track, label);
+    document.getElementById("context-bike").textContent = bikeLine;
     document.getElementById("context-where").textContent = where;
     renderStageChip();
     // The chip is part of this line and belongs on every stage, so the line
@@ -1011,8 +1036,15 @@
       }
       if (typeof bar.getBoundingClientRect !== "function") return;
       const rect = bar.getBoundingClientRect();
-      const h = rect ? Math.ceil(rect.height) : 0;
-      if (h > 0) root.style.setProperty("--stage-bar-h", Math.max(h, 64) + "px");
+      // Floor, not ceil: rounding the bar UP left the dock sitting a fraction
+      // of a pixel above it, which rendered as a hairline gap with page
+      // content behind it. Rounding down makes them overlap instead.
+      const h = rect ? Math.floor(rect.height) : 0;
+      // The MEASURED height, not a floor. A 64px floor against a 60px bar left
+      // a 4px gap the dock sat above, and page content showed through it. The
+      // measurement already includes the bar's safe-area padding, so nothing
+      // else may add env(safe-area-inset-bottom) on top of this value.
+      if (h > 0) root.style.setProperty("--stage-bar-h", h + "px");
     };
     apply();
     // Crossing the breakpoint swaps bar for rail, so re-apply on the query as
@@ -1031,6 +1063,8 @@
   renderPreEditable();
   wireSteppers();
   wirePressureRulers();
+  wireTireDisclosure();
+  renderTireSummary();
   renderDock();
 
   // --- Auto-save switch wiring ---------------------------------------------
@@ -1271,6 +1305,7 @@
       // its own guard against rewriting unchanged text, so a live region is
       // still not re-announced on every keystroke.
       renderSaveStatus();
+      renderTireSummary();
       renderAllPressures();
       // Typing can make a field steppable or stop it being so - emptying it,
       // or leaving text that is not a number.
