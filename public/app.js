@@ -125,6 +125,9 @@
       activeCell.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     _stage = stage;
+    // Arriving at PRE or POST opens the tire still to be measured - the one
+    // the rider came here for. Both measured, nothing is forced open.
+    if (stage === "pre" || stage === "post") openFirstBlankTire(stage);
     renderContext();
     renderDock();
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
@@ -183,7 +186,6 @@
       advance.className = copy.nav ? "btn-dock-nav" : "btn-transition";
     }
     if (onReview) renderSaveDock();
-    if (_stage === "post") renderPreReference();
     renderSaveStatus();
     dock.hidden = !copy && !onReview;
 
@@ -195,16 +197,6 @@
       else postCell.setAttribute("aria-disabled", "true");
     }
     applyDockLayout();
-  }
-
-  // What the rider went out on, shown on POST beside the readings they are
-  // taking now. Read from the same fields PRE writes, so it cannot drift.
-  function renderPreReference() {
-    const f = document.getElementById("pre-ref-front");
-    const r = document.getElementById("pre-ref-rear");
-    const dash = "\u2014";
-    if (f) f.textContent = str("front-pre") || dash;
-    if (r) r.textContent = str("rear-pre") || dash;
   }
 
   function renderSaveDock() {
@@ -270,7 +262,7 @@
   }
 
   function syncSteppers() {
-    document.querySelectorAll(".stepper-btn").forEach((btn) => {
+    document.querySelectorAll("[data-step-for]").forEach((btn) => {
       const id = btn.dataset.stepFor;
       if (!id) return;
       btn.disabled = !stepperUsable(id);
@@ -278,7 +270,7 @@
   }
 
   function wireSteppers() {
-    document.querySelectorAll(".stepper-btn").forEach((btn) => {
+    document.querySelectorAll("[data-step-for]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.stepFor;
         const step = STEPPER_STEPS[id];
@@ -306,7 +298,7 @@
         // avoiding, and would make a second tap land somewhere else.
         if (btn.focus) btn.focus();
         syncSteppers();
-        if (PRESSURE_FIELDS.indexOf(id) !== -1) renderPressure(id);
+        if (PRESSURE_FIELDS.indexOf(id) !== -1) renderTire(id);
       });
     });
     syncSteppers();
@@ -331,76 +323,39 @@
     return SP.pressureReferences(sessions, pressureContext(), field, pre);
   }
 
-  function drawRuler(field, refs) {
-    const strip = document.getElementById(field + "-strip");
-    const ruler = document.getElementById(field + "-ruler");
-    if (!strip || !ruler) return;
+  function drawPad(field, refs) {
+    const lines = document.getElementById(field + "-lines");
+    const pad = document.getElementById(field + "-pad");
+    if (!lines || !pad) return;
     const el = document.getElementById(field);
     const raw = (el && el.value || "").trim();
     const value = SP.usablePsi(raw);
-    const refValue = refs.primary ? SP.usablePsi(refs.primary.value) : null;
     const inRange = value !== null && SP.psiInRulerRange(value);
-    // A blank ruler centres on the reference; with none, on 30.0. Neither is a
-    // value - the field stays empty and the orange marker stays hidden.
-    const centre = inRange ? value : (refValue !== null ? refValue : 30);
-    // Ticks are laid out from the centre of the box, which is why they spread
-    // across its full width instead of bunching at the left edge. Anything
-    // past the edges is clipped by overflow:hidden on .ruler.
-    while (strip.firstChild) strip.removeChild(strip.firstChild);
-    const place = (node, i) => {
-      node.style.left = "calc(50% + " + (i * SP.TICK_PX) + "px)";
-      strip.appendChild(node);
-    };
-    for (let i = -8; i <= 8; i += 1) {
-      const psi = Math.round((centre + i * SP.PSI_STEP) * 10) / 10;
-      if (psi < SP.PSI_MIN - 1e-9 || psi > SP.PSI_MAX + 1e-9) continue;
-      const whole = Math.abs(psi - Math.round(psi)) < 1e-9;
-      const half = !whole && Math.abs((psi * 10) % 5) < 1e-9;
-      const tick = document.createElement("i");
-      tick.className = "tick" + (whole ? " tick-whole" : half ? " tick-half" : "");
-      place(tick, i);
-      // Every tick is labelled, because the visible window is less than a PSI
-      // wide and a bare tick would say nothing about where the rider is.
-      const label = document.createElement("b");
-      label.className = "tick-label";
-      label.textContent = whole ? String(Math.round(psi))
-        : "." + Math.round(Math.abs(psi * 10) % 10);
-      place(label, i);
-    }
-    if (refValue !== null) {
-      const i = Math.round((refValue - centre) / SP.PSI_STEP);
-      if (i >= -8 && i <= 8 && refValue >= SP.PSI_MIN && refValue <= SP.PSI_MAX) {
-        const mark = document.createElement("div");
-        mark.className = "ruler-ref";
-        place(mark, i);
-        const tag = document.createElement("span");
-        tag.className = "ruler-ref-tag";
-        tag.textContent = refs.primary.tag || "Last";
-        place(tag, i);
-      }
-    }
-    // The orange centre line means "today's value is here", so it appears only
-    // once there is one.
-    const centreEl = document.getElementById(field + "-centre");
-    if (centreEl) centreEl.hidden = !inRange;
-    const pin = document.getElementById(field + "-pin");
-    if (pin) {
-      if (value !== null && !SP.psiInRulerRange(value)) {
-        const high = value > SP.PSI_MAX;
-        pin.hidden = false;
-        pin.className = "ruler-pin " + (high ? "pin-high" : "pin-low");
-        pin.textContent = high ? raw + " \u203a" : "\u2039 " + raw;
-      } else {
-        pin.hidden = true;
-        pin.textContent = "";
-      }
+    const at = inRange ? value : SP.padStart(refs.primary ? refs.primary.value : null);
+    // The pattern moves with the value, so a drag is visibly doing something.
+    // 20px between lines, offset by where we are within the current tenth.
+    const SPACING = 20;
+    const shift = -((at * 10) % 5) * (SPACING / 5);
+    while (lines.firstChild) lines.removeChild(lines.firstChild);
+    for (let i = -10; i <= 10; i += 1) {
+      const tenth = Math.round(at * 10) + i;
+      const line = document.createElement("i");
+      // Every fifth tenth is a long line; the rest are short.
+      line.className = "pad-line" + (tenth % 5 === 0 ? " pad-line--long" : "");
+      line.style.left = "calc(50% + " + (i * SPACING + shift).toFixed(1) + "px)";
+      lines.appendChild(line);
     }
   }
 
-  function renderPressure(field) {
+  // One tire is open at a time, per stage.
+  let _openTire = { pre: null, post: null };
+
+  function stageOf(field) { return field.indexOf("-post") !== -1 ? "post" : "pre"; }
+
+  function renderTire(field) {
     const el = document.getElementById(field);
-    const ruler = document.getElementById(field + "-ruler");
-    if (!el || !ruler) return;
+    const row = document.getElementById(field + "-row");
+    if (!el || !row) return;
     const raw = (el.value || "").trim();
     const refs = referencesFor(field);
     const hasRef = refs.primary !== null;
@@ -409,83 +364,94 @@
     const today = document.getElementById(field + "-today");
     if (today) today.textContent = SP.todayLabel(raw);
 
-    const refEl = document.getElementById(field + "-ref");
-    const refText = document.getElementById(field + "-ref-text");
-    if (refEl && refText) {
-      // No reference established: the pill is hidden outright rather than
-      // shown empty or filled with something approximate.
-      refEl.hidden = refs.sources.length === 0;
-      refText.textContent = refs.sources
-        .map((srcItem) => srcItem.text + " " + srcItem.value).join(" \u00b7 ");
+    const num = document.getElementById(field + "-num");
+    if (num) {
+      num.textContent = raw === "" ? "\u2014" : raw;
+      num.classList.toggle("tire-num--blank", raw === "");
+    }
+
+    // The reference is history: its own dashed pill, never the value.
+    const pill = document.getElementById(field + "-pill");
+    if (pill) {
+      pill.hidden = refs.sources.length === 0;
+      pill.textContent = refs.sources
+        .map((srcItem) => srcItem.text + " " + srcItem.value).join("   ");
     }
 
     const delta = document.getElementById(field + "-delta");
     if (delta) {
-      const pre = field === "front-post" ? str("front-pre") : str("rear-pre");
-      const text = SP.postDelta(raw, pre);
-      delta.hidden = text === "";
-      delta.textContent = text;
+      const chip = SP.deltaChip(raw, refs);
+      delta.hidden = chip === "";
+      delta.textContent = chip;
     }
 
     const note = document.getElementById(field + "-note");
     if (note) note.textContent = SP.pressureNote(raw, hasRef);
 
-    // "Same as" is the only way history becomes today's value, and the rider
-    // has to tap it. It is offered only while the field is blank.
+    // "Same as" is the only way history becomes today's value, and only the
+    // rider can trigger it.
     const same = document.getElementById(field + "-same");
     if (same) {
       const offer = !locked && raw === "" && hasRef;
       same.hidden = !offer;
-      same.textContent = offer
-        ? refs.primary.button + " \u00b7 " + refs.primary.value : "";
+      same.textContent = offer ? refs.primary.button + " \u00b7 " + refs.primary.value : "";
     }
 
-    const draggable = !locked && SP.rulerDraggable(raw, hasRef ? refs.primary.value : null);
-    ruler.setAttribute("aria-disabled", draggable ? "false" : "true");
-    ruler.setAttribute("tabindex", draggable ? "0" : "-1");
-    const value = SP.readPsi(raw);
-    if (value !== null && SP.psiInRulerRange(value)) {
-      ruler.setAttribute("aria-valuenow", String(value));
-      ruler.setAttribute("aria-valuetext", raw + " psi");
-    } else {
-      ruler.removeAttribute("aria-valuenow");
-      ruler.setAttribute("aria-valuetext", raw === "" ? "not measured" : raw);
-    }
-    drawRuler(field, refs);
-  }
-
-  function renderAllPressures() { PRESSURE_FIELDS.forEach(renderPressure); }
-
-  // The summary reflects what is actually in the fields, so it is re-rendered
-  // wherever they can change: typing, a loaded session, a restored draft,
-  // Copy to form and Reset all route through here.
-  function renderTireSummary() {
-    const out = document.getElementById("tire-summary");
-    if (!out) return;
-    const on = document.getElementById("warmer-on");
-    out.textContent = SP.tiresSummary(str("tire-brand"), str("tire-model"),
-      !!(on && on.checked), str("warmer-time"));
-  }
-
-  function wireTireDisclosure() {
-    const btn = document.getElementById("edit-tires");
-    const fields = document.getElementById("tire-fields");
-    if (!btn || !fields) return;
-    btn.addEventListener("click", () => {
-      const open = fields.hidden;
-      fields.hidden = !open;
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
-      btn.textContent = open ? "Done" : "Edit tires";
-      if (open) {
-        const first = document.getElementById("tire-brand");
-        if (first && first.focus && !first.readOnly) first.focus();
+    const pad = document.getElementById(field + "-pad");
+    const padMain = document.getElementById(field + "-padmain");
+    if (pad) {
+      const usable = !locked && SP.rulerDraggable(raw, hasRef ? refs.primary.value : null);
+      pad.setAttribute("aria-disabled", usable ? "false" : "true");
+      pad.setAttribute("tabindex", usable ? "0" : "-1");
+      pad.classList.toggle("drag-pad--off", !usable);
+      if (padMain) padMain.innerHTML = usable ? "&#9666; DRAG &#9656;" : "TYPE OR &minus; / +";
+      const value = SP.usablePsi(raw);
+      if (value !== null && SP.psiInRulerRange(value)) {
+        pad.setAttribute("aria-valuenow", String(value));
+        pad.setAttribute("aria-valuetext", raw + " psi");
+      } else {
+        pad.removeAttribute("aria-valuenow");
+        pad.setAttribute("aria-valuetext", raw === "" ? "not measured" : raw);
       }
-    });
+      drawPad(field, refs);
+    }
   }
 
-  // Every path that changes a pressure - drag, keyboard, the buttons, "Same
-  // as" - goes through here, so they share one edit signal and one set of
-  // safeguards.
+  function renderAllPressures() { PRESSURE_FIELDS.forEach(renderTire); }
+
+  function setTireOpen(field, open) {
+    const row = document.getElementById(field + "-row");
+    const panel = document.getElementById(field + "-panel");
+    const card = row && row.parentElement;
+    if (!row || !panel) return;
+    panel.hidden = !open;
+    row.setAttribute("aria-expanded", open ? "true" : "false");
+    if (card && card.classList) card.classList.toggle("tire-card--open", open);
+    _openTire[stageOf(field)] = open ? field : (_openTire[stageOf(field)] === field ? null : _openTire[stageOf(field)]);
+  }
+
+  function openTire(field) {
+    // Opening one closes the other on the same stage.
+    PRESSURE_FIELDS.forEach((f) => {
+      if (stageOf(f) === stageOf(field)) setTireOpen(f, f === field);
+    });
+    renderAllPressures();
+  }
+
+  // On arriving at a stage, the first tire still to be measured is the one the
+  // rider needs, so it opens. If both are done, nothing is forced open.
+  function openFirstBlankTire(stage) {
+    const fields = PRESSURE_FIELDS.filter((f) => stageOf(f) === stage);
+    const blank = fields.find((f) => {
+      const el = document.getElementById(f);
+      return el && (el.value || "").trim() === "" && !el.readOnly;
+    });
+    fields.forEach((f) => setTireOpen(f, blank ? f === blank : false));
+    renderAllPressures();
+  }
+
+  // Every path that changes a pressure - drag, keyboard, buttons, "Same as" -
+  // goes through here, so they share one edit signal and one set of guards.
   function setPressure(field, text) {
     const el = document.getElementById(field);
     if (!el || el.readOnly) return false;
@@ -496,12 +462,19 @@
     return true;
   }
 
-  function wirePressureRulers() {
+  function wireTireCards() {
     PRESSURE_FIELDS.forEach((field) => {
-      const ruler = document.getElementById(field + "-ruler");
+      const row = document.getElementById(field + "-row");
+      const pad = document.getElementById(field + "-pad");
       const el = document.getElementById(field);
       const same = document.getElementById(field + "-same");
-      if (!ruler || !el) return;
+      if (!row || !el) return;
+
+      row.addEventListener("click", () => {
+        const panel = document.getElementById(field + "-panel");
+        if (panel && !panel.hidden) setTireOpen(field, false);
+        else openTire(field);
+      });
 
       if (same) {
         same.addEventListener("click", () => {
@@ -511,52 +484,51 @@
         });
       }
 
+      if (!pad) return;
       let drag = null;
-      ruler.addEventListener("pointerdown", (e) => {
+      pad.addEventListener("pointerdown", (e) => {
         if (el.readOnly) return;
         const refs = referencesFor(field);
         const refValue = refs.primary ? refs.primary.value : null;
         if (!SP.rulerDraggable(el.value, refValue)) return;
-        const current = SP.readPsi(el.value);
+        const current = SP.usablePsi(el.value);
         drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false,
-                 start: current !== null ? current : SP.readPsi(refValue) };
+                 start: current !== null ? current : SP.padStart(refValue) };
       });
 
-      ruler.addEventListener("pointermove", (e) => {
+      pad.addEventListener("pointermove", (e) => {
         if (!drag || e.pointerId !== drag.id) return;
         const dx = e.clientX - drag.x;
         const dy = e.clientY - drag.y;
         if (!drag.captured) {
           // Until the gesture is clearly horizontal the page keeps it, so an
-          // ordinary vertical scroll that begins on the ruler still scrolls.
+          // ordinary vertical scroll that starts on the pad still scrolls.
           if (!SP.shouldCaptureDrag(dx, dy)) return;
           drag.captured = true;
-          if (ruler.setPointerCapture) { try { ruler.setPointerCapture(e.pointerId); } catch (err) {} }
+          if (pad.setPointerCapture) { try { pad.setPointerCapture(e.pointerId); } catch (err) {} }
         }
         if (e.cancelable) e.preventDefault();
         const next = SP.psiFromDrag(drag.start, dx);
         if (next === null) return;
-        // A drag that has not reached the next tick changes nothing.
         if (setPressure(field, next.toFixed(1)) && navigator.vibrate) {
           try { navigator.vibrate(8); } catch (err) {}
         }
       });
 
-      // Release keeps the tick the value already sits on. A cancelled pointer
-      // - a system gesture taking over, say - just ends the drag and leaves
-      // the control usable, with whatever was committed intact.
+      // A cancelled pointer just ends the drag and leaves the pad usable, with
+      // whatever was committed intact.
       const endDrag = (e) => {
         if (!drag || (e && e.pointerId !== undefined && e.pointerId !== drag.id)) return;
-        if (drag.captured && ruler.releasePointerCapture) {
-          try { ruler.releasePointerCapture(drag.id); } catch (err) {}
+        if (drag.captured && pad.releasePointerCapture) {
+          try { pad.releasePointerCapture(drag.id); } catch (err) {}
         }
         drag = null;
       };
-      ruler.addEventListener("pointerup", endDrag);
-      ruler.addEventListener("pointercancel", endDrag);
-      ruler.addEventListener("lostpointercapture", endDrag);
+      pad.addEventListener("pointerup", endDrag);
+      pad.addEventListener("pointercancel", endDrag);
+      pad.addEventListener("lostpointercapture", endDrag);
 
-      ruler.addEventListener("keydown", (e) => {
+      pad.addEventListener("keydown", (e) => {
         if (el.readOnly) return;
         const step = { ArrowLeft: -SP.PSI_STEP, ArrowRight: SP.PSI_STEP,
                        ArrowDown: -SP.PSI_STEP, ArrowUp: SP.PSI_STEP,
@@ -566,12 +538,68 @@
         const refValue = refs.primary ? refs.primary.value : null;
         if (!SP.rulerDraggable(el.value, refValue)) return;
         if (e.preventDefault) e.preventDefault();
-        const current = SP.readPsi(el.value);
-        const from = current !== null ? current : SP.readPsi(refValue);
-        if (from === null) return;
+        const current = SP.usablePsi(el.value);
+        const from = current !== null ? current : SP.padStart(refValue);
         setPressure(field, SP.snapPsi(from + step).toFixed(1));
       });
     });
+  }
+
+  // --- Current bike state (v2 item 6) ---------------------------------------
+  //
+  // Only rows backed by fields that exist are rendered. Nothing is invented,
+  // and a missing detail never reads as a known setup.
+  function renderBikeState() {
+    const out = document.getElementById("bike-state-rows");
+    if (!out) return;
+    const on = document.getElementById("warmer-on");
+    const rows = [
+      ["Tires", SP.tiresSummary(str("tire-brand"), str("tire-model"),
+        !!(on && on.checked), str("warmer-time"))],
+    ];
+    const clicks = ["fork-comp", "fork-reb", "shock-comp", "shock-reb"]
+      .map((id) => str(id)).filter((v) => v !== "");
+    if (clicks.length) {
+      rows.push(["Suspension", "fork " + (str("fork-comp") || "\u2013") + "/"
+        + (str("fork-reb") || "\u2013") + " \u00b7 shock " + (str("shock-comp") || "\u2013")
+        + "/" + (str("shock-reb") || "\u2013") + " clicks"]);
+    }
+    while (out.firstChild) out.removeChild(out.firstChild);
+    rows.forEach(([label, value]) => {
+      const row = document.createElement("div");
+      row.className = "state-row";
+      const l = document.createElement("span");
+      l.className = "state-label";
+      l.textContent = label;
+      const v = document.createElement("span");
+      v.className = "state-value";
+      v.textContent = value;
+      row.appendChild(l);
+      row.appendChild(v);
+      out.appendChild(row);
+    });
+  }
+
+  function renderTireSummary() { renderBikeState(); }
+
+  function wireTireDisclosure() {
+    const btn = document.getElementById("edit-tires");
+    const fields = document.getElementById("tire-fields");
+    if (!btn || !fields) return;
+    btn.addEventListener("click", () => {
+      const open = fields.hidden;
+      fields.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      btn.textContent = open ? "Done" : "Edit";
+      if (open) {
+        const first = document.getElementById("tire-brand");
+        if (first && first.focus && !first.readOnly) first.focus();
+      }
+    });
+  }
+
+  function wirePressureRulers() {
+    wireTireCards();
     renderAllPressures();
   }
 

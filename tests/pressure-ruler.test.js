@@ -11,26 +11,26 @@ const S = globalThis.SessionProgress;
 // Tenths
 // ---------------------------------------------------------------------------
 
-test("one tick is a tenth and 32px of drag", () => {
+test("one notch is a tenth and 24px of drag (v2)", () => {
   assert.equal(S.PSI_STEP, 0.1);
-  assert.equal(S.TICK_PX, 32);
+  assert.equal(S.TICK_PX, 24);
 });
 
 test("dragging left increases the value, as the design file does it", () => {
-  assert.equal(S.psiFromDrag(30.5, -32), 30.6);
-  assert.equal(S.psiFromDrag(30.5, 32), 30.4);
-  assert.equal(S.psiFromDrag(30.5, -64), 30.7);
+  assert.equal(S.psiFromDrag(30.5, -24), 30.6);
+  assert.equal(S.psiFromDrag(30.5, 24), 30.4);
+  assert.equal(S.psiFromDrag(30.5, -48), 30.7);
 });
 
 test("a drag that has not reached the next tick changes nothing", () => {
-  assert.equal(S.psiFromDrag(30.5, -8), 30.5, "a quarter of a tick");
-  assert.equal(S.psiFromDrag(30.5, -15), 30.5, "just under half");
-  assert.equal(S.psiFromDrag(30.5, -17), 30.6, "just over half");
+  assert.equal(S.psiFromDrag(30.5, -6), 30.5, "a quarter of a notch");
+  assert.equal(S.psiFromDrag(30.5, -11), 30.5, "just under half");
+  assert.equal(S.psiFromDrag(30.5, -13), 30.6, "just over half");
 });
 
 test("tenths stay exact rather than drifting into binary noise", () => {
   let v = 30.0;
-  for (let i = 0; i < 10; i += 1) v = S.psiFromDrag(v, -32);
+  for (let i = 0; i < 10; i += 1) v = S.psiFromDrag(v, -24);
   assert.equal(v, 31, "ten tenths make exactly one PSI");
   assert.equal(S.snapPsi(30.1 + 0.2), 30.3);
 });
@@ -60,7 +60,7 @@ test("a value typed outside the range is kept exactly as typed", () => {
 
 test("the note explains a typed value without judging it", () => {
   const note = S.pressureNote("48.0", true);
-  assert.match(note, /^48\.0 is outside the ruler \(10–45\)\. Kept as typed\./);
+  assert.match(note, /^48\.0 is outside the drag range \(10–45\)\. Kept as typed\./);
   for (const word of ["high", "low", "unsafe", "too", "warning", "danger"]) {
     assert.ok(!note.toLowerCase().includes(word), `the note must not say "${word}"`);
   }
@@ -91,17 +91,30 @@ test("blank with a reference starts from the reference, one tenth at a time", ()
   assert.equal(S.todayLabel(""), "Today · not measured");
 });
 
-test("blank with NO reference leaves the ruler and -/+ inactive", () => {
-  // There is nothing to start from, so nothing may be invented.
-  assert.equal(S.rulerStep("", 1, null), null);
-  assert.equal(S.rulerStep("", -1, null), null);
-  assert.equal(S.rulerStep("", 1, ""), null);
-  assert.equal(S.rulerDraggable("", null), false);
-  assert.equal(S.rulerDraggable("", ""), false);
+test("blank with NO reference starts the pad at 30.0 (v2)", () => {
+  // v2 replaces the earlier rule that left the controls inactive without a
+  // reference. The pad now has a starting POSITION, which is not a value:
+  // nothing is written until the rider drags or presses a button.
+  assert.equal(S.PAD_DEFAULT, 30);
+  assert.equal(S.padStart(null), 30);
+  assert.equal(S.padStart(""), 30);
+  assert.equal(S.padStart("31.0"), 31, "a reference still wins when there is one");
+  assert.equal(S.rulerStep("", 1, null), "30.1");
+  assert.equal(S.rulerStep("", -1, null), "29.9");
+  assert.equal(S.rulerDraggable("", null), true);
+  // The note drops the "Not measured yet" contrast only when there is nothing
+  // to contrast against - and never claims a reference exists.
   assert.equal(S.pressureNote("", false),
-    "Type the whole number, then drag or use − / + to set the tenths.");
-  assert.ok(!S.pressureNote("", false).includes("Not measured yet"),
-    "with no reference there is nothing to contrast today against");
+    "Not measured yet. Type the whole number, then drag or use − / + for tenths.");
+});
+
+test("a starting position is never a recorded value", () => {
+  // The reference, and the pad's fallback, are both positions. Neither is
+  // reported as today's reading: the value is whatever is in the field.
+  assert.equal(S.todayLabel(""), "Today · not measured");
+  assert.equal(S.usablePsi(""), null);
+  assert.equal(S.deltaChip("", { sources: [{ tag: "S2", text: "Last session (S2)", value: "31.0" }] }), "",
+    "no delta is shown for a tire that has not been measured");
 });
 
 test("once a number is typed the ruler becomes usable again", () => {

@@ -437,7 +437,7 @@
   const PSI_MIN = 10;
   const PSI_MAX = 45;
   const PSI_STEP = 0.1;       // one tick is a tenth
-  const TICK_PX = 32;         // ...and 32px of drag
+  const TICK_PX = 24;         // ...and 24px of drag (v2)
   const DRAG_INTENT_PX = 10;  // before which the page keeps the gesture
 
   function tenths(value) { return Math.round(value * 10) / 10; }
@@ -510,8 +510,7 @@
     const state = pressureState(currentText);
     if (state === "not-a-number" || state === "unsupported") return null;
     if (state === "blank") {
-      const ref = usablePsi(referenceValue);
-      if (ref === null) return null;
+      const ref = padStart(referenceValue);
       const next = tenths(ref + dir * PSI_STEP);
       if (dir < 0 && next < 0) return null;
       return next.toFixed(1);
@@ -530,11 +529,20 @@
 
   // The ruler may be dragged only when there is a position to drag from: a
   // value inside the range, or a reference to start from while blank.
+  // v2: the pad is usable whenever the value is blank or inside the range.
+  // From blank it starts at the reference, or at PAD_DEFAULT when no reference
+  // matched - a starting POSITION for a deliberate drag, never a value: the
+  // field stays empty until the rider actually moves it.
+  const PAD_DEFAULT = 30;
+
+  function padStart(referenceValue) {
+    const ref = usablePsi(referenceValue);
+    return ref === null ? PAD_DEFAULT : ref;
+  }
+
   function rulerDraggable(currentText, referenceValue) {
     const state = pressureState(currentText);
-    if (state === "in-range") return true;
-    if (state === "blank") return usablePsi(referenceValue) !== null;
-    return false;
+    return state === "in-range" || state === "blank";
   }
 
   // --- References ------------------------------------------------------------
@@ -653,14 +661,30 @@
     }
     if (state === "typed-outside") {
       const shown = String(text).trim();
-      return shown + " is outside the ruler (" + PSI_MIN + "\u2013" + PSI_MAX
-        + "). Kept as typed. Change it with \u2212 / + or by typing.";
+      return shown + " is outside the drag range (" + PSI_MIN + "\u2013" + PSI_MAX
+        + "). Kept as typed. Use \u2212 / + or type to change it.";
     }
     if (state === "blank") {
-      const tail = "Type the whole number, then drag or use \u2212 / + to set the tenths.";
-      return hasReference ? "Not measured yet. " + tail : tail;
+      return "Not measured yet. Type the whole number, then drag or use "
+        + "\u2212 / + for tenths.";
     }
     return "";
+  }
+
+  // The delta chip: neutral, factual, and only once there is a value. It never
+  // colours a reading or calls it good or bad.
+  function deltaChip(text, refs) {
+    const value = usablePsi(text);
+    if (value === null || !refs) return "";
+    const parts = [];
+    for (const srcItem of (refs.sources || [])) {
+      const ref = usablePsi(srcItem.value);
+      if (ref === null) continue;
+      const d = tenths(value - ref);
+      const label = srcItem.tag || (srcItem.text === "PRE this session" ? "PRE" : "last");
+      parts.push((d >= 0 ? "+" : "\u2212") + Math.abs(d).toFixed(1) + " vs " + label);
+    }
+    return parts.join(" \u00b7 ");
   }
 
   // POST only, and only once there is a value to compare.
@@ -675,7 +699,7 @@
   const api = {
     nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
     footerDraftNote, stepValue, decimalsOf, canStep, stepPlan,
-    PSI_MIN, PSI_MAX, PSI_STEP, TICK_PX, DRAG_INTENT_PX,
+    PSI_MIN, PSI_MAX, PSI_STEP, TICK_PX, DRAG_INTENT_PX, PAD_DEFAULT, padStart, deltaChip,
     psiInRulerRange, snapPsi, psiFromDrag, shouldCaptureDrag, rulerStep, rulerDraggable,
     readPsi, usablePsi, pressureState, pressureReferences, lastMatchingSession, sessionTag,
     todayLabel, pressureNote, postDelta, tiresSummary, headerBikeLine, headerTrackLine,

@@ -21,6 +21,13 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">MotoTrack</span>
       </div>
+      <!-- The context sits beside About rather than under it: on a phone that
+           row would otherwise cost a line the rider needs for the pressures. -->
+      <p class="context-line" id="context-line" hidden>
+        <span class="context-bike" id="context-bike"></span>
+        <span class="context-where" id="context-where"></span>
+        <span class="stage-chip" id="stage-chip" hidden></span>
+      </p>
       <!-- Log has no account, so the header's one button is About. -->
       <button type="button" class="about-open" id="about-open" aria-label="About MotoTrack">
         <span class="about-open-icon" aria-hidden="true"></span>
@@ -32,11 +39,6 @@
          number is worse than no context line. No stage chip and no save-status
          line yet - PRE/POST state arrives in PR 4 and the status rules in
          PR 5, and neither can be shown truthfully before that. -->
-    <p class="context-line" id="context-line" hidden>
-      <span class="context-bike" id="context-bike"></span>
-      <span class="context-where" id="context-where"></span>
-      <span class="stage-chip" id="stage-chip" hidden></span>
-    </p>
     <!-- Save status (C7). One short line, hidden entirely until there is
          something true to say. It never claims cloud, sync, a queued upload or
          a recovered draft: none of those exist in Log. -->
@@ -152,11 +154,6 @@
       <!-- The tire details sit behind a disclosure so the pressures are
            reachable without scrolling. The inputs keep their ids and stay in
            the DOM, so saving, the draft and read-only locking are unaffected. -->
-      <div class="tire-summary-row">
-        <p class="tire-summary" id="tire-summary">No tires set</p>
-        <button type="button" class="btn-secondary tire-edit" id="edit-tires"
-                aria-expanded="false" aria-controls="tire-fields">Edit tires</button>
-      </div>
 
       <div class="tire-fields" id="tire-fields" hidden>
         <div class="grid-2">
@@ -181,126 +178,231 @@
         </label>
       </div>
 
-      <div data-stage="pre">
+      <div class="section-row" data-stage="pre">
         <p class="section-label">PRE-SESSION PRESSURE</p>
-        <p class="section-sub">Right before you roll out.</p>
       </div>
-      <div data-stage="post">
+      <div class="section-row" data-stage="post">
         <p class="section-label">HOT PRESSURE</p>
-        <p class="section-sub">The reading the moment you're back in.</p>
       </div>
 
       <!-- Split by stage (C1). The ids, the inputs and the saved-session shape
            are untouched; only which stage shows them changes. -->
       <div class="pressure-stack" data-stage="pre">
-        <!-- Pressure control (C8 revised). The value is the real input and keeps
-             its id, so manual entry, the saved-session shape and the PRE
-             read-only lock all behave exactly as before. -->
-        <div class="pressure" data-pressure-for="front-pre">
-          <p class="pressure-tire">FRONT</p>
-          <p class="pressure-today" id="front-pre-today">Today &middot; not measured</p>
-          <div class="pressure-box">
-            <label class="sr-only" for="front-pre">Front pre-session pressure</label>
-            <input type="text" id="front-pre" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
-            <span class="pressure-unit">psi</span>
-          </div>
-          <p class="pressure-ref" id="front-pre-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="front-pre-ref-text"></span></p>
-          <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="-1" aria-label="Decrease front pre-session pressure">&minus;</button>
-            <div class="ruler" id="front-pre-ruler" data-ruler-for="front-pre" role="slider" tabindex="0"
-                 aria-label="Front pre-session pressure" aria-valuemin="10" aria-valuemax="45">
-              <div class="ruler-strip" id="front-pre-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" id="front-pre-centre" aria-hidden="true" hidden></div>
-              <div class="ruler-pin" id="front-pre-pin" aria-hidden="true" hidden></div>
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="front-pre">
+          <button type="button" class="tire-row" id="front-pre-row"
+                  aria-expanded="false" aria-controls="front-pre-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">FRONT</span>
+              <span class="tire-pill" id="front-pre-pill" hidden></span>
+              <span class="tire-delta" id="front-pre-delta" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="front-pre-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="front-pre-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="front-pre-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="front-pre" data-step-dir="-1"
+                      aria-label="Decrease front pressure">&minus;</button>
+              <div class="drag-pad" id="front-pre-pad" data-pad-for="front-pre" role="slider" tabindex="0"
+                   aria-label="Front pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="front-pre-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="front-pre-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="front-pre" data-step-dir="1"
+                      aria-label="Increase front pressure">+</button>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="1" aria-label="Increase front pre-session pressure">+</button>
-          </div>
-          <p class="pressure-note" id="front-pre-note"></p>
-          <button type="button" class="btn-secondary pressure-same" id="front-pre-same" hidden></button>
-        </div>
-        <!-- Pressure control (C8 revised). The value is the real input and keeps
-             its id, so manual entry, the saved-session shape and the PRE
-             read-only lock all behave exactly as before. -->
-        <div class="pressure" data-pressure-for="rear-pre">
-          <p class="pressure-tire">REAR</p>
-          <p class="pressure-today" id="rear-pre-today">Today &middot; not measured</p>
-          <div class="pressure-box">
-            <label class="sr-only" for="rear-pre">Rear pre-session pressure</label>
-            <input type="text" id="rear-pre" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
-            <span class="pressure-unit">psi</span>
-          </div>
-          <p class="pressure-ref" id="rear-pre-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="rear-pre-ref-text"></span></p>
-          <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="-1" aria-label="Decrease rear pre-session pressure">&minus;</button>
-            <div class="ruler" id="rear-pre-ruler" data-ruler-for="rear-pre" role="slider" tabindex="0"
-                 aria-label="Rear pre-session pressure" aria-valuemin="10" aria-valuemax="45">
-              <div class="ruler-strip" id="rear-pre-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" id="rear-pre-centre" aria-hidden="true" hidden></div>
-              <div class="ruler-pin" id="rear-pre-pin" aria-hidden="true" hidden></div>
+
+            <label class="typed-field">
+              <span class="sr-only">Front pressure</span>
+              <input type="text" id="front-pre" inputmode="decimal" placeholder="Type, e.g. 30.5" autocomplete="off" />
+              <span class="typed-unit">psi</span>
+            </label>
+
+            <div class="tire-foot">
+              <p class="tire-note" id="front-pre-note"></p>
+              <button type="button" class="btn-secondary tire-same" id="front-pre-same" hidden></button>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="1" aria-label="Increase rear pre-session pressure">+</button>
           </div>
-          <p class="pressure-note" id="rear-pre-note"></p>
-          <button type="button" class="btn-secondary pressure-same" id="rear-pre-same" hidden></button>
         </div>
-      </div>
-      <div class="pre-ref" data-stage="post">
-        <p class="pre-ref-line">Went out on <strong id="pre-ref-front">—</strong> front · <strong id="pre-ref-rear">—</strong> rear</p>
-        <button type="button" class="btn-secondary" id="correct-pre">Correct PRE</button>
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="rear-pre">
+          <button type="button" class="tire-row" id="rear-pre-row"
+                  aria-expanded="false" aria-controls="rear-pre-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">REAR</span>
+              <span class="tire-pill" id="rear-pre-pill" hidden></span>
+              <span class="tire-delta" id="rear-pre-delta" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="rear-pre-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="rear-pre-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="rear-pre-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="rear-pre" data-step-dir="-1"
+                      aria-label="Decrease rear pressure">&minus;</button>
+              <div class="drag-pad" id="rear-pre-pad" data-pad-for="rear-pre" role="slider" tabindex="0"
+                   aria-label="Rear pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="rear-pre-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="rear-pre-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="rear-pre" data-step-dir="1"
+                      aria-label="Increase rear pressure">+</button>
+            </div>
+
+            <label class="typed-field">
+              <span class="sr-only">Rear pressure</span>
+              <input type="text" id="rear-pre" inputmode="decimal" placeholder="Type, e.g. 30.5" autocomplete="off" />
+              <span class="typed-unit">psi</span>
+            </label>
+
+            <div class="tire-foot">
+              <p class="tire-note" id="rear-pre-note"></p>
+              <button type="button" class="btn-secondary tire-same" id="rear-pre-same" hidden></button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="pressure-stack" data-stage="post">
-        <!-- Pressure control (C8 revised). The value is the real input and keeps
-             its id, so manual entry, the saved-session shape and the PRE
-             read-only lock all behave exactly as before. -->
-        <div class="pressure" data-pressure-for="front-post">
-          <p class="pressure-tire">FRONT</p>
-          <p class="pressure-today" id="front-post-today">Today &middot; not measured</p>
-          <div class="pressure-box">
-            <label class="sr-only" for="front-post">Front post-session pressure</label>
-            <input type="text" id="front-post" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
-            <span class="pressure-unit">psi</span>
-          </div>
-            <p class="pressure-delta" id="front-post-delta" hidden></p>
-          <p class="pressure-ref" id="front-post-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="front-post-ref-text"></span></p>
-          <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="-1" aria-label="Decrease front post-session pressure">&minus;</button>
-            <div class="ruler" id="front-post-ruler" data-ruler-for="front-post" role="slider" tabindex="0"
-                 aria-label="Front post-session pressure" aria-valuemin="10" aria-valuemax="45">
-              <div class="ruler-strip" id="front-post-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" id="front-post-centre" aria-hidden="true" hidden></div>
-              <div class="ruler-pin" id="front-post-pin" aria-hidden="true" hidden></div>
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="front-post">
+          <button type="button" class="tire-row" id="front-post-row"
+                  aria-expanded="false" aria-controls="front-post-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">FRONT</span>
+              <span class="tire-pill" id="front-post-pill" hidden></span>
+              <span class="tire-delta" id="front-post-delta" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="front-post-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="front-post-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="front-post-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="front-post" data-step-dir="-1"
+                      aria-label="Decrease front hot pressure">&minus;</button>
+              <div class="drag-pad" id="front-post-pad" data-pad-for="front-post" role="slider" tabindex="0"
+                   aria-label="Front hot pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="front-post-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="front-post-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="front-post" data-step-dir="1"
+                      aria-label="Increase front hot pressure">+</button>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="1" aria-label="Increase front post-session pressure">+</button>
-          </div>
-          <p class="pressure-note" id="front-post-note"></p>
-          <button type="button" class="btn-secondary pressure-same" id="front-post-same" hidden></button>
-        </div>
-        <!-- Pressure control (C8 revised). The value is the real input and keeps
-             its id, so manual entry, the saved-session shape and the PRE
-             read-only lock all behave exactly as before. -->
-        <div class="pressure" data-pressure-for="rear-post">
-          <p class="pressure-tire">REAR</p>
-          <p class="pressure-today" id="rear-post-today">Today &middot; not measured</p>
-          <div class="pressure-box">
-            <label class="sr-only" for="rear-post">Rear post-session pressure</label>
-            <input type="text" id="rear-post" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
-            <span class="pressure-unit">psi</span>
-          </div>
-            <p class="pressure-delta" id="rear-post-delta" hidden></p>
-          <p class="pressure-ref" id="rear-post-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="rear-post-ref-text"></span></p>
-          <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="-1" aria-label="Decrease rear post-session pressure">&minus;</button>
-            <div class="ruler" id="rear-post-ruler" data-ruler-for="rear-post" role="slider" tabindex="0"
-                 aria-label="Rear post-session pressure" aria-valuemin="10" aria-valuemax="45">
-              <div class="ruler-strip" id="rear-post-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" id="rear-post-centre" aria-hidden="true" hidden></div>
-              <div class="ruler-pin" id="rear-post-pin" aria-hidden="true" hidden></div>
+
+            <label class="typed-field">
+              <span class="sr-only">Front hot pressure</span>
+              <input type="text" id="front-post" inputmode="decimal" placeholder="Type, e.g. 30.5" autocomplete="off" />
+              <span class="typed-unit">psi</span>
+            </label>
+
+            <div class="tire-foot">
+              <p class="tire-note" id="front-post-note"></p>
+              <button type="button" class="btn-secondary tire-same" id="front-post-same" hidden></button>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="1" aria-label="Increase rear post-session pressure">+</button>
           </div>
-          <p class="pressure-note" id="rear-post-note"></p>
-          <button type="button" class="btn-secondary pressure-same" id="rear-post-same" hidden></button>
         </div>
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="rear-post">
+          <button type="button" class="tire-row" id="rear-post-row"
+                  aria-expanded="false" aria-controls="rear-post-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">REAR</span>
+              <span class="tire-pill" id="rear-post-pill" hidden></span>
+              <span class="tire-delta" id="rear-post-delta" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="rear-post-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="rear-post-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="rear-post-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="rear-post" data-step-dir="-1"
+                      aria-label="Decrease rear hot pressure">&minus;</button>
+              <div class="drag-pad" id="rear-post-pad" data-pad-for="rear-post" role="slider" tabindex="0"
+                   aria-label="Rear hot pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="rear-post-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="rear-post-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="rear-post" data-step-dir="1"
+                      aria-label="Increase rear hot pressure">+</button>
+            </div>
+
+            <label class="typed-field">
+              <span class="sr-only">Rear hot pressure</span>
+              <input type="text" id="rear-post" inputmode="decimal" placeholder="Type, e.g. 30.5" autocomplete="off" />
+              <span class="typed-unit">psi</span>
+            </label>
+
+            <div class="tire-foot">
+              <p class="tire-note" id="rear-post-note"></p>
+              <button type="button" class="btn-secondary tire-same" id="rear-post-same" hidden></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current bike state (v2 item 6). Only rows backed by fields that
+           exist are rendered; nothing new is invented here. -->
+      <div class="bike-state">
+        <div class="bike-state-head">
+          <p class="bike-state-title">CURRENT BIKE STATE</p>
+          <button type="button" class="btn-secondary tire-edit" id="edit-tires"
+                  aria-expanded="false" aria-controls="tire-fields">Edit</button>
+        </div>
+        <div id="bike-state-rows"></div>
+      </div>
+
+      <!-- Correct PRE sits under the bike state, as a secondary action: it is
+           a correction, not the thing the rider came to POST to do. -->
+      <div class="correct-pre-row" data-stage="post">
+        <button type="button" class="btn-outline" id="correct-pre">Correct PRE</button>
       </div>
 
       <!-- Moved to POST: a delta needs both readings, and on PRE there is

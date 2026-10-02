@@ -17,7 +17,7 @@ function setup() {
   const el = (id) => document.getElementById(id);
   const type = (id, v) => { const e = el(id); e.tagName = "INPUT"; e.value = v; e.dispatchEvent(new win.Event("input")); };
   // The buttons app.js wired are found by their data attributes.
-  const btn = (id, dir) => document.querySelectorAll(".stepper-btn")
+  const btn = (id, dir) => document.querySelectorAll("[data-step-for]")
     .find((b) => b.dataset.stepFor === id && Number(b.dataset.stepDir) === dir);
   return { ...app, el, type, btn, draft: () => {
     const raw = app.storage.getItem("mototrack.draft.v1");
@@ -79,7 +79,13 @@ test("blank and unreadable text produce no step at all", () => {
 
 test("the buttons are disabled for blank and unreadable fields, and the text survives", () => {
   const a = setup();
-  for (const id of PSI.concat(CLICKS)) {
+  // v2: a blank PRESSURE can be stepped, because the pad has a starting
+  // position (the reference, or 30.0). A blank CLICK field has nothing to
+  // start from and stays disabled.
+  for (const id of PSI) {
+    assert.equal(a.btn(id, 1).disabled, false, `${id} steps from the pad's start`);
+  }
+  for (const id of CLICKS) {
     assert.equal(a.btn(id, 1).disabled, true, `${id} starts blank, so + is disabled`);
     assert.equal(a.btn(id, -1).disabled, true, `and - is disabled`);
   }
@@ -91,14 +97,23 @@ test("the buttons are disabled for blank and unreadable fields, and the text sur
   a.type("front-pre", "30");
   assert.equal(a.btn("front-pre", 1).disabled, false, "a number enables it");
   a.type("front-pre", "");
-  assert.equal(a.btn("front-pre", 1).disabled, true, "clearing it disables it again");
+  assert.equal(a.btn("front-pre", 1).disabled, false, "and blank steps from the start position");
+  assert.equal(a.el("front-pre").value, "", "which is a position, not a value");
 });
 
 test("a blank field never becomes zero", () => {
   const a = setup();
+  // v2: a blank PRESSURE steps from the pad's start position, so it lands on
+  // 30.1 - never on 0, which would read as a measured reading of zero.
   a.btn("front-pre", 1).click();
+  assert.equal(a.el("front-pre").value, "30.1", "steps from the start position");
   a.btn("front-pre", -1).click();
-  assert.equal(a.el("front-pre").value, "", "still blank, not 0");
+  assert.equal(a.el("front-pre").value, "30.0");
+  // A blank CLICK field has nothing to start from and stays blank.
+  const b = setup();
+  b.btn("fork-comp", 1).click();
+  b.btn("fork-comp", -1).click();
+  assert.equal(b.el("fork-comp").value, "", "still blank, not 0");
   assert.equal(a.draft(), null, "and nothing was stored");
 });
 
@@ -130,7 +145,7 @@ test("a refused step marks nothing dirty and schedules no draft write", () => {
   b.storage.setItem("mototrack.autosave", "true");
   const c = bootApp({ storage: b.storage });
   const cEl = (id) => c.document.getElementById(id);
-  const cBtn = (id, dir) => c.document.querySelectorAll(".stepper-btn")
+  const cBtn = (id, dir) => c.document.querySelectorAll("[data-step-for]")
     .find((x) => x.dataset.stepFor === id && Number(x.dataset.stepDir) === dir);
   cEl("front-pre").tagName = "INPUT";
   cEl("front-pre").value = "0";
@@ -190,17 +205,23 @@ test("Save & next clears the pressures and keeps the clicks, and the steppers fo
 
   assert.equal(a.el("front-pre").value, "", "pressures ARE cleared by Save & next");
   assert.equal(a.el("fork-comp").value, "8", "clicks carry over");
-  assert.equal(a.btn("front-pre", 1).disabled, true, "so the PSI stepper is disabled again");
+  assert.equal(a.btn("front-pre", 1).disabled, false, "the PSI stepper still has a start position");
   assert.equal(a.btn("fork-comp", 1).disabled, false, "and the click stepper is still usable");
 });
 
-test("Reset disables every stepper", () => {
+test("Reset clears every field, and the clicks disable with it", () => {
   const a = setup();
   a.type("front-pre", "30.5"); a.type("fork-comp", "8");
   a.win.confirm = () => true;
   a.el("reset-all").click();
   for (const id of PSI.concat(CLICKS)) {
-    assert.equal(a.btn(id, 1).disabled, true, `${id} is blank again`);
+    assert.equal(a.el(id).value, "", `${id} is blank again`);
+  }
+  for (const id of CLICKS) {
+    assert.equal(a.btn(id, 1).disabled, true, `${id} has nothing to step from`);
+  }
+  for (const id of PSI) {
+    assert.equal(a.btn(id, 1).disabled, false, `${id} still has the pad's start position`);
   }
 });
 
@@ -209,7 +230,7 @@ test("Copy to form and a restored draft both leave the steppers usable", () => {
   a.storage.setItem("mototrack.autosave", "true");
   const b = bootApp({ storage: a.storage });
   const bEl = (id) => b.document.getElementById(id);
-  const bBtn = (id, dir) => b.document.querySelectorAll(".stepper-btn")
+  const bBtn = (id, dir) => b.document.querySelectorAll("[data-step-for]")
     .find((x) => x.dataset.stepFor === id && Number(x.dataset.stepDir) === dir);
   for (const [id, v] of [["bike", "Panigale"], ["front-pre", "30.5"], ["fork-comp", "8"]]) {
     bEl(id).tagName = "INPUT"; bEl(id).value = v;
@@ -219,7 +240,7 @@ test("Copy to form and a restored draft both leave the steppers usable", () => {
 
   const restored = bootApp({ storage: a.storage });
   const rEl = (id) => restored.document.getElementById(id);
-  const rBtn = (id, dir) => restored.document.querySelectorAll(".stepper-btn")
+  const rBtn = (id, dir) => restored.document.querySelectorAll("[data-step-for]")
     .find((x) => x.dataset.stepFor === id && Number(x.dataset.stepDir) === dir);
   assert.equal(rEl("front-pre").value, "30.5", "the draft restored the pressure");
   assert.equal(rBtn("front-pre", 1).disabled, false, "and its stepper is usable with no edit");
@@ -276,7 +297,7 @@ test("a step uses the existing input signal, so autosave and dirty tracking foll
   a.storage.setItem("mototrack.autosave", "true");
   const b = bootApp({ storage: a.storage });
   const bEl = (id) => b.document.getElementById(id);
-  const bBtn = (id, dir) => b.document.querySelectorAll(".stepper-btn")
+  const bBtn = (id, dir) => b.document.querySelectorAll("[data-step-for]")
     .find((x) => x.dataset.stepFor === id && Number(x.dataset.stepDir) === dir);
   bEl("front-pre").tagName = "INPUT";
   bEl("front-pre").value = "30.0";
@@ -309,7 +330,7 @@ test("a stepped value is saved exactly as a typed one would be", () => {
 
 test("every stepper button has a field-specific accessible name", () => {
   const html = readFileSync(join(import.meta.dirname, "..", "public", "log", "index.html"), "utf8");
-  const names = [...html.matchAll(/class="stepper-btn"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+  const names = [...html.matchAll(/data-step-for="[^"]*"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(names.length, 16, "two buttons for each of the eight fields");
   assert.equal(new Set(names).size, 16, "and every name is distinct");
   for (const n of names) {
@@ -431,7 +452,7 @@ test("an unsteppable value marks nothing dirty and schedules no autosave", () =>
   a.storage.setItem("mototrack.autosave", "true");
   const b = bootApp({ storage: a.storage });
   const bEl = (id) => b.document.getElementById(id);
-  const bBtn = (id, dir) => b.document.querySelectorAll(".stepper-btn")
+  const bBtn = (id, dir) => b.document.querySelectorAll("[data-step-for]")
     .find((x) => x.dataset.stepFor === id && Number(x.dataset.stepDir) === dir);
   // Something saveable exists, so a draft is being kept.
   bEl("bike").tagName = "INPUT"; bEl("bike").value = "Panigale";
@@ -488,7 +509,8 @@ test("button availability and the step rule can never disagree", () => {
                       "30.123456789012345678", "999999999999999999999", ".5"]) {
     a.type("front-pre", text);
     const enabled = !a.btn("front-pre", 1).disabled;
-    const steppable = stepValue(text, "0.5", 1) !== null || stepValue(text, "0.5", -1) !== null;
+    const SP = globalThis.SessionProgress;
+    const steppable = SP.rulerStep(text, 1, null) !== null || SP.rulerStep(text, -1, null) !== null;
     assert.equal(enabled, steppable,
       `${JSON.stringify(text)}: button ${enabled ? "enabled" : "disabled"} but rule says ${steppable}`);
   }

@@ -17,7 +17,16 @@ function setup(opts) {
   const el = (id) => document.getElementById(id);
   const type = (id, v) => { const e = el(id); e.tagName = "INPUT"; e.value = v; e.dispatchEvent(new win.Event("input")); };
   const check = (id, on) => { const e = el(id); e.checked = on; e.dispatchEvent(new win.Event("input", { bubbles: true })); };
-  return { ...app, el, type, check, summary: () => el("tire-summary").textContent };
+  const stateRow = (label) => {
+    const rows = app.document.getElementById("bike-state-rows");
+    const found = (rows.children || []).find((r) =>
+      (r.children || []).some((c) => c.textContent === label));
+    return found ? (found.children || []).map((c) => c.textContent).join("|") : null;
+  };
+  return { ...app, el, type, check, stateRow, summary: () => {
+    const t = stateRow("Tires");
+    return t === null ? null : t.split("|")[1];
+  } };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +105,7 @@ test("Edit tires opens and closes in place", () => {
   btn.click();
   assert.equal(a.el("tire-fields").hidden, true, "closed again");
   assert.equal(btn.getAttribute("aria-expanded"), "false");
-  assert.equal(btn.textContent, "Edit tires");
+  assert.equal(btn.textContent, "Edit");
 });
 
 test("values entered while open survive closing", () => {
@@ -141,20 +150,19 @@ test("the header renders the empty states in the real app", () => {
 // The ruler is laid out from the centre
 // ---------------------------------------------------------------------------
 
-test("ticks are positioned from the centre, not from the left edge", () => {
+test("pad lines are positioned from the centre and move with the value", () => {
   const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
-  const start = appJs.indexOf("function drawRuler");
-  const body = appJs.slice(start, appJs.indexOf("function renderPressure", start));
-  assert.match(body, /calc\(50% \+ /, "each tick is offset from the middle of the box");
-  assert.match(body, /i = -8; i <= 8/, "the full +/-8 tick window is drawn");
+  const start = appJs.indexOf("function drawPad");
+  const body = appJs.slice(start, appJs.indexOf("function renderTire", start));
+  assert.match(body, /calc\(50% \+ /, "each line is offset from the middle of the pad");
+  assert.match(body, /pad-line--long/, "every fifth tenth is a long line");
+  assert.match(body, /shift/, "the pattern moves with the value, so a drag is visible");
   assert.ok(!body.includes("getBoundingClientRect"),
-    "layout no longer depends on measuring the box, which is what clipped it");
+    "layout does not depend on measuring the box");
 });
 
-test("every tick carries a label, whole numbers in full", () => {
+test("the pad dims and refuses drag for a value typed outside the range", () => {
   const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
-  const start = appJs.indexOf("function drawRuler");
-  const body = appJs.slice(start, appJs.indexOf("function renderPressure", start));
-  assert.match(body, /tick-label/);
-  assert.match(body, /whole \? String\(Math\.round\(psi\)\)/, "30, not .0");
+  assert.match(appJs, /drag-pad--off/, "there is an off state");
+  assert.match(appJs, /TYPE OR &minus; \/ \+/, "and it says what still works");
 });

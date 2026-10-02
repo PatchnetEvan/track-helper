@@ -709,6 +709,11 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 .context-row {
   display: flex;
   align-items: flex-start;
+  /* The context takes the space; About keeps its own width at the right. */
+}
+.context-row > .context-line { flex: 1 1 12rem; min-width: 0; margin: 0; }
+.context-row > .about-open { flex: 0 0 auto; }
+.context-row {
   justify-content: space-between;
   gap: 8px 12px;
   /* At 320px with 200% text the brand alone is 213px and pushed the About
@@ -883,185 +888,230 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    the input, opening the keyboard the stepper exists to avoid. */
 .field-label { display: block; }
 
-/* The tire details collapse to one line so the pressures are reachable
-   without scrolling. */
-.tire-summary-row {
+/* --- Pressure entry v2: tire cards and drag pad --------------------------- */
+
+.section-row {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 2px 12px;
+  margin-bottom: 8px;
 }
-.tire-summary { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-dim); font-size: 0.875rem; overflow-wrap: anywhere; }
-/* .btn-secondary is full-width by default; next to the summary it must size
-   to its own text, or the summary collapses to one character per line. */
-.tire-edit { flex: 0 0 auto; width: auto; min-height: 44px; padding: 10px 14px; }
-.tire-fields { margin-bottom: 14px; }
 .section-label {
-  margin: 0 0 2px;
+  margin: 0;
   color: var(--text-dim);
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
-.section-sub { margin: 0 0 10px; color: var(--text-dim); font-size: 0.875rem; }
 
-/* --- Pressure control (C8 revised: centred value + tenths ruler) ---------- */
 
-/* Front above Rear, one tire per card, never side by side at phone widths. */
-.pressure-stack { display: block; }
-.pressure { margin-bottom: 10px; text-align: center; }
-.pressure-tire {
-  margin: 0 0 6px;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+/* Current bike state */
+.bike-state {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
 }
-.pressure-today { margin: 0 0 4px; color: var(--text-dim); font-size: 0.8125rem; }
-.pressure-box {
-  display: inline-flex;
+.bike-state-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.bike-state-title {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.tire-edit { flex: 0 0 auto; width: auto; min-height: 44px; padding: 10px 14px; }
+.state-row {
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.state-row:first-child { border-top: 0; padding-top: 0; }
+.state-label { color: var(--text-dim); font-size: 0.875rem; }
+.state-value { min-width: 0; color: var(--text); font-size: 0.875rem; overflow-wrap: anywhere; text-align: right; }
+.tire-fields { margin-bottom: 12px; }
+
+/* The tire card. Closed it is one row; open it carries the controls. */
+.tire-card {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+}
+.tire-card--open { border: 2px solid var(--accent); }
+.tire-row {
+  display: flex;
+  flex-wrap: wrap;          /* at large text the value drops under the label */
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tire-col-left { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.tire-col-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; }
+.tire-name { font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; }
+/* The reference is history: dashed, dim, and never the value. */
+.tire-pill {
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px dashed var(--text-dim);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+/* Neutral by design: a delta is a fact, not a verdict. */
+.tire-delta {
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tire-today { color: var(--text-dim); font-size: 0.75rem; }
+.tire-value { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.tire-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+.tire-num--blank { color: var(--text-dim); }
+.tire-unit { color: var(--text-dim); font-size: 0.875rem; }
+
+.tire-panel { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.control-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; gap: 8px; }
+.pad-btn {
+  min-height: 72px;
+  border: 1px solid var(--text-dim);
+  border-radius: 12px;
+  background: var(--bg-elev-2);
+  color: var(--text);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.pad-btn:active { background: var(--bg-elev); }
+.drag-pad {
+  position: relative;
+  min-width: 0;
+  min-height: 72px;
+  border: 1px dashed var(--text-dim);
+  border-radius: 12px;
+  background: var(--bg-elev-2);
+  overflow: hidden;
+  touch-action: pan-y;
+  cursor: ew-resize;
+}
+.drag-pad:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drag-pad--off { opacity: 0.5; cursor: default; }
+.pad-lines { position: absolute; inset: 0; }
+.pad-line { position: absolute; top: 22px; bottom: 22px; width: 1px; background: var(--border); }
+.pad-line--long { top: 8px; bottom: 8px; }
+.pad-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+.pad-label-main {
+  padding: 1px 8px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+.pad-label-sub {
+  padding: 0 6px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.typed-field {
+  display: flex;
+  align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 2px 16px;
+  min-height: 52px;
+  padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-elev-2);
+  background: var(--bg);
 }
-.pressure-box input {
-  width: 4.5ch;
+.typed-field:focus-within { border-color: var(--accent); }
+.typed-field input {
   min-width: 0;
+  flex: 1 1 auto;
   padding: 0;
   border: 0;
   background: none;
   color: var(--text);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 2rem;           /* 32px at the default root, and it scales */
-  font-weight: 700;
-  line-height: 1.05;
+  font-size: 1.25rem;
+  font-weight: 600;
   text-align: center;
 }
-.pressure-box input:focus { outline: none; }
-.pressure-box input::placeholder { color: var(--text-dim); opacity: 1; }
-.pressure-box:focus-within { border-color: var(--accent); }
-.pressure-unit { color: var(--text-dim); font-size: 0.875rem; font-weight: 600; }
-.pressure-delta {
-  margin: 6px 0 0;
-  color: var(--text-dim);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.8125rem;
-}
+.typed-field input:focus { outline: none; }
+.typed-unit { flex: none; color: var(--text-dim); font-size: 0.875rem; }
 
-/* Reference pill: dashed, dim, centred under the value. Never --text, never
-   --accent, and never inside the value box - it is history, not a reading. */
-.pressure-ref {
-  display: inline-block;
-  max-width: 100%;
-  margin: 8px 0 0;
-  padding: 4px 12px;
-  border: 1px dashed var(--text-dim);
-  border-radius: 8px;
-  color: var(--text-dim);
-  font-size: 0.8125rem;
-  overflow-wrap: break-word;
+.tire-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 10px;
 }
-.pressure-ref-cap { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; }
+/* At 200% a fixed 10rem basis is wider than the card, which pushed the foot
+   past its own box. Capping the basis lets it fall to its own line instead. */
+.tire-note { flex: 1 1 min(10rem, 100%); min-width: 0; margin: 0; color: var(--text-dim); font-size: 0.875rem; line-height: 1.3; }
+.tire-same { flex: 0 1 auto; width: auto; max-width: 100%; min-height: var(--tap); padding: 10px 14px; white-space: normal; }
 
-.pressure-row {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 64px;
-  gap: 8px;
-  margin-top: 8px;
-}
-.ruler {
-  position: relative;
-  min-width: 0;
-  /* 64px normally, growing to the 72px the design asks for at large text -
-     intrinsically, with no threshold to detect. */
-  height: clamp(64px, 4rem, 72px);
-  box-sizing: border-box;   /* 64px overall, not 64 plus borders */
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-elev-2);
-  overflow: hidden;
-  /* The page keeps vertical scrolling; only a clearly horizontal gesture is
-     taken over, and that decision is made in app.js. */
-  touch-action: pan-y;
-  cursor: ew-resize;
-}
-.ruler:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.ruler[aria-disabled="true"] { cursor: default; }
-.ruler-strip { position: absolute; inset: 0; }
-/* Ticks and labels are positioned, not flowed. */
-.tick {
-  position: absolute;
-  bottom: 0;
-  width: 1px;
-  height: 10px;
-  background: var(--text-dim);
-  transform: translateX(-50%);
-}
-.tick-half { height: 18px; }
-.tick-whole { width: 2px; height: 26px; }
-.tick-label {
-  position: absolute;
-  top: 6px;
-  transform: translateX(-50%);
-  color: var(--text-dim);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.75rem;
-  line-height: 1;
-  white-space: nowrap;
-}
-/* Shown only when today's value exists and sits inside the ruler's range. */
-.ruler-centre { position: absolute; inset: 0 auto 0 50%; width: 3px; margin-left: -1.5px; background: var(--accent); }
-/* The reference position, dashed and dim, with its session tag. */
-.ruler-ref { position: absolute; top: 4px; bottom: 4px; border-left: 2px dashed var(--text-dim); transform: translateX(-50%); }
-.ruler-ref-tag {
-  position: absolute;
-  bottom: 2px;
-  padding: 0 3px;
-  border-radius: 3px;
-  /* Sits over the ticks rather than colliding with a tick label above. */
-  background: var(--bg-elev-2);
-  transform: translateX(-50%);
-  color: var(--text-dim);
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-/* Where a typed value sits past the end of the ruler. */
-.ruler-pin {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-dim);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.8125rem;
-  white-space: nowrap;
-}
-.ruler-pin.pin-high { right: 8px; }
-.ruler-pin.pin-low { left: 8px; }
-
-.pressure-note {
-  margin: 6px 0 0;
-  color: var(--text-dim);
-  font-size: 0.8125rem;
-  line-height: 1.35;
-}
-.pressure-same { margin-top: 8px; min-height: var(--tap); }
-
-/* Large text: the value grows and the ruler gets taller, and everything keeps
-   wrapping intrinsically rather than at a guessed threshold. */
+/* 200% text: the controls grow and the pad's sub-line goes (v2 item 8). */
 @media (min-resolution: 0.001dppx) {
-  .pressure-box input { font-size: clamp(2rem, 2rem + 1vw, 4rem); }
+  .control-row { grid-template-columns: minmax(72px, 4.5rem) minmax(0, 1fr) minmax(72px, 4.5rem); }
+  .pad-btn, .drag-pad { min-height: clamp(72px, 4.5rem, 80px); }
 }
 
-/* One stepper per row (C8)/* One stepper per row (C8): minus, the value, plus - so the number is never
+/* One stepper per row (C8)/* One stepper per row (C8)/* One stepper per row (C8): minus, the value, plus - so the number is never
    squeezed between two fixed buttons. Replaces a 400px media query that put
    the value on its own line below that width and crushed it to ~28px above
    it, which is what a 412px phone was showing. */
@@ -1404,5 +1454,20 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
      is redundant on a phone and costs a line the rider needs. */
   #panel-tires > h2 { display: none; }
   .app-header { padding: 10px 16px 8px; }
-  .save-status { margin: 6px 0 0; }
+  .save-status { margin: 3px 0 0; }
 }
+
+/* Correct PRE: a correction, so it reads as secondary to the stage's own work. */
+.correct-pre-row { margin-bottom: 12px; }
+.btn-outline {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 12px 16px;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.btn-outline:active { background: var(--bg-elev-2); }
