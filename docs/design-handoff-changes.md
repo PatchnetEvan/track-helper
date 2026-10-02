@@ -157,3 +157,55 @@ reconciles that record instead of writing a second copy of the same outing.
 retry must reuse the pending record ID and reconcile that record—not create
 another copy. Verify the saved content as well as its ID before claiming
 success."*
+
+## C8 revised: centred value + tenths ruler (`0.1.0-beta.11`)
+
+The earlier 0.5-notch ruler is replaced by the control in
+`MotoTrack Pressure Entry.dc.html`: a centred 32px value that starts blank, a
+dashed Reference pill, a tenths ruler with every tick labelled, and ±0.1 steps.
+
+### The conflict recorded in §2 and §7 is resolved
+
+The handoff now **withdraws** the POST "Finish" dock and the removal of
+REVIEW's save buttons, and non-negotiable 4 restates keeping both controls.
+Nothing had to be restored: **Save only** and **Save & next** were never
+removed, because §2 recorded the owner over-ruling that part of the original
+handoff. Save only now carries a check icon and Review's status copy names both
+controls.
+
+### Owner rulings applied this round
+
+1. POST's dock becomes "Go to REVIEW" (`.btn-dock-nav`, outlined, navigation
+   only). LAPS and NOTES keep no dock change.
+2. Only `#ff8a3d` → `--accent`, `#7a828d` → `--text-dim`, and the stepper
+   border `#4a4a4a` → `--text-dim` (required by C8). **Follow-ups, deliberately
+   not changed this round:** `#4a4a4a` still borders the small button
+   (`styles.css:615`), the textarea (`:635`) and the text inputs (`:642`), and
+   `#1a0a00` is still the text colour on orange buttons (`:115`, `:277`,
+   `:312`). All four are derived colours the Tokens section would retire.
+3. A session number is used only when a saved session actually carries one.
+   With no label the pill reads "Last session 31.0", the ruler tag reads
+   "Last", and the button reads "Same as last session · 31.0". Never invented.
+4. **No reference establishable** - different bike, different tire, or an
+   incomplete context: the pill and the "Same as" button are hidden, no marker
+   is drawn, the value stays blank, and the ruler and −/+ stay
+   `aria-disabled` until a number is typed, so no starting value is invented.
+   The note drops to "Type the whole number, then drag or use − / + to set the
+   tenths."
+5. The stage bar already scrolls sideways (`overflow-x: auto`, PR 3), with
+   `showTab` keeping the selected stage in view. No follow-up needed.
+
+### Two regressions caught by the existing suite
+
+- Rounding every step to a tenth turned a typed `30.25` into `30.4`. ± now goes
+  through the same decimal-safe `stepValue` the click steppers use, so it
+  becomes `30.35` and the rider's second decimal survives. Only the **drag**
+  snaps to tenths, because that is what a ruler does.
+- The numeric contract from the previous round (excessive decimal precision and
+  unsafe magnitudes are kept as typed and cannot be stepped) was briefly lost
+  when the new parser accepted anything `Number()` would. Restored as a
+  distinct `unsupported` state with its own copy.
+
+A third: "never below 0" was briefly applied to increments too, which stranded
+a typed `-2` with buttons that refused to touch it. It now governs the
+decrement only.

@@ -120,7 +120,7 @@ test("a manually typed negative value is never clamped or rewritten", () => {
   a.btn("front-pre", -1).click();
   assert.equal(a.el("front-pre").value, "-2", "and a decrement below zero is simply refused");
   a.btn("front-pre", 1).click();
-  assert.equal(a.el("front-pre").value, "-1.5", "while an increment still works");
+  assert.equal(a.el("front-pre").value, "-1.9", "while an increment still works");
 });
 
 test("a refused step marks nothing dirty and schedules no draft write", () => {
@@ -167,7 +167,7 @@ test("PRE steppers are disabled once the rider is back in, and Correct PRE resto
   a.el("correct-pre").click();
   assert.equal(a.btn("front-pre", 1).disabled, false, "Correct PRE re-enables them");
   a.btn("front-pre", 1).click();
-  assert.equal(a.el("front-pre").value, "31.0");
+  assert.equal(a.el("front-pre").value, "30.6");
 });
 
 test("POST steppers stay usable while PRE is locked", () => {
@@ -177,7 +177,7 @@ test("POST steppers stay usable while PRE is locked", () => {
   a.el("dock-advance").click();
   assert.equal(a.btn("front-post", 1).disabled, false, "POST is never locked");
   a.btn("front-post", 1).click();
-  assert.equal(a.el("front-post").value, "33.5");
+  assert.equal(a.el("front-post").value, "33.1");
 });
 
 test("Save & next clears the pressures and keeps the clicks, and the steppers follow", () => {
@@ -224,7 +224,7 @@ test("Copy to form and a restored draft both leave the steppers usable", () => {
   assert.equal(rEl("front-pre").value, "30.5", "the draft restored the pressure");
   assert.equal(rBtn("front-pre", 1).disabled, false, "and its stepper is usable with no edit");
   rBtn("front-pre", 1).click();
-  assert.equal(rEl("front-pre").value, "31.0");
+  assert.equal(rEl("front-pre").value, "30.6");
   void bBtn;
 });
 
@@ -249,7 +249,7 @@ test("there is no hold-to-repeat anywhere in the stepper wiring", () => {
   // between them and uses pointer events by design. This guard is about the
   // -/+ buttons never repeating while held.
   const start = appJs.indexOf("function wireSteppers()");
-  const body = appJs.slice(start, appJs.indexOf("// --- Pressure ruler (C8 revised)", start));
+  const body = appJs.slice(start, appJs.indexOf("// --- Pressure control (C8 revised", start));
   assert.ok(body.length > 200, "the stepper wiring was found");
   for (const forbidden of ["setInterval", "pointerdown", "mousedown", "touchstart", "repeat"]) {
     assert.ok(!body.includes(forbidden), `the stepper must not use ${forbidden}`);
@@ -258,7 +258,7 @@ test("there is no hold-to-repeat anywhere in the stepper wiring", () => {
 
 test("the ruler has no hold-to-repeat either", () => {
   const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
-  const start = appJs.indexOf("// --- Pressure ruler (C8 revised)");
+  const start = appJs.indexOf("// --- Pressure control (C8 revised");
   const body = appJs.slice(start, appJs.indexOf("// --- Auto-save draft (C6)", start));
   assert.ok(body.length > 200, "the ruler wiring was found");
   for (const forbidden of ["setInterval", "requestAnimationFrame", "setTimeout"]) {
@@ -287,7 +287,7 @@ test("a step uses the existing input signal, so autosave and dirty tracking foll
   assert.equal(b.clock.pending(), 1, "the step scheduled a draft write");
   assert.match(b.document.getElementById("save-status-text").textContent, /Keeping draft/);
   b.clock.flush();
-  assert.equal(JSON.parse(b.storage.getItem("mototrack.draft.v1")).session.tires.frontPre, "30.5",
+  assert.equal(JSON.parse(b.storage.getItem("mototrack.draft.v1")).session.tires.frontPre, "30.1",
     "and the stepped value is what was kept");
 });
 
@@ -300,7 +300,7 @@ test("a stepped value is saved exactly as a typed one would be", () => {
   a.el("save-session").click();
   const saved = JSON.parse(a.storage.getItem("mototrack.sessions.v1"));
   assert.equal(saved.length, 1);
-  assert.equal(saved[0].tires.frontPre, "30.5", "stored as a plain string, schema unchanged");
+  assert.equal(saved[0].tires.frontPre, "30.1", "stored as a plain string, schema unchanged");
 });
 
 // ---------------------------------------------------------------------------
@@ -314,7 +314,9 @@ test("every stepper button has a field-specific accessible name", () => {
   assert.equal(new Set(names).size, 16, "and every name is distinct");
   for (const n of names) {
     assert.match(n, /^(Increase|Decrease) /, `${n} says which direction`);
-    assert.match(n, /by (0\.5 PSI|1 click)$/, `${n} says the step and the unit`);
+    // Pressures follow the C8 wording ("Decrease front pressure"); the click
+    // fields still name their unit, because nothing else announces it.
+    assert.match(n, /(pressure|by 1 click)$/, `${n} names what it changes`);
   }
 });
 
@@ -347,7 +349,7 @@ test("focus stays on the pressed button, so a second tap does not open the keybo
     "the button keeps focus - moving it to the input would raise the on-screen keyboard");
   assert.notEqual(a.document.activeElement, a.el("front-pre"));
   plus.click();
-  assert.equal(a.el("front-pre").value, "31.0", "and a second tap still steps");
+  assert.equal(a.el("front-pre").value, "30.2", "and a second tap still steps");
   assert.equal(a.document.activeElement, plus, "focus is still on the button");
 });
 
@@ -461,7 +463,7 @@ test("ordinary decimal notation still works, and stays reversible", () => {
   const a = setup();
   a.type("front-pre", "30.25");
   a.btn("front-pre", 1).click();
-  assert.equal(a.el("front-pre").value, "30.75");
+  assert.equal(a.el("front-pre").value, "30.35", "a tenth, and the rider's second decimal survives");
   a.btn("front-pre", -1).click();
   assert.equal(a.el("front-pre").value, "30.25", "and the same round trip in the app");
 });

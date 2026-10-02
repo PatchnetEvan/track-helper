@@ -165,53 +165,55 @@
       <!-- Split by stage (C1). The ids, the inputs and the saved-session shape
            are untouched; only which stage shows them changes. -->
       <div class="pressure-stack" data-stage="pre">
-        <!-- Pressure ruler (C8 revised). The typed input keeps its id and is
-             revealed by the value button, so manual entry, the saved-session
-             shape and the PRE read-only lock all work exactly as before. -->
+        <!-- Pressure control (C8 revised). The value is the real input and keeps
+             its id, so manual entry, the saved-session shape and the PRE
+             read-only lock all behave exactly as before. -->
         <div class="pressure" data-pressure-for="front-pre">
-          <div class="pressure-head">
-            <span class="pressure-label">FRONT</span>
-            <button type="button" class="pressure-value" data-value-for="front-pre" id="front-pre-value"
-                    aria-label="Front pre-session PSI, tap to type a value">&mdash;<span class="pressure-unit">psi</span></button>
-            <span class="pressure-ref" id="front-pre-ref" hidden></span>
+          <p class="pressure-tire">FRONT</p>
+          <p class="pressure-today" id="front-pre-today">Today &middot; not measured</p>
+          <div class="pressure-box">
+            <label class="sr-only" for="front-pre">Front pre-session pressure</label>
+            <input type="text" id="front-pre" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
+            <span class="pressure-unit">psi</span>
           </div>
+          <p class="pressure-ref" id="front-pre-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="front-pre-ref-text"></span></p>
           <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="-1" aria-label="Decrease front pre-session PSI by 0.5 PSI">&minus;</button>
+            <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="-1" aria-label="Decrease front pre-session pressure">&minus;</button>
             <div class="ruler" id="front-pre-ruler" data-ruler-for="front-pre" role="slider" tabindex="0"
-                 aria-label="Front pre-session PSI" aria-valuemin="10" aria-valuemax="45">
+                 aria-label="Front pre-session pressure" aria-valuemin="10" aria-valuemax="45">
               <div class="ruler-strip" id="front-pre-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" aria-hidden="true"></div>
+              <div class="ruler-centre" id="front-pre-centre" aria-hidden="true" hidden></div>
+              <div class="ruler-pin" id="front-pre-pin" aria-hidden="true" hidden></div>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="1" aria-label="Increase front pre-session PSI by 0.5 PSI">+</button>
+            <button type="button" class="stepper-btn" data-step-for="front-pre" data-step-dir="1" aria-label="Increase front pre-session pressure">+</button>
           </div>
-          <label class="pressure-type" for="front-pre" hidden id="front-pre-typewrap">
-            <span>Type front pre-session PSI</span>
-            <input type="text" id="front-pre" inputmode="decimal" placeholder="e.g. 30" />
-          </label>
+          <p class="pressure-note" id="front-pre-note"></p>
+          <button type="button" class="btn-secondary pressure-same" id="front-pre-same" hidden></button>
         </div>
-        <!-- Pressure ruler (C8 revised). The typed input keeps its id and is
-             revealed by the value button, so manual entry, the saved-session
-             shape and the PRE read-only lock all work exactly as before. -->
+        <!-- Pressure control (C8 revised). The value is the real input and keeps
+             its id, so manual entry, the saved-session shape and the PRE
+             read-only lock all behave exactly as before. -->
         <div class="pressure" data-pressure-for="rear-pre">
-          <div class="pressure-head">
-            <span class="pressure-label">REAR</span>
-            <button type="button" class="pressure-value" data-value-for="rear-pre" id="rear-pre-value"
-                    aria-label="Rear pre-session PSI, tap to type a value">&mdash;<span class="pressure-unit">psi</span></button>
-            <span class="pressure-ref" id="rear-pre-ref" hidden></span>
+          <p class="pressure-tire">REAR</p>
+          <p class="pressure-today" id="rear-pre-today">Today &middot; not measured</p>
+          <div class="pressure-box">
+            <label class="sr-only" for="rear-pre">Rear pre-session pressure</label>
+            <input type="text" id="rear-pre" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
+            <span class="pressure-unit">psi</span>
           </div>
+          <p class="pressure-ref" id="rear-pre-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="rear-pre-ref-text"></span></p>
           <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="-1" aria-label="Decrease rear pre-session PSI by 0.5 PSI">&minus;</button>
+            <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="-1" aria-label="Decrease rear pre-session pressure">&minus;</button>
             <div class="ruler" id="rear-pre-ruler" data-ruler-for="rear-pre" role="slider" tabindex="0"
-                 aria-label="Rear pre-session PSI" aria-valuemin="10" aria-valuemax="45">
+                 aria-label="Rear pre-session pressure" aria-valuemin="10" aria-valuemax="45">
               <div class="ruler-strip" id="rear-pre-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" aria-hidden="true"></div>
+              <div class="ruler-centre" id="rear-pre-centre" aria-hidden="true" hidden></div>
+              <div class="ruler-pin" id="rear-pre-pin" aria-hidden="true" hidden></div>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="1" aria-label="Increase rear pre-session PSI by 0.5 PSI">+</button>
+            <button type="button" class="stepper-btn" data-step-for="rear-pre" data-step-dir="1" aria-label="Increase rear pre-session pressure">+</button>
           </div>
-          <label class="pressure-type" for="rear-pre" hidden id="rear-pre-typewrap">
-            <span>Type rear pre-session PSI</span>
-            <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 28" />
-          </label>
+          <p class="pressure-note" id="rear-pre-note"></p>
+          <button type="button" class="btn-secondary pressure-same" id="rear-pre-same" hidden></button>
         </div>
       </div>
       <div class="pre-ref" data-stage="post">
@@ -219,53 +221,57 @@
         <button type="button" class="btn-secondary" id="correct-pre">Correct PRE</button>
       </div>
       <div class="pressure-stack" data-stage="post">
-        <!-- Pressure ruler (C8 revised). The typed input keeps its id and is
-             revealed by the value button, so manual entry, the saved-session
-             shape and the PRE read-only lock all work exactly as before. -->
+        <!-- Pressure control (C8 revised). The value is the real input and keeps
+             its id, so manual entry, the saved-session shape and the PRE
+             read-only lock all behave exactly as before. -->
         <div class="pressure" data-pressure-for="front-post">
-          <div class="pressure-head">
-            <span class="pressure-label">FRONT</span>
-            <button type="button" class="pressure-value" data-value-for="front-post" id="front-post-value"
-                    aria-label="Front post-session PSI, tap to type a value">&mdash;<span class="pressure-unit">psi</span></button>
-            <span class="pressure-ref" id="front-post-ref" hidden></span>
+          <p class="pressure-tire">FRONT</p>
+          <p class="pressure-today" id="front-post-today">Today &middot; not measured</p>
+          <div class="pressure-box">
+            <label class="sr-only" for="front-post">Front post-session pressure</label>
+            <input type="text" id="front-post" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
+            <span class="pressure-unit">psi</span>
           </div>
+            <p class="pressure-delta" id="front-post-delta" hidden></p>
+          <p class="pressure-ref" id="front-post-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="front-post-ref-text"></span></p>
           <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="-1" aria-label="Decrease front post-session PSI by 0.5 PSI">&minus;</button>
+            <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="-1" aria-label="Decrease front post-session pressure">&minus;</button>
             <div class="ruler" id="front-post-ruler" data-ruler-for="front-post" role="slider" tabindex="0"
-                 aria-label="Front post-session PSI" aria-valuemin="10" aria-valuemax="45">
+                 aria-label="Front post-session pressure" aria-valuemin="10" aria-valuemax="45">
               <div class="ruler-strip" id="front-post-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" aria-hidden="true"></div>
+              <div class="ruler-centre" id="front-post-centre" aria-hidden="true" hidden></div>
+              <div class="ruler-pin" id="front-post-pin" aria-hidden="true" hidden></div>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="1" aria-label="Increase front post-session PSI by 0.5 PSI">+</button>
+            <button type="button" class="stepper-btn" data-step-for="front-post" data-step-dir="1" aria-label="Increase front post-session pressure">+</button>
           </div>
-          <label class="pressure-type" for="front-post" hidden id="front-post-typewrap">
-            <span>Type front post-session PSI</span>
-            <input type="text" id="front-post" inputmode="decimal" placeholder="e.g. 33" />
-          </label>
+          <p class="pressure-note" id="front-post-note"></p>
+          <button type="button" class="btn-secondary pressure-same" id="front-post-same" hidden></button>
         </div>
-        <!-- Pressure ruler (C8 revised). The typed input keeps its id and is
-             revealed by the value button, so manual entry, the saved-session
-             shape and the PRE read-only lock all work exactly as before. -->
+        <!-- Pressure control (C8 revised). The value is the real input and keeps
+             its id, so manual entry, the saved-session shape and the PRE
+             read-only lock all behave exactly as before. -->
         <div class="pressure" data-pressure-for="rear-post">
-          <div class="pressure-head">
-            <span class="pressure-label">REAR</span>
-            <button type="button" class="pressure-value" data-value-for="rear-post" id="rear-post-value"
-                    aria-label="Rear post-session PSI, tap to type a value">&mdash;<span class="pressure-unit">psi</span></button>
-            <span class="pressure-ref" id="rear-post-ref" hidden></span>
+          <p class="pressure-tire">REAR</p>
+          <p class="pressure-today" id="rear-post-today">Today &middot; not measured</p>
+          <div class="pressure-box">
+            <label class="sr-only" for="rear-post">Rear post-session pressure</label>
+            <input type="text" id="rear-post" inputmode="decimal" placeholder="&mdash;" autocomplete="off" />
+            <span class="pressure-unit">psi</span>
           </div>
+            <p class="pressure-delta" id="rear-post-delta" hidden></p>
+          <p class="pressure-ref" id="rear-post-ref" hidden><span class="pressure-ref-cap">REFERENCE</span> <span id="rear-post-ref-text"></span></p>
           <div class="pressure-row">
-            <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="-1" aria-label="Decrease rear post-session PSI by 0.5 PSI">&minus;</button>
+            <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="-1" aria-label="Decrease rear post-session pressure">&minus;</button>
             <div class="ruler" id="rear-post-ruler" data-ruler-for="rear-post" role="slider" tabindex="0"
-                 aria-label="Rear post-session PSI" aria-valuemin="10" aria-valuemax="45">
+                 aria-label="Rear post-session pressure" aria-valuemin="10" aria-valuemax="45">
               <div class="ruler-strip" id="rear-post-strip" aria-hidden="true"></div>
-              <div class="ruler-centre" aria-hidden="true"></div>
+              <div class="ruler-centre" id="rear-post-centre" aria-hidden="true" hidden></div>
+              <div class="ruler-pin" id="rear-post-pin" aria-hidden="true" hidden></div>
             </div>
-            <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="1" aria-label="Increase rear post-session PSI by 0.5 PSI">+</button>
+            <button type="button" class="stepper-btn" data-step-for="rear-post" data-step-dir="1" aria-label="Increase rear post-session pressure">+</button>
           </div>
-          <label class="pressure-type" for="rear-post" hidden id="rear-post-typewrap">
-            <span>Type rear post-session PSI</span>
-            <input type="text" id="rear-post" inputmode="decimal" placeholder="e.g. 31" />
-          </label>
+          <p class="pressure-note" id="rear-post-note"></p>
+          <button type="button" class="btn-secondary pressure-same" id="rear-post-same" hidden></button>
         </div>
       </div>
 
@@ -763,7 +769,7 @@
         <span class="btn-transition-verb" id="save-next-verb">Save &amp; start next session</span>
         <span class="btn-transition-effect" id="save-next-effect">Keeps bike, track, tires and clicks</span>
       </button>
-      <button type="button" class="btn-secondary" id="save-session">Save only</button>
+      <button type="button" class="btn-secondary" id="save-session"><span class="btn-icon btn-icon-check" aria-hidden="true"></span>Save only</button>
       <div class="result" id="save-result" aria-live="polite"></div>
     </div>
   </div>

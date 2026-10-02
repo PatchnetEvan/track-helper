@@ -136,7 +136,7 @@
   // view. LAPS and NOTES are on the route but not mandatory - the rail reaches
   // REVIEW from POST in one tap for a rider with no laps to enter.
   let _stage = "day";
-  const ADVANCE = { day: "pre", pre: "post", post: "laps", laps: "notes", notes: "review" };
+  const ADVANCE = { day: "pre", pre: "post", post: "review", laps: "notes", notes: "review" };
 
   function dockCopy(stage) {
     if (stage === "day") {
@@ -154,7 +154,8 @@
       return { verb: "Back in \u2192 POST", effect: "Unlocks POST \u00b7 PRE becomes read-only" };
     }
     if (stage === "post") {
-      return { verb: "Go to LAPS", effect: "Laps and notes are optional \u00b7 REVIEW saves" };
+      // Navigation only. It does not save and does not change session state.
+      return { verb: "Go to REVIEW", effect: "Save only or Save & next is there", nav: true };
     }
     if (stage === "laps") return { verb: "Go to NOTES", effect: "Nothing is saved yet" };
     if (stage === "notes") return { verb: "Go to REVIEW", effect: "Nothing is saved yet" };
@@ -176,6 +177,9 @@
     if (copy && advance) {
       document.getElementById("dock-verb").textContent = copy.verb;
       document.getElementById("dock-effect").textContent = copy.effect;
+      // A navigation button is outlined, not solid orange, so it doesn't read
+      // as the control that commits the session.
+      advance.className = copy.nav ? "btn-dock-nav" : "btn-transition";
     }
     if (onReview) renderSaveDock();
     if (_stage === "post") renderPreReference();
@@ -252,7 +256,11 @@
     const step = STEPPER_STEPS[id];
     if (!step) return false;
     if (PRESSURE_FIELDS.indexOf(id) !== -1) {
-      return SP.rulerStep(el.value, -1) !== null || SP.rulerStep(el.value, 1) !== null;
+      // With no reference and nothing typed there is no value to step from, so
+      // the buttons stay inactive rather than invent a starting point.
+      const refs = referencesFor(id);
+      const ref = refs.primary ? refs.primary.value : null;
+      return SP.rulerStep(el.value, -1, ref) !== null || SP.rulerStep(el.value, 1, ref) !== null;
     }
     // The SAME rule stepValue applies. Number() alone was too generous: it
     // reads "1e-2" and "0x1A" as numbers this stepper cannot describe, so the
@@ -278,9 +286,13 @@
         const dir = Number(btn.dataset.stepDir) < 0 ? -1 : 1;
         // A pressure follows the ruler: one notch, held at the ends of the
         // interaction range, and outside that range only toward it.
-        const next = PRESSURE_FIELDS.indexOf(id) !== -1
-          ? SP.rulerStep(el.value, dir)
-          : SP.stepValue(el.value, step, dir);
+        let next;
+        if (PRESSURE_FIELDS.indexOf(id) !== -1) {
+          const refs = referencesFor(id);
+          next = SP.rulerStep(el.value, dir, refs.primary ? refs.primary.value : null);
+        } else {
+          next = SP.stepValue(el.value, step, dir);
+        }
         // A refused step - blank, unreadable, or below zero - changes nothing,
         // and must not mark the session dirty or schedule a draft write.
         if (next === null || next === el.value) return;
@@ -299,100 +311,160 @@
     syncSteppers();
   }
 
-  // --- Pressure ruler (C8 revised) ------------------------------------------
+  // --- Pressure control (C8 revised: centred value + tenths ruler) ----------
   //
-  // A reference is NOT a measurement. The ruler may centre itself on last
-  // session's figure and print "last 31.0" beside the value, but the field
-  // stays empty until the rider drags, taps or types. Nothing is ever written
-  // on their behalf, on PRE or POST.
+  // History is reference, never a measurement. Today's pressure starts blank
+  // on PRE and on POST, and no code path here writes a value the rider did not
+  // type, drag, step or explicitly choose with "Same as".
   const PRESSURE_FIELDS = ["front-pre", "rear-pre", "front-post", "rear-post"];
-  const RULER_NEUTRAL = 30;        // where an empty ruler sits with no reference
 
   function pressureContext() {
     return { bike: str("bike"), brand: str("tire-brand"), model: str("tire-model") };
   }
 
-  // Same bike, same tire fitment, most recently saved - or nothing at all.
-  function referenceFor(field) {
+  function referencesFor(field) {
     let sessions = [];
-    try { sessions = Store.readAll(); } catch (e) { return null; }
-    return SP.pressureReference(sessions, pressureContext(), field);
+    try { sessions = Store.readAll(); } catch (e) { sessions = []; }
+    const pre = field === "front-post" ? str("front-pre")
+              : field === "rear-post" ? str("rear-pre") : "";
+    return SP.pressureReferences(sessions, pressureContext(), field, pre);
   }
 
-  function drawRuler(field) {
+  function drawRuler(field, refs) {
     const strip = document.getElementById(field + "-strip");
     const ruler = document.getElementById(field + "-ruler");
     if (!strip || !ruler) return;
     const el = document.getElementById(field);
     const raw = (el && el.value || "").trim();
-    const value = raw === "" ? null : Number(raw);
-    const ref = referenceFor(field);
-    const centre = (value !== null && Number.isFinite(value) && SP.psiInRulerRange(value))
-      ? value
-      : (ref !== null ? Number(ref) : RULER_NEUTRAL);
+    const value = SP.readPsi(raw);
+    const refValue = refs.primary ? SP.readPsi(refs.primary.value) : null;
+    const inRange = value !== null && SP.psiInRulerRange(value);
+    // A blank ruler is centred on the reference. With no reference there is
+    // nothing to centre on, so it sits at the middle of its own range - and it
+    // stays inactive, so that is never mistaken for a starting value.
+    const centre = inRange ? value
+      : (refValue !== null ? refValue : (SP.PSI_MIN + SP.PSI_MAX) / 2);
     const w = Math.max(1, Math.round(ruler.getBoundingClientRect().width));
-    const half = Math.ceil(w / 2) + SP.NOTCH_PX * 2;
-    // Built with createElement and positioned through the CSSOM, NOT with
+    const span = Math.ceil(w / 2) + SP.TICK_PX;
+    // Built with createElement and positioned through the CSSOM, never with
     // innerHTML carrying style attributes: log/index.html sets
-    // style-src 'self', so an inline style attribute is dropped and the ticks
-    // render as 0x0 with no colour. Setting el.style from script is CSSOM and
-    // is not what that directive blocks.
+    // style-src 'self', which drops an inline style attribute outright.
     while (strip.firstChild) strip.removeChild(strip.firstChild);
-    for (let i = 0; i <= Math.round((SP.PSI_MAX - SP.PSI_MIN) / SP.PSI_NOTCH); i += 1) {
-      const psi = Number((SP.PSI_MIN + i * SP.PSI_NOTCH).toFixed(1));
-      const x = (psi - centre) / SP.PSI_NOTCH * SP.NOTCH_PX + w / 2;
-      if (x < -half || x > w + half) continue;
+    const steps = Math.ceil(span / SP.TICK_PX);
+    for (let i = -steps; i <= steps; i += 1) {
+      const psi = Math.round((centre + i * SP.PSI_STEP) * 10) / 10;
+      if (psi < SP.PSI_MIN - 1e-9 || psi > SP.PSI_MAX + 1e-9) continue;
+      const x = w / 2 + i * SP.TICK_PX;
       const whole = Math.abs(psi - Math.round(psi)) < 1e-9;
-      const isRef = ref !== null && Math.abs(psi - Number(ref)) < 1e-9;
+      const half = !whole && Math.abs((psi * 10) % 5) < 1e-9;
       const tick = document.createElement("i");
-      tick.className = "tick" + (whole ? " tick-whole" : "") + (isRef ? " tick-ref" : "");
+      tick.className = "tick" + (whole ? " tick-whole" : half ? " tick-half" : "");
       tick.style.left = x.toFixed(1) + "px";
       strip.appendChild(tick);
-      if (whole) {
-        const label = document.createElement("b");
-        label.className = "tick-label";
-        label.textContent = String(Math.round(psi));
-        label.style.left = x.toFixed(1) + "px";
-        strip.appendChild(label);
+      // Every tick is labelled: the visible window is only about +/-0.3 PSI,
+      // so this is what guarantees a number is always on screen.
+      const label = document.createElement("b");
+      label.className = "tick-label";
+      label.textContent = whole ? String(Math.round(psi))
+        : "." + Math.round(Math.abs(psi * 10) % 10);
+      label.style.left = x.toFixed(1) + "px";
+      strip.appendChild(label);
+    }
+    if (refValue !== null && refValue >= SP.PSI_MIN && refValue <= SP.PSI_MAX) {
+      const x = w / 2 + (refValue - centre) / SP.PSI_STEP * SP.TICK_PX;
+      if (x >= -2 && x <= w + 2) {
+        const mark = document.createElement("div");
+        mark.className = "ruler-ref";
+        mark.style.left = x.toFixed(1) + "px";
+        strip.appendChild(mark);
+        const tag = document.createElement("span");
+        tag.className = "ruler-ref-tag";
+        tag.textContent = refs.primary.tag || "Last";
+        tag.style.left = x.toFixed(1) + "px";
+        strip.appendChild(tag);
       }
     }
-    ruler.classList.toggle("is-out-of-range",
-      value !== null && Number.isFinite(value) && !SP.psiInRulerRange(value));
+    // The orange centre marker means "today's value is here". It is shown only
+    // when there is one, and only when it is somewhere the ruler can show.
+    const centreEl = document.getElementById(field + "-centre");
+    if (centreEl) centreEl.hidden = !inRange;
+    // A value typed past the end pins to that end instead.
+    const pin = document.getElementById(field + "-pin");
+    if (pin) {
+      if (value !== null && !SP.psiInRulerRange(value)) {
+        const high = value > SP.PSI_MAX;
+        pin.hidden = false;
+        pin.className = "ruler-pin " + (high ? "pin-high" : "pin-low");
+        pin.textContent = high ? raw + " \u203a" : "\u2039 " + raw;
+      } else {
+        pin.hidden = true;
+        pin.textContent = "";
+      }
+    }
   }
 
   function renderPressure(field) {
     const el = document.getElementById(field);
-    const valueBtn = document.getElementById(field + "-value");
-    const refEl = document.getElementById(field + "-ref");
     const ruler = document.getElementById(field + "-ruler");
-    if (!el || !valueBtn || !ruler) return;
+    if (!el || !ruler) return;
     const raw = (el.value || "").trim();
-    valueBtn.innerHTML = (raw === "" ? "&mdash;" : escapeHtml(raw))
-      + '<span class="pressure-unit">psi</span>';
-    const ref = referenceFor(field);
-    if (refEl) {
-      // Shown only when the same bike on the same tires has a recorded value.
-      refEl.hidden = ref === null;
-      refEl.textContent = ref === null ? "" : "last " + ref;
-    }
+    const refs = referencesFor(field);
+    const hasRef = refs.primary !== null;
     const locked = el.readOnly;
-    valueBtn.disabled = locked;
-    ruler.setAttribute("aria-disabled", locked ? "true" : "false");
-    ruler.setAttribute("tabindex", locked ? "-1" : "0");
-    if (raw === "" || !Number.isFinite(Number(raw))) {
-      ruler.removeAttribute("aria-valuenow");
-      ruler.setAttribute("aria-valuetext", raw === "" ? "not set" : raw);
-    } else {
-      ruler.setAttribute("aria-valuenow", String(Number(raw)));
-      ruler.setAttribute("aria-valuetext", raw + " psi");
+
+    const today = document.getElementById(field + "-today");
+    if (today) today.textContent = SP.todayLabel(raw);
+
+    const refEl = document.getElementById(field + "-ref");
+    const refText = document.getElementById(field + "-ref-text");
+    if (refEl && refText) {
+      // No reference established: the pill is hidden outright rather than
+      // shown empty or filled with something approximate.
+      refEl.hidden = refs.sources.length === 0;
+      refText.textContent = refs.sources
+        .map((srcItem) => srcItem.text + " " + srcItem.value).join(" \u00b7 ");
     }
-    drawRuler(field);
+
+    const delta = document.getElementById(field + "-delta");
+    if (delta) {
+      const pre = field === "front-post" ? str("front-pre") : str("rear-pre");
+      const text = SP.postDelta(raw, pre);
+      delta.hidden = text === "";
+      delta.textContent = text;
+    }
+
+    const note = document.getElementById(field + "-note");
+    if (note) note.textContent = SP.pressureNote(raw, hasRef);
+
+    // "Same as" is the only way history becomes today's value, and the rider
+    // has to tap it. It is offered only while the field is blank.
+    const same = document.getElementById(field + "-same");
+    if (same) {
+      const offer = !locked && raw === "" && hasRef;
+      same.hidden = !offer;
+      same.textContent = offer
+        ? refs.primary.button + " \u00b7 " + refs.primary.value : "";
+    }
+
+    const draggable = !locked && SP.rulerDraggable(raw, hasRef ? refs.primary.value : null);
+    ruler.setAttribute("aria-disabled", draggable ? "false" : "true");
+    ruler.setAttribute("tabindex", draggable ? "0" : "-1");
+    const value = SP.readPsi(raw);
+    if (value !== null && SP.psiInRulerRange(value)) {
+      ruler.setAttribute("aria-valuenow", String(value));
+      ruler.setAttribute("aria-valuetext", raw + " psi");
+    } else {
+      ruler.removeAttribute("aria-valuenow");
+      ruler.setAttribute("aria-valuetext", raw === "" ? "not measured" : raw);
+    }
+    drawRuler(field, refs);
   }
 
   function renderAllPressures() { PRESSURE_FIELDS.forEach(renderPressure); }
 
-  // One place that commits a pressure, so every path - drag, keyboard, the
-  // buttons - goes through the same edit signal and the same safeguards.
+  // Every path that changes a pressure - drag, keyboard, the buttons, "Same
+  // as" - goes through here, so they share one edit signal and one set of
+  // safeguards.
   function setPressure(field, text) {
     const el = document.getElementById(field);
     if (!el || el.readOnly) return false;
@@ -400,38 +472,33 @@
     if (next === el.value) return false;
     el.value = next;
     el.dispatchEvent(new Event("input", { bubbles: true }));
-    renderPressure(field);
     return true;
   }
 
   function wirePressureRulers() {
     PRESSURE_FIELDS.forEach((field) => {
       const ruler = document.getElementById(field + "-ruler");
-      const valueBtn = document.getElementById(field + "-value");
-      const typeWrap = document.getElementById(field + "-typewrap");
       const el = document.getElementById(field);
+      const same = document.getElementById(field + "-same");
       if (!ruler || !el) return;
 
-      // Tapping the value reveals the ordinary typed input for a big jump.
-      if (valueBtn && typeWrap) {
-        valueBtn.addEventListener("click", () => {
-          if (el.readOnly) return;
-          typeWrap.hidden = !typeWrap.hidden;
-          if (!typeWrap.hidden && el.focus) el.focus();
+      if (same) {
+        same.addEventListener("click", () => {
+          const refs = referencesFor(field);
+          if (!refs.primary || el.readOnly) return;
+          setPressure(field, refs.primary.value);
         });
       }
 
       let drag = null;
       ruler.addEventListener("pointerdown", (e) => {
         if (el.readOnly) return;
-        const raw = (el.value || "").trim();
-        const value = raw === "" ? null : Number(raw);
-        if (value !== null && Number.isFinite(value) && !SP.psiInRulerRange(value)) return;
+        const refs = referencesFor(field);
+        const refValue = refs.primary ? refs.primary.value : null;
+        if (!SP.rulerDraggable(el.value, refValue)) return;
+        const current = SP.readPsi(el.value);
         drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false,
-                 start: (value === null || !Number.isFinite(value))
-                   ? (referenceFor(field) !== null ? Number(referenceFor(field)) : RULER_NEUTRAL)
-                   : value,
-                 moved: false };
+                 start: current !== null ? current : SP.readPsi(refValue) };
       });
 
       ruler.addEventListener("pointermove", (e) => {
@@ -448,20 +515,17 @@
         if (e.cancelable) e.preventDefault();
         const next = SP.psiFromDrag(drag.start, dx);
         if (next === null) return;
-        const text = next.toFixed(1);
-        if (text !== el.value) {
-          drag.moved = true;
-          if (setPressure(field, text) && navigator.vibrate) {
-            try { navigator.vibrate(8); } catch (err) {}
-          }
+        // A drag that has not reached the next tick changes nothing.
+        if (setPressure(field, next.toFixed(1)) && navigator.vibrate) {
+          try { navigator.vibrate(8); } catch (err) {}
         }
       });
 
+      // Release keeps the tick the value already sits on. A cancelled pointer
+      // - a system gesture taking over, say - just ends the drag and leaves
+      // the control usable, with whatever was committed intact.
       const endDrag = (e) => {
         if (!drag || (e && e.pointerId !== undefined && e.pointerId !== drag.id)) return;
-        // Release keeps the notch the value is already on. A cancelled pointer
-        // - a system gesture taking over, for instance - simply ends the drag
-        // and leaves the control usable, with whatever was committed intact.
         if (drag.captured && ruler.releasePointerCapture) {
           try { ruler.releasePointerCapture(drag.id); } catch (err) {}
         }
@@ -473,27 +537,18 @@
 
       ruler.addEventListener("keydown", (e) => {
         if (el.readOnly) return;
-        const step = { ArrowLeft: -SP.PSI_NOTCH, ArrowRight: SP.PSI_NOTCH,
-                       ArrowDown: -SP.PSI_NOTCH, ArrowUp: SP.PSI_NOTCH,
+        const step = { ArrowLeft: -SP.PSI_STEP, ArrowRight: SP.PSI_STEP,
+                       ArrowDown: -SP.PSI_STEP, ArrowUp: SP.PSI_STEP,
                        PageDown: -1, PageUp: 1 }[e.key];
         if (step === undefined) return;
-        const raw = (el.value || "").trim();
-        if (raw === "") {
-          const ref = referenceFor(field);
-          const base = ref !== null ? Number(ref) : RULER_NEUTRAL;
-          if (e.preventDefault) e.preventDefault();
-          setPressure(field, SP.snapPsi(base).toFixed(1));
-          return;
-        }
-        const value = Number(raw);
-        if (!Number.isFinite(value)) return;
+        const refs = referencesFor(field);
+        const refValue = refs.primary ? refs.primary.value : null;
+        if (!SP.rulerDraggable(el.value, refValue)) return;
         if (e.preventDefault) e.preventDefault();
-        if (!SP.psiInRulerRange(value)) {
-          const next = SP.rulerStep(raw, step < 0 ? -1 : 1);
-          if (next !== null) setPressure(field, next);
-          return;
-        }
-        setPressure(field, SP.snapPsi(value + step).toFixed(1));
+        const current = SP.readPsi(el.value);
+        const from = current !== null ? current : SP.readPsi(refValue);
+        if (from === null) return;
+        setPressure(field, SP.snapPsi(from + step).toFixed(1));
       });
     });
     renderAllPressures();

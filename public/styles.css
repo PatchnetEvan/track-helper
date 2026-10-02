@@ -314,6 +314,37 @@ button {
   text-align: center;
 }
 .btn-transition:active { background: var(--accent-dim); }
+
+/* POST's dock button is navigation, not a transition: outlined rather than
+   solid orange, because it doesn't save or change session state. */
+.btn-dock-nav {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 12px 16px;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.btn-dock-nav .btn-transition-verb { display: block; font-size: 1.125rem; font-weight: 700; }
+.btn-dock-nav .btn-transition-effect { display: block; color: var(--text-dim); font-size: 0.8125rem; }
+.btn-dock-nav:active { background: var(--bg-elev-2); }
+
+/* The check icon on Save only (C5 revised). Masked from a local SVG, because
+   style-src/img-src are 'self' and a CDN icon would be blocked. */
+.btn-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 6px;
+  vertical-align: -0.1em;
+  background: currentColor;
+  -webkit-mask: url(../icons/check.svg) center / contain no-repeat;
+  mask: url(../icons/check.svg) center / contain no-repeat;
+}
 /* rem, not the handoff's px: at a px size the dock is the one control on the
    screen that does NOT grow when the rider enlarges text, which is exactly
    backwards for the biggest action on the page. 1.125rem and 0.8125rem are
@@ -700,7 +731,7 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
   padding: 2px 6px;
   border: 1px solid var(--accent);
   border-radius: 4px;
-  color: #ff8a3d;
+  color: var(--accent);
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -816,7 +847,7 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 .stage[aria-selected="true"] {
   border-top-color: var(--accent);
   background: rgba(255, 102, 0, .10);
-  color: #ff8a3d;
+  color: var(--accent);
 }
 .stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .stage-icon {
@@ -852,66 +883,83 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    the input, opening the keyboard the stepper exists to avoid. */
 .field-label { display: block; }
 
-/* --- Pressure ruler (C8 revised) ------------------------------------------ */
+/* --- Pressure control (C8 revised: centred value + tenths ruler) ---------- */
 
-/* Front above Rear, one tire per row, never side by side at phone widths -
-   side-by-side is what produced the cut-off "e." in the previous build. */
+/* Front above Rear, one tire per card, never side by side at phone widths. */
 .pressure-stack { display: block; }
-.pressure { margin-bottom: 18px; }
-.pressure-head {
-  display: flex;
-  flex-wrap: wrap;              /* intrinsic: the value and reference drop to
-                                   their own lines when the text grows, with no
-                                   percentage threshold to guess at */
-  align-items: baseline;
-  gap: 4px 10px;
-  margin-bottom: 8px;
-}
-.pressure-label {
-  flex: none;
+.pressure { margin-bottom: 22px; text-align: center; }
+.pressure-tire {
+  margin: 0 0 6px;
   font-size: 0.9375rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
-.pressure-value {
+.pressure-today { margin: 0 0 8px; color: var(--text-dim); font-size: 0.8125rem; }
+.pressure-box {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev-2);
+}
+.pressure-box input {
+  width: 4.5ch;
   min-width: 0;
   padding: 0;
   border: 0;
   background: none;
   color: var(--text);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 2.75rem;           /* 44px at the default root, and it scales */
+  font-size: 2rem;           /* 32px at the default root, and it scales */
   font-weight: 700;
-  line-height: 1.1;
-  cursor: pointer;
-  overflow-wrap: break-word;
+  line-height: 1.15;
+  text-align: center;
 }
-.pressure-value:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.pressure-unit {
-  margin-left: 6px;
+.pressure-box input:focus { outline: none; }
+.pressure-box input::placeholder { color: var(--text-dim); opacity: 1; }
+.pressure-box:focus-within { border-color: var(--accent); }
+.pressure-unit { color: var(--text-dim); font-size: 0.875rem; font-weight: 600; }
+.pressure-delta {
+  margin: 6px 0 0;
   color: var(--text-dim);
-  font-family: Barlow, system-ui, sans-serif;
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
 }
+
+/* Reference pill: dashed, dim, centred under the value. Never --text, never
+   --accent, and never inside the value box - it is history, not a reading. */
 .pressure-ref {
-  min-width: 0;
+  display: inline-block;
+  max-width: 100%;
+  margin: 10px 0 0;
+  padding: 5px 12px;
+  border: 1px dashed var(--text-dim);
+  border-radius: 8px;
   color: var(--text-dim);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   overflow-wrap: break-word;
 }
+.pressure-ref-cap { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; }
+
 .pressure-row {
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 64px;
   gap: 8px;
+  margin-top: 12px;
 }
 .ruler {
   position: relative;
-  flex: 1 1 6rem;
   min-width: 0;
-  height: 64px;
+  /* 64px normally, growing to the 72px the design asks for at large text -
+     intrinsically, with no threshold to detect. */
+  height: clamp(64px, 4rem, 72px);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--bg-elev-2);
   overflow: hidden;
   /* The page keeps vertical scrolling; only a clearly horizontal gesture is
@@ -920,43 +968,68 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   cursor: ew-resize;
 }
 .ruler:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.ruler-strip { position: absolute; inset: 0; will-change: transform; }
-/* Notches and their whole-PSI labels are positioned, not flowed - without
-   this they stack into one unreadable run of digits. */
-.tick {
-  position: absolute;
-  bottom: 8px;
-  width: 1px;
-  height: 14px;
-  background: var(--border);
-  transform: translateX(-50%);
-}
-.tick-whole { height: 26px; }
-/* The reference gets its own dim tick, in an existing token, so the rider can
-   see how far they have moved from last session. */
-.tick-ref { width: 2px; height: 30px; background: var(--text-dim); }
+.ruler[aria-disabled="true"] { cursor: default; }
+.ruler-strip { position: absolute; inset: 0; }
+/* Ticks and labels are positioned, not flowed. */
+.tick { position: absolute; bottom: 10px; width: 1px; height: 10px; background: var(--border); transform: translateX(-50%); }
+.tick-half { height: 18px; }
+.tick-whole { width: 2px; height: 26px; }
 .tick-label {
   position: absolute;
-  top: 7px;
+  top: 8px;
   transform: translateX(-50%);
   color: var(--text-dim);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: 0.75rem;
   line-height: 1;
+  white-space: nowrap;
 }
-.ruler-centre {
+/* Shown only when today's value exists and sits inside the ruler's range. */
+.ruler-centre { position: absolute; inset: 0 auto 0 50%; width: 3px; margin-left: -1.5px; background: var(--accent); }
+/* The reference position, dashed and dim, with its session tag. */
+.ruler-ref { position: absolute; top: 4px; bottom: 4px; border-left: 2px dashed var(--text-dim); transform: translateX(-50%); }
+.ruler-ref-tag {
   position: absolute;
-  top: 6px; bottom: 6px; left: 50%;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--accent);
+  bottom: 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  /* Sits over the ticks rather than colliding with a tick label above. */
+  background: var(--bg-elev-2);
+  transform: translateX(-50%);
+  color: var(--text-dim);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
-.ruler.is-out-of-range { opacity: 0.55; cursor: default; }
-.pressure-type { display: block; margin-top: 10px; }
-.pressure-type span { display: block; margin-bottom: 6px; color: var(--text-dim); font-size: 0.875rem; }
+/* Where a typed value sits past the end of the ruler. */
+.ruler-pin {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.ruler-pin.pin-high { right: 8px; }
+.ruler-pin.pin-low { left: 8px; }
 
-/* One stepper per row (C8): minus, the value, plus - so the number is never
+.pressure-note {
+  margin: 10px 0 0;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.pressure-same { margin-top: 10px; min-height: var(--tap); }
+
+/* Large text: the value grows and the ruler gets taller, and everything keeps
+   wrapping intrinsically rather than at a guessed threshold. */
+@media (min-resolution: 0.001dppx) {
+  .pressure-box input { font-size: clamp(2rem, 2rem + 1vw, 4rem); }
+}
+
+/* One stepper per row (C8)/* One stepper per row (C8): minus, the value, plus - so the number is never
    squeezed between two fixed buttons. Replaces a 400px media query that put
    the value on its own line below that width and crushed it to ~28px above
    it, which is what a 412px phone was showing. */
@@ -973,11 +1046,11 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   flex: none;
   min-width: 64px;
   min-height: 64px;
-  border: 1px solid #4a4a4a;
-  border-radius: 10px;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
   background: var(--bg-elev-2);
   color: var(--text);
-  font-size: 1.5rem;
+  font-size: 1.875rem;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
@@ -1152,7 +1225,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 }
 
 /* A stage cell that will refuse to navigate says so before it is tapped. */
-.stage.is-locked { color: #7a828d; }
+.stage.is-locked { color: var(--text-dim); }
 .stage.is-locked .stage-icon {
   -webkit-mask: url("icons/lock.svg") center / contain no-repeat;
   mask: url("icons/lock.svg") center / contain no-repeat;

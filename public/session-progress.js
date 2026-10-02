@@ -308,7 +308,9 @@
         text: "Not saved yet \u00b7 draft kept on this device" };
     }
     if (f.hasContent) {
-      return { key: "unsaved", tone: "dim", text: "Not saved yet \u00b7 REVIEW saves it" };
+      // Names the two controls that actually save, and where they are.
+      return { key: "unsaved", tone: "dim",
+        text: "Not saved yet \u00b7 on REVIEW, tap Save only or Save & next" };
     }
     return { key: "none", tone: "dim", text: "" };
   }
@@ -427,100 +429,224 @@
     return ORDINARY_DECIMAL.test(text) ? text : null;
   }
 
-  // --- Pressure ruler (C8 revised) ------------------------------------------
+  // --- Pressure ruler (C8 revised: centred value + tenths ruler) ------------
   //
-  // 10-45 PSI is the RULER'S INTERACTION RANGE, not a recommended operating
-  // range and not a validation rule. A value the rider typed outside it is
-  // kept exactly as typed: the strip pins at the nearest end, dragging has no
-  // position to work from, and the buttons will only move the value TOWARD
-  // the range. Nothing is ever rewritten on the rider's behalf.
+  // 10-45 PSI is how far the ruler can be DRAGGED. It is not a recommendation
+  // and not validation: a value typed outside it is kept exactly as typed, and
+  // nothing in here ever labels a pressure high, low or unsafe.
   const PSI_MIN = 10;
   const PSI_MAX = 45;
-  const PSI_NOTCH = 0.5;      // one notch
-  const NOTCH_PX = 32;        // ...is 32px of drag
+  const PSI_STEP = 0.1;       // one tick is a tenth
+  const TICK_PX = 32;         // ...and 32px of drag
   const DRAG_INTENT_PX = 10;  // before which the page keeps the gesture
+
+  function tenths(value) { return Math.round(value * 10) / 10; }
 
   function psiInRulerRange(value) {
     return Number.isFinite(value) && value >= PSI_MIN && value <= PSI_MAX;
   }
 
-  // Snap to the notch grid and hold inside the range. Used only for values the
-  // ruler itself produces - never to correct something typed.
+  // Ordinary decimal text only. Scientific and hex notation are not numbers a
+  // rider types into a pressure field, and treating them as numbers is how
+  // digits get invented.
+  const ORDINARY_PSI = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+  function readPsi(text) {
+    const raw = String(text == null ? "" : text).trim();
+    if (raw === "" || !ORDINARY_PSI.test(raw)) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // A value the ruler can actually represent and step.
+  function usablePsi(text) {
+    const state = pressureState(text);
+    if (state !== "in-range" && state !== "typed-outside") return null;
+    return readPsi(text);
+  }
+
+  // What kind of thing is in the field right now. Every bit of copy and every
+  // enabled/disabled decision is derived from this, so they cannot disagree.
+  function pressureState(text) {
+    const raw = String(text == null ? "" : text).trim();
+    if (raw === "") return "blank";
+    if (!ORDINARY_PSI.test(raw)) return "not-a-number";
+    // The numeric contract from the stepper work still holds: text with more
+    // decimals than can be stepped accurately, or a magnitude that is not safe
+    // once scaled, is kept exactly as typed and cannot be stepped. Rounding it
+    // to a tenth would invent digits the rider never entered.
+    if (stepPlan(raw, String(PSI_STEP)) === null) return "unsupported";
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return "unsupported";
+    return psiInRulerRange(n) ? "in-range" : "typed-outside";
+  }
+
   function snapPsi(value) {
     if (!Number.isFinite(value)) return null;
-    const snapped = Math.round(value / PSI_NOTCH) * PSI_NOTCH;
-    const held = Math.min(PSI_MAX, Math.max(PSI_MIN, snapped));
-    return Number(held.toFixed(1));
+    const held = Math.min(PSI_MAX, Math.max(PSI_MIN, tenths(value)));
+    return tenths(held);
   }
 
-  // Where a drag of dx pixels from startPsi lands.
+  // Dragging LEFT increases the value, as the design file does it.
   function psiFromDrag(startPsi, dx) {
     if (!Number.isFinite(startPsi)) return null;
-    return snapPsi(startPsi + (dx / NOTCH_PX) * PSI_NOTCH);
+    const notches = Math.round(-dx / TICK_PX);
+    return snapPsi(startPsi + notches * PSI_STEP);
   }
 
-  // Take over the gesture only once it is clearly horizontal, so an ordinary
-  // vertical scroll that happens to start on the ruler still scrolls the page.
+  // Take the gesture over only once it is clearly horizontal, so an ordinary
+  // vertical scroll that happens to start on the ruler still scrolls.
   function shouldCaptureDrag(dx, dy) {
     return Math.abs(dx) > DRAG_INTENT_PX && Math.abs(dx) > Math.abs(dy);
   }
 
-  // A button press on a value that sits outside the ruler's range may only
-  // move it closer to the range. Returns null when it would move it further
-  // out, so nothing is rewritten and no edit is recorded.
-  function rulerStep(currentText, direction) {
-    const raw = String(currentText == null ? "" : currentText).trim();
-    if (raw === "") return null;                       // blank: the ruler sets the first value
-    const plan = stepPlan(raw, String(PSI_NOTCH));
-    if (plan === null) return null;                    // unreadable text is left alone
-    const value = Number(raw);
+  // -/+ are a tenth. Outside the ruler's range they still step from the typed
+  // value - they are the way back - but they never go below zero and they
+  // never rewrite text that is not a number. From blank they start at the
+  // reference; with no reference there is nothing to start from, so they stay
+  // inactive rather than invent one.
+  function rulerStep(currentText, direction, referenceValue) {
     const dir = direction < 0 ? -1 : 1;
-    if (!psiInRulerRange(value)) {
-      const towards = value < PSI_MIN ? 1 : -1;
-      if (dir !== towards) return null;                // refuse to go further out
+    const state = pressureState(currentText);
+    if (state === "not-a-number" || state === "unsupported") return null;
+    if (state === "blank") {
+      const ref = usablePsi(referenceValue);
+      if (ref === null) return null;
+      const next = tenths(ref + dir * PSI_STEP);
+      if (dir < 0 && next < 0) return null;
+      return next.toFixed(1);
     }
-    const next = stepValue(raw, String(PSI_NOTCH), dir);
+    // Stepping goes through the same decimal-safe arithmetic the click
+    // steppers use, so a typed 30.25 becomes 30.35 rather than being rounded
+    // to a tenth the rider never asked for.
+    const next = stepValue(String(currentText).trim(), String(PSI_STEP), dir);
     if (next === null) return null;
-    // Inside the range the ruler holds its ends; outside, the typed magnitude
-    // is preserved as it walks back in.
     const n = Number(next);
-    if (psiInRulerRange(value) && !psiInRulerRange(n)) return null;
+    if (dir < 0 && n < 0) return null;
+    // Inside the range the ruler holds its ends.
+    if (state === "in-range" && !psiInRulerRange(n)) return null;
     return next;
   }
 
-  // The reference is the SAME bike on the SAME tire fitment, most recently
-  // saved. Anything less exact is omitted rather than guessed at: a pressure
-  // from a different bike or a different tire is not a reference, it is a
-  // misleading number next to the one the rider is about to set.
-  function pressureReference(sessions, context, field) {
+  // The ruler may be dragged only when there is a position to drag from: a
+  // value inside the range, or a reference to start from while blank.
+  function rulerDraggable(currentText, referenceValue) {
+    const state = pressureState(currentText);
+    if (state === "in-range") return true;
+    if (state === "blank") return usablePsi(referenceValue) !== null;
+    return false;
+  }
+
+  // --- References ------------------------------------------------------------
+  //
+  // A reference is history, never a measurement. It is only shown when it is
+  // genuinely the same thing: the same bike on the same tire brand and model.
+  // Anything less exact is omitted, because a pressure from a different bike
+  // sitting next to today's is worse than no pressure at all.
+  const PRESSURE_KEYS = {
+    "front-pre": "frontPre", "rear-pre": "rearPre",
+    "front-post": "frontPost", "rear-post": "rearPost",
+  };
+
+  function lastMatchingSession(sessions, context) {
     if (!Array.isArray(sessions) || !context) return null;
     const bike = String(context.bike || "").trim().toLowerCase();
     const brand = String(context.brand || "").trim().toLowerCase();
     const model = String(context.model || "").trim().toLowerCase();
-    if (!bike || !brand || !model) return null;        // not enough to match on
-    const key = { "front-pre": "frontPre", "rear-pre": "rearPre",
-                  "front-post": "frontPost", "rear-post": "rearPost" }[field];
-    if (!key) return null;
+    if (!bike || !brand || !model) return null;
     let best = null;
     for (const s of sessions) {
       if (!s || !s.setup || !s.tires) continue;
       if (String(s.setup.bike || "").trim().toLowerCase() !== bike) continue;
       if (String(s.tires.brand || "").trim().toLowerCase() !== brand) continue;
       if (String(s.tires.model || "").trim().toLowerCase() !== model) continue;
-      const v = String(s.tires[key] == null ? "" : s.tires[key]).trim();
-      if (v === "" || !Number.isFinite(Number(v))) continue;
-      if (best === null || String(s.savedAt || "") > String(best.savedAt || "")) {
-        best = { savedAt: s.savedAt, value: v };
+      if (best === null || String(s.savedAt || "") > String(best.savedAt || "")) best = s;
+    }
+    return best;
+  }
+
+  // A session number is used only when the saved session actually carries a
+  // label. It is never derived, guessed at or counted up to.
+  function sessionTag(session) {
+    const label = String(session && session.sessionLabel || "").trim();
+    const m = label.match(/(\d+)\s*$/);
+    return m ? "S" + m[1] : null;
+  }
+
+  function pressureReferences(sessions, context, field, thisSessionPre) {
+    const key = PRESSURE_KEYS[field];
+    const out = { primary: null, sources: [] };
+    if (!key) return out;
+    const last = lastMatchingSession(sessions, context);
+    const tag = last ? sessionTag(last) : null;
+    const historic = last ? readPsi(last.tires[key]) : null;
+    const isPost = field.indexOf("-post") !== -1;
+    if (historic !== null) {
+      const value = historic.toFixed(1);
+      const source = isPost
+        ? { tag: tag, text: (tag ? tag + " hot" : "Last session hot"), value: value }
+        : { tag: tag, text: (tag ? "Last session (" + tag + ")" : "Last session"), value: value };
+      out.sources.push(source);
+      out.primary = { value: value, tag: tag, text: source.text,
+                      button: tag ? "Same as " + tag : "Same as last session" };
+    }
+    if (isPost) {
+      const pre = readPsi(thisSessionPre);
+      if (pre !== null) {
+        out.sources.push({ tag: "PRE", text: "PRE this session", value: pre.toFixed(1) });
+        if (out.primary === null) {
+          out.primary = { value: pre.toFixed(1), tag: "PRE", text: "PRE this session",
+                          button: "Same as PRE" };
+        }
       }
     }
-    return best ? best.value : null;
+    return out;
+  }
+
+  // --- Copy -----------------------------------------------------------------
+
+  function todayLabel(text) {
+    const state = pressureState(text);
+    if (state === "blank") return "Today \u00b7 not measured";
+    if (state === "in-range") return "Today";
+    return "Today \u00b7 typed";
+  }
+
+  function pressureNote(text, hasReference) {
+    const state = pressureState(text);
+    if (state === "not-a-number") return "Type a number, for example 30.5.";
+    if (state === "unsupported") {
+      return String(text).trim()
+        + " is kept as typed. \u2212 / + and the ruler work to one decimal place.";
+    }
+    if (state === "typed-outside") {
+      const shown = String(text).trim();
+      return shown + " is outside the ruler (" + PSI_MIN + "\u2013" + PSI_MAX
+        + "). Kept as typed. Change it with \u2212 / + or by typing.";
+    }
+    if (state === "blank") {
+      const tail = "Type the whole number, then drag or use \u2212 / + to set the tenths.";
+      return hasReference ? "Not measured yet. " + tail : tail;
+    }
+    return "";
+  }
+
+  // POST only, and only once there is a value to compare.
+  function postDelta(postText, preText) {
+    const post = readPsi(postText);
+    const pre = readPsi(preText);
+    if (post === null || pre === null) return "";
+    const d = tenths(post - pre);
+    return (d >= 0 ? "+" : "\u2212") + Math.abs(d).toFixed(1) + " vs PRE";
   }
 
   const api = {
     nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
     footerDraftNote, stepValue, decimalsOf, canStep, stepPlan,
-    PSI_MIN, PSI_MAX, PSI_NOTCH, NOTCH_PX, DRAG_INTENT_PX,
-    psiInRulerRange, snapPsi, psiFromDrag, shouldCaptureDrag, rulerStep, pressureReference,
+    PSI_MIN, PSI_MAX, PSI_STEP, TICK_PX, DRAG_INTENT_PX,
+    psiInRulerRange, snapPsi, psiFromDrag, shouldCaptureDrag, rulerStep, rulerDraggable,
+    readPsi, usablePsi, pressureState, pressureReferences, lastMatchingSession, sessionTag,
+    todayLabel, pressureNote, postDelta,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;
