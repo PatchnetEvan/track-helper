@@ -35,7 +35,7 @@ Row heights are now 84 (FRONT) and 88 (REAR) against the 72px minimum. The
 remainder is the dashed pill sitting under the label, which is where the ruling
 puts it.
 
-## Two things to look at
+## Two things to look at (both now ruled on, and accepted as built)
 
 **The placeholder is "e.g. 30", not "Type, e.g. 30".** Beside the button the
 field is 119px, and "Type, e.g. 30" in 20px mono needs about 156px — it
@@ -76,3 +76,40 @@ guard and the save controls.
 iPhone Safari with the toolbar shown, iPhone Safari with it collapsed, and one
 Android phone in Chrome. For each: do the tire rows, the open controls and the
 dock fit? The 701/844 split is what this settles.
+
+
+---
+
+## Rulings applied, round 2 review
+
+1. **Placeholder `e.g. 30`** — accepted. The field's accessible name carries the
+   meaning; the placeholder is a hint. The button does not wrap at 390px.
+2. **"Today · typed" absent from a closed row with a reference** — accepted. The
+   chip already shows how the value compares, and the "outside the drag range"
+   note on the open card carries the detail. The extra 16px was not added.
+3. **The 6rem flex basis** — accepted, and recorded in the PR description with
+   its reason.
+
+## The agreed device-check fallback does not reach its estimate
+
+The fallback for a shortfall of 30px or less was to put the track, session and
+stage chip on the name row, with About wrapping when it does not fit, for about
+22px. Simulated against the deployed build at 390px through the CSSOM (no
+rebuild, no inline style attributes, so the page's `style-src 'self'` is not
+involved):
+
+| variant | header | PRE needs | headroom at 701 |
+|---|---|---|---|
+| as built | 145 | 546 | **+10** |
+| name row carries track, session and chip | 141 | 542 | +14 |
+| …and About wraps to its own row | 172 | 573 | **−17** |
+
+**It returns 4px, not 22px.** The estimate assumed a header this branch has
+already compacted: the bike name and About were put on one row in an earlier
+round, and at 390px the name (~150px) plus "Homestead · Session 3" (~160px)
+already fills the 358px of usable width, so the chip wraps regardless. Giving
+About its own row frees width but adds a 48px row, which is the net loss above.
+
+A real-phone shortfall of 5px or more therefore needs the owner's ruling, not
+this fallback. The escalation path in the ruling — stop and send the numbers —
+applies from the first pixel, not from 30.
