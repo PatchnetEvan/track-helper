@@ -221,6 +221,22 @@ button {
   font-size: 1rem;
   cursor: pointer;
   margin-top: 4px;
+  /* A label must wrap inside the button, never spill out of it. At 320px with
+     200% text "recommendations" is a single unbreakable word wider than the
+     245px content box, so it overflowed horizontally and the end of the label
+     was unreachable. break-word is the narrow fix: it permits a break inside a
+     word ONLY when that word cannot fit on a line of its own, so ordinary
+     labels at ordinary sizes wrap between words exactly as before. The
+     alternatives were worse - shrinking the text fights the rider's own text
+     size, and rewording is not ours to do.
+
+     hyphens comes first so the break lands at a real syllable
+     ("recom-mendations") rather than orphaning a letter; break-word stays
+     behind it as the guarantee, because hyphenation only breaks where the
+     dictionary allows and a long word with no valid break would still spill.
+     The document is lang="en", which is what makes auto hyphenation work. */
+  hyphens: auto;
+  overflow-wrap: break-word;
 }
 .btn-primary {
   background: var(--accent);
@@ -238,6 +254,51 @@ button {
   border-color: var(--danger);
 }
 .btn-danger:active { background: rgba(239, 68, 68, 0.1); }
+
+/* Session transition (C4). The ONE solid --accent element in the app: a rider
+   glancing through a tinted visor must be able to tell "this moves the session
+   on" from navigation and from a calculation, by shape and position, not just
+   colour. Nothing else may take this fill.
+
+   Two lines: the verb and where it goes, then what state changes. The sub-line
+   is dimmed rather than a second colour so it never reads as a separate
+   control. */
+.btn-transition {
+  display: block;
+  width: 100%;
+  /* Same reason as the shared rule above: this carries a verb line and an
+     effect line, both of which must wrap inside the button. */
+  hyphens: auto;
+  overflow-wrap: break-word;
+  min-height: 60px;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #1a0a00;
+  cursor: pointer;
+  text-align: center;
+}
+.btn-transition:active { background: var(--accent-dim); }
+.btn-transition .btn-transition-verb {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.btn-transition .btn-transition-effect {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.85;
+  line-height: 1.25;
+}
+/* Large text (README "Glove, sun, text size"): above 150% the sub-line is
+   meant to be hidden so the verb and the tap target survive. That is not
+   expressible as a reliable media query - text zoom is not a media feature -
+   and it belongs with the dock that introduces the height constraint, so it
+   is left to PR 4 rather than guessed at here. */
 
 .result {
   margin-top: 14px;
