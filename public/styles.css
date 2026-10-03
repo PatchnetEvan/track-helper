@@ -764,6 +764,9 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
    flex container, so a long bike or track name cannot wrap until its item is
    allowed to shrink. A rider's own label must never be cut off or scaled down. */
 .context-bike {
+  /* Its own row: the track, session and chip then share the next one, and the
+     chip drops to a third line only when that row genuinely will not hold it. */
+  flex: 1 1 100%;
   font-size: 1.125rem;
   font-weight: 700;
   min-width: 0;

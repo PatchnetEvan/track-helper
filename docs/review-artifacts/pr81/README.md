@@ -78,3 +78,86 @@ this brief asked for a screenshot of them.
 
 `REVIEW_beta18_spec_glove_sun_text.md`, cited as the full review, is not in the
 handoff folder. This was built from the brief alone.
+
+---
+
+# Round 2 (`0.1.0-beta.20`)
+
+## 1. The stage chip, and PRE now fits
+
+The chip reads the stage name only — `PRE`, `POST`, `DAY`, `REVIEW` — with the
+fuller wording kept as `aria-label` ("PRE · before rollout"), where it costs no
+width. The bike name takes its own row, so the track, session and chip share
+the next one; at default and 150% they are measured on the same row, and the
+chip drops to its own line only at 200%.
+
+**Header height: 147px → 120px (−27).**
+
+| case | usable | needs | dock top | result |
+|---|---|---|---|---|
+| **PRE, FRONT open** | **701** | 535 | 556 | **fits, 21px spare** |
+| PRE, FRONT open | 844 | 535 | 699 | fits, 164px spare |
+| POST, FRONT open | 701 | 520 | 556 | fits, 36px spare |
+| POST, FRONT open | 844 | 520 | 699 | fits, 179px spare |
+
+No protected size was touched: 72px rows, 72px pad and ±, 64px dock, and the
+13px floor all stand. No horizontal page scroll and nothing clipped at any size.
+
+Header line by line, since the brief asked for it either way:
+
+| | default | 150% | 200% |
+|---|---|---|---|
+| header | 120 | 225 | 366 |
+| context line | 58 | 82 | 156 |
+| chip on the track/session row | yes | yes | no, its own line |
+
+## 2. Reachability guard
+
+`tests/field-reachability.test.js`. The app has no `#session-form`, so it reads
+the shipped markup and applies `showTab`'s own rules: a panel shows on the
+stages listed for it, and a `[data-stage]` block inside it narrows that further.
+Every `input`, `select` and `textarea` must be visible on at least one stage.
+
+Three fields are excluded, each with its reason: `feedback-email` and
+`feedback-body` (About ▸ Feedback, not session fields) and `autosave-switch`
+(a setting, not a reading). A fourth test asserts every excluded id still
+exists, so the list cannot rot.
+
+**It catches the original regression.** Moving the symptoms back into
+`panel-suspension` fails both the general test and the named one:
+
+> `#symptoms lives in panel-suspension, which POST does not show — the beta.16 regression`
+
+First attempt did **not** catch it: the symptom checkboxes carry no `id`, and
+the parser skipped them. Controls without an id are now keyed by their `value`,
+which is what makes the general guard see it.
+
+## 3. Review items not built and not ruled out
+
+Checked `REVIEW_beta18_spec_glove_sun_text.md` line by line against the branch.
+
+**Nothing is outstanding.** Every coder item is built. For the record:
+
+| item | state |
+|---|---|
+| A1 nav + `aria-current` | built |
+| A2 POST dock 2px accent | built. Height is **64px**, not the review's 60/72 — the round-1 brief ruled 64 |
+| A3 DAY copy (D3) | built, per the round-1 brief |
+| A4 tokens | built: `#1a0a00`→`var(--bg)` ×4, `rgba(255,102,0,…)`→`var(--bg-elev)` ×5 |
+| A5 dock sub-line above 150% | **no action by design** — the review accepts the shipped behaviour |
+| A6 media wrapper + tripled comment | built |
+| A7 About copy | built, all four lines |
+| A8 README | **not a coder task**, the review says so explicitly |
+| B1 Undo / B5 overscroll / B6 beforeunload | built |
+| B2 72px dock (D2) | ruled 64px by the round-1 brief |
+| B3 symptom chips | built |
+| B4 16px gap + divider | correctly **not** built: conditional on D2 = 72px, which was ruled out, so flush stands |
+| B7 no-keyboard PRE/POST | no change required |
+| C1–C4 sun | built |
+| D1 13px floor | built |
+| D2 tire rows at 150% | screenshots supplied |
+
+One wording note on D2: the review says the suspension grid "already switches
+with a container query". It does not — it uses wrapping flex rows with a rem
+basis, because a container query keys off width, which does not change when
+only the text size does.

@@ -1357,9 +1357,17 @@
   // C3: which stage the context line is describing. Wording follows the stage
   // the rider is actually on; PRE and POST get the handoff's fuller phrasing
   // because those two are the ones with a before/after meaning.
+  // The stage bar already shows which stage is active, so the chip only has to
+  // name it. The fuller wording stays as the accessible name, where it costs no
+  // width - at 390px the long text was 385px against 358px and pushed the
+  // header onto a third line.
   const STAGE_CHIP = {
-    day: "DAY", pre: "PRE \u00b7 BEFORE ROLLOUT", post: "POST \u00b7 JUST IN",
+    day: "DAY", pre: "PRE", post: "POST",
     laps: "LAPS", notes: "NOTES", review: "REVIEW",
+  };
+  const STAGE_CHIP_FULL = {
+    day: "Day", pre: "PRE \u00b7 before rollout", post: "POST \u00b7 just in",
+    laps: "Laps", notes: "Notes", review: "Review",
   };
 
   function renderStageChip() {
@@ -1367,6 +1375,9 @@
     if (!chip) return;
     const text = STAGE_CHIP[_stage] || "";
     chip.textContent = text;
+    const full = STAGE_CHIP_FULL[_stage] || text;
+    if (text) chip.setAttribute("aria-label", full);
+    else chip.removeAttribute("aria-label");
     chip.hidden = !text;
   }
 
@@ -1377,8 +1388,7 @@
     const track = str("track");
     const label = str("session-label");
     // An unset bike or track says so rather than leaving the line empty.
-    // The short stage name only: "No bike set \u00b7 DAY", not the whole chip.
-    const chipText = String(STAGE_CHIP[_stage] || "").split(" \u00b7 ")[0];
+    const chipText = String(STAGE_CHIP[_stage] || "");
     const bikeLine = SP.headerBikeLine(bike, chipText);
     const where = SP.headerTrackLine(track, label);
     document.getElementById("context-bike").textContent = bikeLine;
