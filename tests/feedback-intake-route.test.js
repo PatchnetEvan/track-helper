@@ -341,7 +341,11 @@ for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   const worker = readFileSync(join(import.meta.dirname, "..", "src", "waitlist-worker.js"), "utf8");
   assert.ok(worker.includes("FEEDBACK_RATE_BUCKET_PREFIX"), "worker uses the reserved feedback namespace");
   const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
-  assert.ok(appJs.includes('.tab[aria-selected="true"]'), "client reads the canonical active tab");
+  // The navigation class moved from .tab to .stage when the eight tabs became
+  // six stages. What this asserts is unchanged: the client READS the active
+  // destination rather than hardcoding one, which is what keeps
+  // source_section honest.
+  assert.ok(appJs.includes('.stage[aria-selected="true"]'), "client reads the canonical active stage");
   assert.ok(!/sourceSection\s*[:=]\s*["']feedback["']/.test(appJs), "client never stamps source_section='feedback'");
   const html = readFileSync(join(import.meta.dirname, "..", "public", "log", "index.html"), "utf8");
   assert.ok(html.includes("How can we make MotoTrack better?"), "exact rider prompt");

@@ -36,6 +36,14 @@ main {
   margin: 0 auto;
 }
 
+/* The [hidden] attribute means hidden, always.
+   Any display value in this stylesheet outranks the UA's [hidden] rule, which
+   made "hidden" elements keep their box: .context-line kept an empty gap, and
+   the stage-split .grid-2 blocks showed post-session pressures inside PRE.
+   Rather than patch each display rule as it is found, [hidden] is enforced
+   once, here. */
+[hidden] { display: none !important; }
+
 .app-header {
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border);
@@ -661,10 +669,7 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
   align-items: baseline;
   gap: 4px 10px;
 }
-/* A display value in a stylesheet beats the [hidden] attribute's UA
-   display: none, so without this the "hidden" context line stayed in the
-   layout as an empty gap - visible nowhere, occupying space everywhere. */
-.context-line[hidden] { display: none; }
+/* (the global [hidden] rule at the top of this file now covers this) */
 /* The handoff's type table gives these as 18px and 15px, but its own
    "Glove, sun, text size" rule says to keep rem units, and a context line
    that ignores the rider's text setting is the one line they most need to
@@ -704,7 +709,186 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
   width: 22px;
   height: 22px;
   background: currentColor;
-  -webkit-mask: url("../icons/info.svg") center / 22px 22px no-repeat;
-  mask: url("../icons/info.svg") center / 22px 22px no-repeat;
+  -webkit-mask: url("icons/info.svg") center / 22px 22px no-repeat;
+  mask: url("icons/info.svg") center / 22px 22px no-repeat;
 }
 .about-open-label { font-size: 0.75rem; font-weight: 600; line-height: 1; }
+
+
+/* ── Stage bar (C1, C2) ───────────────────────────────────────────────────
+   Six labelled stages. The bar is navigation and a view control: the active
+   stage means "what you are looking at", never "what you have finished", so
+   it is styled with a bar, a tint and a colour rather than the solid --accent
+   fill PR 1 reserved for one thing.
+
+   Fixed to the bottom on a phone, so it sits in the thumb arc and does not
+   ride the scroll. The content area reserves its height plus the safe area,
+   so nothing can end up hidden behind it. */
+.stage-bar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 6;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* At normal size six labels fit; at large text they will not, so the bar
+     scrolls sideways rather than truncating a label. showTab keeps the
+     selected stage in view. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.stage-bar::-webkit-scrollbar { display: none; }
+.stage {
+  flex: 1 0 auto;
+  min-width: 3.25rem;
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 9px 4px 6px;
+  background: transparent;
+  border: 0;
+  border-top: 3px solid transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* Active: bar AND tint AND colour. Never colour alone - in direct sun a hue
+   shift is the first thing to go. */
+.stage[aria-selected="true"] {
+  border-top-color: var(--accent);
+  background: rgba(255, 102, 0, .10);
+  color: #ff8a3d;
+}
+.stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.stage-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  background: currentColor;
+  flex: none;
+}
+/* Labels scale with the rider's text size rather than sitting at a fixed
+   13px, which is why the bar is allowed to scroll instead. */
+.stage-label { font-size: 0.8125rem; font-weight: 700; line-height: 1; }
+
+.stage-icon-calendar-days { -webkit-mask: url("icons/calendar-days.svg") center / contain no-repeat; mask: url("icons/calendar-days.svg") center / contain no-repeat; }
+.stage-icon-gauge { -webkit-mask: url("icons/gauge.svg") center / contain no-repeat; mask: url("icons/gauge.svg") center / contain no-repeat; }
+.stage-icon-flag { -webkit-mask: url("icons/flag.svg") center / contain no-repeat; mask: url("icons/flag.svg") center / contain no-repeat; }
+.stage-icon-timer { -webkit-mask: url("icons/timer.svg") center / contain no-repeat; mask: url("icons/timer.svg") center / contain no-repeat; }
+.stage-icon-notebook-pen { -webkit-mask: url("icons/notebook-pen.svg") center / contain no-repeat; mask: url("icons/notebook-pen.svg") center / contain no-repeat; }
+.stage-icon-clipboard-list { -webkit-mask: url("icons/clipboard-list.svg") center / contain no-repeat; mask: url("icons/clipboard-list.svg") center / contain no-repeat; }
+
+/* Content clears the fixed bar. Measured at runtime, because the bar grows
+   with text size; the fallback already clears the default bar so the first
+   paint is correct with the script disabled. */
+:root { --stage-bar-h: 64px; }
+body { padding-bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px) + var(--space-gap, 12px)); }
+.panel :is(input, select, textarea, button) {
+  scroll-margin-bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px) + 12px);
+}
+
+/* On the narrowest phones the 3.25rem floor is what stops all six fitting,
+   not the labels themselves. Letting the cells size to their content gets
+   every stage on screen at normal text without shrinking the words. The 44px
+   tap floor is a HEIGHT and is untouched; these cells stay far wider than a
+   fingertip. */
+@media (max-width: 360px) {
+  .stage { min-width: 0; padding-left: 2px; padding-right: 2px; }
+}
+
+/* Desktop: the bar becomes a left rail. Same markup, same order, same words. */
+@media (min-width: 900px) {
+  /* The bar becomes a full-height left rail, so there is no bottom navigation
+     to clear. Zero here means a focused field scrolls to itself and not to
+     itself plus a screen-height margin, both with and without the script. */
+  :root { --stage-bar-h: 0px; }
+  .stage-bar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 220px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 12px 8px;
+    border-top: 0;
+    border-right: 1px solid var(--border);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .stage {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 48px;
+    padding: 0 12px;
+    border-top: 0;
+    border-left: 3px solid transparent;
+    border-radius: var(--radius);
+    white-space: normal;
+    text-align: left;
+  }
+  .stage[aria-selected="true"] { border-top-color: transparent; border-left-color: var(--accent); }
+  .stage-icon { width: 1.375rem; height: 1.375rem; }
+  .stage-label { font-size: 0.9375rem; }
+  body { padding-bottom: 0; padding-left: 220px; }
+}
+
+/* REVIEW's collapsible sections. The summary row is the tap target, so it
+   carries the size; the heading inside keeps the document outline. */
+.review-section { border-top: 1px solid var(--border); margin-top: 14px; }
+.review-section > summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+}
+.review-section > summary::-webkit-details-marker { display: none; }
+.review-section > summary::after {
+  content: "";
+  width: 1rem; height: 1rem; margin-left: auto; flex: none;
+  background: currentColor;
+  -webkit-mask: url("icons/chevron-right.svg") center / contain no-repeat;
+  mask: url("icons/chevron-right.svg") center / contain no-repeat;
+  transform: rotate(90deg);
+}
+.review-section:not([open]) > summary::after { transform: none; }
+.review-section > summary > h3 { margin: 0; }
+.review-section > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* PRE's Tools disclosure. Same tap-target rule as REVIEW's sections: the
+   summary row is what the rider hits, so it carries the height and the
+   chevron, and the heading inside keeps the document outline. */
+.tools-disclosure { border: 1px solid var(--border); border-radius: var(--radius); padding: 0 12px; }
+.tools-disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: var(--tap);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 0;
+}
+.tools-disclosure > summary::-webkit-details-marker { display: none; }
+.tools-disclosure > summary::after {
+  content: "";
+  width: 1rem; height: 1rem; margin-left: auto; flex: none;
+  background: currentColor;
+  -webkit-mask: url("icons/chevron-right.svg") center / contain no-repeat;
+  mask: url("icons/chevron-right.svg") center / contain no-repeat;
+  transform: rotate(90deg);
+}
+.tools-disclosure:not([open]) > summary::after { transform: none; }
+.tools-disclosure > summary > h2 { margin: 0; }
+.tools-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tools-sub { font-size: 0.8125rem; color: var(--text-dim); }
