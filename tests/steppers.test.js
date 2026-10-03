@@ -279,8 +279,13 @@ test("there is no hold-to-repeat anywhere in the stepper wiring", () => {
 
 test("the ruler has no hold-to-repeat either", () => {
   const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
+  // End at the next section, whichever it is: the slice must cover the pad
+  // wiring and nothing else, or an unrelated timer elsewhere trips this guard.
   const start = appJs.indexOf("// --- Pressure control (C8 revised");
-  const body = appJs.slice(start, appJs.indexOf("// --- Auto-save draft (C6)", start));
+  const ends = ["// --- Undo after Back in", "// --- Suspension adjusters (v2)",
+                "// --- Auto-save draft (C6)"]
+    .map((m) => appJs.indexOf(m, start)).filter((i) => i > start);
+  const body = appJs.slice(start, Math.min(...ends));
   assert.ok(body.length > 200, "the ruler wiring was found");
   for (const forbidden of ["setInterval", "requestAnimationFrame", "setTimeout"]) {
     assert.ok(!body.includes(forbidden), `the ruler must not use ${forbidden} - no inertia, no repeat`);

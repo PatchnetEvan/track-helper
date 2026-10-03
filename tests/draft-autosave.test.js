@@ -351,7 +351,7 @@ test("POST eligibility and PRE editability are restored exactly as recorded", ()
   const post = b.document.querySelector('.stage[data-tab="post"]');
   assert.equal(post.classList.contains("is-locked"), false, "POST is open again");
   post.click();
-  assert.equal(b.document.querySelector('.stage[aria-selected="true"]').dataset.tab, "post",
+  assert.equal(b.document.querySelector('.stage[aria-current="page"]').dataset.tab, "post",
     "and navigating to it works");
 });
 

@@ -345,7 +345,7 @@ for (const flag of [undefined, "false", "TRUE", "1", "yes"]) {
   // six stages. What this asserts is unchanged: the client READS the active
   // destination rather than hardcoding one, which is what keeps
   // source_section honest.
-  assert.ok(appJs.includes('.stage[aria-selected="true"]'), "client reads the canonical active stage");
+  assert.ok(appJs.includes('.stage[aria-current="page"]'), "client reads the canonical active stage");
   assert.ok(!/sourceSection\s*[:=]\s*["']feedback["']/.test(appJs), "client never stamps source_section='feedback'");
   const html = readFileSync(join(import.meta.dirname, "..", "public", "log", "index.html"), "utf8");
   assert.ok(html.includes("How can we make MotoTrack better?"), "exact rider prompt");

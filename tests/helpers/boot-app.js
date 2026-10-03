@@ -23,7 +23,7 @@ export function bootApp(opts) {
     const cell = dom.makeEl("", "BUTTON");
     cell.classList.add("stage");
     cell.dataset.tab = name;
-    cell.setAttribute("aria-selected", name === "day" ? "true" : "false");
+    if (name === "day") cell.setAttribute("aria-current", "page");
     cell.appendChild(dom.makeEl("", "SPAN")).classList.add("stage-icon");
     stageCells[name] = cell;
   }

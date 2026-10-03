@@ -111,7 +111,9 @@
     const stage = STAGE_PANELS[name] ? name : "day";
     tabs.forEach((t) => {
       const active = t.dataset.tab === stage;
-      t.setAttribute("aria-selected", active ? "true" : "false");
+      // A navigation bar, not a tablist: the active stage is the current page.
+      if (active) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
     });
     const wanted = STAGE_PANELS[stage];
     ALL_PANEL_IDS.forEach((id) => {
@@ -153,13 +155,14 @@
   function dockCopy(stage) {
     if (stage === "day") {
       const label = str("session-label");
+      const source = carrySource();
       return {
         verb: label ? "Start " + label : "Start session",
-        // DAY -> PRE copies nothing and clears nothing. Carry-over between
-        // sessions is what Save & next does; copying a historical session is
-        // the explicit Copy to form action in History. Neither belongs on a
-        // button whose job is to open the next screen.
-        effect: "Opens PRE \u00b7 nothing is copied or cleared",
+        // It fills BLANK setup fields only, from the most recent session on
+        // this bike, and names the session it took them from. A value the
+        // rider entered is never overwritten, and a pressure is never copied:
+        // history is reference, not today's reading.
+        effect: SP.startSessionEffect(source.plan, source.label),
       };
     }
     if (stage === "pre") {
@@ -184,7 +187,11 @@
 
     const copy = dockCopy(_stage);
     const onReview = _stage === "review";
-    if (advance) advance.hidden = !copy;
+    // While Undo is open, POST offers only Undo: "Go to REVIEW" appears once
+    // the window closes, on the timer or on the first POST reading.
+    const undoOpen = _stage === "post" && undoWindow.open;
+    if (advance) advance.hidden = !copy || undoOpen;
+    renderUndoButton();
     if (saves) saves.hidden = !onReview;
     if (copy && advance) {
       document.getElementById("dock-verb").textContent = copy.verb;
@@ -594,6 +601,119 @@
         setPressure(field, SP.snapPsi(from + step).toFixed(1));
       });
     });
+  }
+
+  // What Start session would fill, and where from.
+  function carrySource() {
+    let sessions = [];
+    try { sessions = Store.readAll(); } catch (e) { sessions = []; }
+    const last = SP.lastSessionForBike(sessions, str("bike"));
+    if (!last) return { plan: [], label: "", session: null };
+    const current = {};
+    SP.CARRY_FIELDS.forEach(([id]) => { current[id] = str(id); });
+    return { plan: SP.carryPlan(last, current), label: last.sessionLabel || "", session: last };
+  }
+
+  // Applied on the way to PRE. Blank fields only, never a pressure.
+  function applyCarry() {
+    const source = carrySource();
+    if (!source.session) return 0;
+    source.plan.forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (!el || el.readOnly) return;
+      el.value = value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Warmers is a checkbox, so it is carried only when it is still off.
+    const on = document.getElementById("warmer-on");
+    if (on && !on.checked && source.session.tires && source.session.tires.warmerOn) {
+      on.checked = true;
+      on.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    // The unit each adjuster was recorded in travels with its value.
+    const savedUnits = (source.session.suspension && source.session.suspension.units) || {};
+    const unitKey = { "fork-preload": "forkPreload", "fork-comp": "forkComp", "fork-reb": "forkReb",
+                      "shock-preload": "shockPreload", "shock-comp": "shockComp", "shock-reb": "shockReb" };
+    source.plan.forEach(([id]) => {
+      const store = document.getElementById(id + "-unit");
+      if (store && !store.value && savedUnits[unitKey[id]]) {
+        store.value = SP.adjusterUnit(savedUnits[unitKey[id]], id);
+      }
+    });
+    return source.plan.length;
+  }
+
+  // --- Leave-page guard (C16) ------------------------------------------------
+  //
+  // Only when auto-save is OFF and there is something unsaved - the same
+  // condition that makes the status read "Not saved yet". With auto-save on
+  // the work is already kept, and after a successful save there is nothing to
+  // lose, so prompting then would be crying wolf.
+  //
+  // iOS Safari mostly ignores this. The overscroll-behavior rule in the
+  // stylesheet is the protection there.
+  function unsavedWorkWouldBeLost() {
+    if (_autosave) return false;
+    if (!saveState.dirty) return false;
+    return hasSessionContent();
+  }
+
+  window.addEventListener("beforeunload", (e) => {
+    if (!unsavedWorkWouldBeLost()) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
+  // --- Undo after Back in -> POST (C14) --------------------------------------
+  const undoWindow = SP.createUndoWindow();
+  let _undoTimer = null;
+  let _undoAnnounced = false;
+  // Everything Undo has to put back. Values are untouched either way; this is
+  // only the stage state the transition changed.
+  let _undoSnapshot = null;
+
+  function stopUndoTimer() {
+    if (_undoTimer !== null) { clearInterval(_undoTimer); _undoTimer = null; }
+  }
+
+  function endUndoWindow() {
+    stopUndoTimer();
+    undoWindow.close();
+    _undoSnapshot = null;
+    renderDock();
+  }
+
+  function beginUndoWindow() {
+    _undoSnapshot = { postUnlocked: stageState.postUnlocked, preEditable: stageState.preEditable };
+    undoWindow.start();
+    _undoAnnounced = false;
+    stopUndoTimer();
+    _undoTimer = setInterval(() => {
+      if (!undoWindow.tick()) { endUndoWindow(); return; }
+      renderUndoButton();
+    }, 1000);
+    renderDock();
+  }
+
+  function renderUndoButton() {
+    const btn = document.getElementById("undo-post");
+    if (!btn) return;
+    btn.hidden = !undoWindow.open;
+    if (!undoWindow.open) return;
+    btn.textContent = undoWindow.label();
+    // Announced once, not once a second: a live region that repeats every
+    // tick talks over everything else the rider is trying to hear.
+    if (!_undoAnnounced) {
+      _undoAnnounced = true;
+      const live = document.getElementById("undo-live");
+      if (live) live.textContent = "Undo available for " + SP.UNDO_SECONDS + " seconds";
+    }
+  }
+
+  // Any POST reading ends the window: going back to PRE would throw it away.
+  function postEntryEndsUndo(id) {
+    if (!undoWindow.open) return;
+    if (id === "front-post" || id === "rear-post") endUndoWindow();
   }
 
   // --- Suspension adjusters (v2) --------------------------------------------
@@ -1533,14 +1653,36 @@
     dockAdvance.addEventListener("click", () => {
       const next = ADVANCE[_stage];
       if (!next) return;
+      if (_stage === "day") applyCarry();
       if (_stage === "pre") {
-        // Coming back in is permanent. Correcting PRE afterwards reopens the
-        // fields but never takes this back.
+        // Coming back in is permanent once the window closes. Correcting PRE
+        // afterwards reopens the fields but never takes this back.
         stageState.backIn();
         renderPreEditable();
+        beginUndoWindow();
       }
       showTab(next);
       if (next === "review") renderHistory();
+    });
+  }
+
+  // Undo: puts back exactly the stage state Back in changed, and nothing else.
+  // The values are never touched, so there is nothing to confirm.
+  const undoPost = document.getElementById("undo-post");
+  if (undoPost) {
+    undoPost.addEventListener("click", () => {
+      if (!undoWindow.open || !_undoSnapshot) return;
+      stageState.reset();
+      _undoSnapshot = null;
+      stopUndoTimer();
+      undoWindow.close();
+      renderPreEditable();
+      showTab("pre");
+      // With auto-save on this is a change like any other, so it is kept the
+      // same way; with it off nothing is written, as everywhere else.
+      saveState.markDirty();
+      renderSaveStatus();
+      scheduleDraftWrite();
     });
   }
 
@@ -1567,7 +1709,7 @@
   // after a plain Save wrote a duplicate of an unchanged outing.
   const mainEl = document.querySelector("main");
   if (mainEl) {
-    const markDirty = () => {
+    const markDirty = (editedId) => {
       const wasDirty = saveState.dirty;
       saveState.markDirty();
       // Both docked labels are built from the rider's own session label, so
@@ -1586,6 +1728,7 @@
       renderTireSummary();
       renderAllPressures();
       renderAllAdjusters();
+      if (editedId) postEntryEndsUndo(editedId);
       // Typing can make a field steppable or stop it being so - emptying it,
       // or leaving text that is not a number.
       syncSteppers();
@@ -1600,7 +1743,11 @@
         .filter((c) => el.closest && el.closest("#" + c));
       return SP.isSessionField(el.id, containers);
     };
-    const onEdit = (event) => { if (fromSessionField(event)) markDirty(); };
+    const onEdit = (event) => {
+      if (!fromSessionField(event)) return;
+      const el = event && event.target;
+      markDirty(el && el.id ? el.id : "");
+    };
     mainEl.addEventListener("input", onEdit);
     mainEl.addEventListener("change", onEdit);
     // A calculator that writes into the saved session counts as an edit even
@@ -2906,7 +3053,7 @@
     let csrfToken = null;
 
     function activeSection() {
-      const tab = document.querySelector('.stage[aria-selected="true"]');
+      const tab = document.querySelector('.stage[aria-current="page"]');
       return tab ? tab.dataset.tab : null;
     }
     function setStatus(msg, kind) {
@@ -3021,7 +3168,7 @@
     let appVersion = null;
 
     function activeSection() {
-      const tab = document.querySelector('.stage[aria-selected="true"]');
+      const tab = document.querySelector('.stage[aria-current="page"]');
       return tab ? tab.dataset.tab : null;
     }
 
