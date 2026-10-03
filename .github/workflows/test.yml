@@ -1,0 +1,27 @@
+# The repository had no CI at all: the only check on a pull request was the
+# Cloudflare preview build, so a red suite could have been merged by hand
+# without anything objecting. This runs the same suite the coder runs.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Read-only. This workflow builds nothing and deploys nothing, so it needs no
+# secrets and no write access.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # package.json engines says ">=24 <25".
+          node-version: '24'
+      - run: npm ci
+      - run: npm test
