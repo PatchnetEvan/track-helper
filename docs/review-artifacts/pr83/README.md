@@ -81,3 +81,75 @@ Two guards caught my own mistakes while building:
 All PR #74–#81 behaviour, the protected sizes (now named: `--mt-glove`,
 `--mt-cta`, `--mt-tap-primary`, `--mt-tap`), and PR #81's sun work, which
 applies in both themes.
+
+---
+
+# Round 2 (`0.2.0-beta.2`)
+
+## 1. `--mt-primary-fill`, and the contrast table re-run
+
+A solid blue behind white text now comes from its own token. `--blue` is
+untouched and still draws the focus ring, the active-stage line and blue text,
+where it never sits behind white.
+
+| theme | `--mt-primary-fill` |
+|---|---|
+| bright | `var(--blue)` → `#0B5FFF` |
+| dark | `#1F5FD0` |
+
+Eleven solid fills moved to it: the transition button, the theme and unit
+switches, the auto-save knob, the stage-chip and waitlist surfaces, the
+feedback submit. Every remaining `--mt-primary` is a border, an outline or
+text.
+
+| theme | pair | before | after |
+|---|---|---|---|
+| bright | body text | 16.14 | 16.14 |
+| bright | muted text | 5.68 | 5.68 |
+| bright | primary button text | 5.13 | 5.13 |
+| bright | warning text | 5.68 | 5.68 |
+| dark | body text | 20.16 | 20.16 |
+| dark | muted text | 8.34 | 8.34 |
+| dark | **primary button text** | **3.89 — failed** | **5.82 — passes** |
+| dark | warning text | 8.34 | 8.34 |
+
+**Every pair is at or above 4.5:1.** The worst is bright's primary button at
+5.13.
+
+## 2. Opt-in browser fit test
+
+`tests/browser/fit.test.js`, run with `BROWSER_TESTS=1`. It drives headless
+Chromium over CDP at **390×701** — the usable height of a tab on a 390×844
+phone, not the screen height — opens PRE with FRONT still to be measured, and
+asserts the REAR row and the open controls both end above the dock, in bright
+and in dark.
+
+It has teeth: adding 80px to the section row fails both themes with the exact
+overflow in the message. Restored after the check.
+
+This is the first automated guard on a number that three rounds of design work
+have each come within a few pixels of breaking.
+
+| case | usable | needs | dock top | spare |
+|---|---|---|---|---|
+| PRE bright / dark | 701 | 556 | 556 | **0** |
+| POST bright / dark | 701 | 552 | 556 | 4 |
+| PRE bright / dark | 844 | 556 | 699 | 143 |
+| POST bright / dark | 844 | 552 | 699 | 147 |
+
+PRE still has **zero pixels** at 701. The new test is what keeps it there.
+
+## 3. `--mt-brand` and `--mt-scrim` documented
+
+The sheet's header comment now names all three additions, what each is for and
+why, so Pro inherits the reasoning with the file:
+
+- `--mt-primary-fill` — the solid primary surface, and why dark differs
+- `--mt-brand` — the orange, header mark only, never a control
+- `--mt-scrim` — the dialog backdrop, deeper in dark
+
+## Tests
+
+**289 pass / 0 fail** in the default suite (293 defined; the 4 browser tests
+are opt-in), plus **2 browser fit tests** and **2 touch-drag tests** under
+`BROWSER_TESTS=1`.

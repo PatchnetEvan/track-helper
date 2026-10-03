@@ -8,6 +8,18 @@
  *   - --mt-text-label is 13px, raised from Pro's 12
  *   - --mt-glove: 72px is new, for the tire rows, drag pad and +/- on PRE/POST
  *
+ * Three tokens this sheet adds that Pro's trackside flow does not define. Pro
+ * takes them with the rest of the file:
+ *   --mt-primary-fill  the SOLID primary surface. Bright uses --blue; dark uses
+ *                      #1F5FD0, because white on dark --blue (#2F7BFF) is
+ *                      3.89:1, under the 4.5:1 floor. --blue itself is
+ *                      unchanged and still draws the focus ring, the active
+ *                      stage line and blue text, where it is never a fill
+ *                      behind white.
+ *   --mt-brand         the MotoTrack orange. The header brand mark only; by
+ *                      owner decision it never appears on a control.
+ *   --mt-scrim         the dialog backdrop, slightly deeper in dark.
+ *
  * Three layers: raw tokens per theme, then the scale, then the aliases every
  * component reads. A component should never name a raw token or a literal.
  */
@@ -40,6 +52,7 @@
      backdrop, which has no equivalent in Pro's trackside flow. */
   --mt-brand: #ff6600;
   --mt-scrim: rgba(0, 0, 0, .6);
+  --primary-fill: var(--blue);
 }
 [data-mt="dark"] {
   --bg: #05070B;
@@ -64,6 +77,7 @@
   --slider: #141C29;
   --mt-brand: #ff6600;
   --mt-scrim: rgba(0, 0, 0, .72);
+  --primary-fill: #1F5FD0;
 }
 
 /* --- Scale and aliases --- */
@@ -101,6 +115,7 @@
   --mt-text-muted: var(--ink2);
   --mt-text-on-primary: var(--onblue);
   --mt-primary: var(--blue);
+  --mt-primary-fill: var(--primary-fill);
   --mt-primary-hover: var(--blue);
   --mt-primary-soft: var(--surface2);
   --mt-focus: var(--blue);
