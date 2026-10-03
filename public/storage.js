@@ -5,6 +5,9 @@
   // Thrown by the strict read so callers can tell "nothing saved" from
   // "something is saved and I cannot read it".
   const UNREADABLE = "mototrack:history-unreadable";
+  const DRAFT_UNREADABLE = "mototrack:draft-unreadable";
+  const DRAFT_UNVERIFIED = "mototrack:draft-unverified";
+  const DRAFT_CONFLICT = "mototrack:draft-conflict";
   const APP = "MotoTrack";
   const VERSION = 1;
 
@@ -186,8 +189,197 @@
     return { kind: "ok", payload: { app: APP, version: VERSION, exportedAt: new Date().toISOString(), sessions: sessions } };
   }
 
+  // --- Drafts (PR 6) --------------------------------------------------------
+  //
+  // A SEPARATE KEY, and that separation is the safety property rather than
+  // tidiness: nothing on the draft path reads or writes the saved-session key,
+  // so a failing or unreadable draft can never damage saved history, and an
+  // unreadable history can never cost the rider the outing in front of them.
+  const DRAFT_KEY = "mototrack.draft.v1";
+  const DRAFT_VERSION = 1;
+  const DRAFT_STAGES = ["day", "pre", "post", "laps", "notes", "review"];
+  function isPlainObject(x) {
+    return !!x && typeof x === "object" && !Array.isArray(x);
+  }
+
+  // A draft is only restored when it is a COMPLETE, known-version record.
+  // Anything else is left exactly where it is for the recovery-copy path -
+  // never parsed past, never half-applied, never overwritten.
+  function validateDraft(d) {
+    if (!d || typeof d !== "object" || Array.isArray(d)) return "not a record";
+    if (d.v !== DRAFT_VERSION) return "unsupported version";
+    if (typeof d.rev !== "number" || !isFinite(d.rev) || d.rev < 0) return "bad revision";
+    if (typeof d.writer !== "string" || !d.writer) return "no writer";
+    if (typeof d.updatedAt !== "string" || !d.updatedAt) return "no timestamp";
+    var st = d.stage;
+    if (!st || typeof st !== "object") return "no stage";
+    if (typeof st.name !== "string") return "bad stage name";
+    if (typeof st.postUnlocked !== "boolean") return "bad postUnlocked";
+    if (typeof st.preEditable !== "boolean") return "bad preEditable";
+    if (d.pendingId !== null && typeof d.pendingId !== "string") return "bad pendingId";
+    if (d.savedAs !== null && typeof d.savedAs !== "string") return "bad savedAs";
+    // A stage name is navigation state, and an unknown one would be handed
+    // straight to showTab. Only the stages that exist are accepted.
+    if (DRAFT_STAGES.indexOf(st.name) === -1) return "unknown stage name";
+    var ses = d.session;
+    if (!isPlainObject(ses)) return "no session";
+    for (const part of ["setup", "tires", "suspension", "laps", "riderFeedback"]) {
+      // isPlainObject, not typeof: an array passes typeof "object" and would
+      // be spread into the form as a record with numeric keys.
+      if (!isPlainObject(ses[part])) return "session missing " + part;
+    }
+    // Rider Feedback is restored into a textarea and a set of checkboxes, so
+    // its shape is checked rather than assumed.
+    var fb = ses.riderFeedback;
+    if (fb.text !== undefined && typeof fb.text !== "string") return "feedback text is not text";
+    if (fb.tags !== undefined) {
+      if (!Array.isArray(fb.tags)) return "feedback tags are not a list";
+      for (const tag of fb.tags) {
+        if (typeof tag !== "string") return "a feedback tag is not text";
+      }
+    }
+    if (ses.suspension.symptoms !== undefined) {
+      if (!Array.isArray(ses.suspension.symptoms)) return "symptoms are not a list";
+      for (const sym of ses.suspension.symptoms) {
+        if (typeof sym !== "string") return "a symptom is not text";
+      }
+    }
+    if (ses.laps.times !== undefined && !Array.isArray(ses.laps.times)) return "lap times are not a list";
+    return null;   // valid
+  }
+
+  // Strict, for anything that decides whether to restore or to replace.
+  //   none        - nothing stored
+  //   ok          - a complete draft of a version this build understands
+  //   unreadable  - something IS stored and must not be touched
+  function readDraftState() {
+    let raw;
+    try {
+      raw = localStorage.getItem(DRAFT_KEY);
+    } catch (e) {
+      return { kind: "unreadable", raw: null, reason: "storage refused the read" };
+    }
+    if (raw === null || raw === undefined) return { kind: "none" };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      return { kind: "unreadable", raw: raw, reason: "not valid JSON" };
+    }
+    const bad = validateDraft(parsed);
+    if (bad) return { kind: "unreadable", raw: raw, reason: bad };
+    return { kind: "ok", draft: parsed, raw: raw };
+  }
+
+  // Writes and VERIFIES. "Kept" is only ever claimed about a revision that was
+  // read back and matched, so a previous success never speaks for later edits.
+  //
+  // expectedRev guards against another tab: pass the revision this tab last
+  // saw, and the write is refused if the stored draft has moved on. The other
+  // tab's work is left intact - this one reports that it is not being kept.
+  function writeDraft(draft, expectedRev) {
+    const bad = validateDraft(draft);
+    if (bad) throw new Error("refusing to write an invalid draft: " + bad);
+    const current = readDraftState();
+    if (current.kind === "unreadable") {
+      const e = new Error(DRAFT_UNREADABLE); e.code = DRAFT_UNREADABLE; throw e;
+    }
+    // Ownership/revision guard, applied to EVERY write including the first.
+    //
+    // A null expectedRev means "I am not aware of a stored draft". That is the
+    // most dangerous case, not the safest: a tab that has never read the key
+    // would otherwise flatten whatever another tab has been keeping. So a null
+    // expectation only authorises a write when the key really is empty, or
+    // when what is there is this tab's own.
+    if (current.kind === "ok" && current.draft.writer !== draft.writer) {
+      if (expectedRev === undefined || expectedRev === null
+          || current.draft.rev !== expectedRev) {
+        const e = new Error(DRAFT_CONFLICT); e.code = DRAFT_CONFLICT;
+        e.theirRev = current.draft.rev; e.theirWriter = current.draft.writer;
+        throw e;
+      }
+    }
+    const text = JSON.stringify(draft);
+    localStorage.setItem(DRAFT_KEY, text);
+    const back = localStorage.getItem(DRAFT_KEY);
+    if (back !== text) {
+      const e = new Error(DRAFT_UNVERIFIED); e.code = DRAFT_UNVERIFIED; throw e;
+    }
+    return draft.rev;
+  }
+
+  // Deleting is a mutation too, and the most destructive one. Saving or
+  // resetting in one tab must not wipe a draft another tab is keeping - so a
+  // caller must say whose draft it believes it is removing.
+  // Deleting is a mutation too, and the most destructive one. The caller must
+  // say WHICH draft it believes it is removing, and the removal only happens
+  // if that is still what is stored - never a newer one another tab wrote in
+  // the meantime.
+  //
+  //   expect = { writer, rev }  - remove exactly that draft
+  //   expect = { raw }          - remove exactly those bytes (the recovery
+  //                               path, where there is no parsed draft to
+  //                               name a revision)
+  //
+  // There is deliberately no unguarded form: every ownerless delete this had
+  // was a way for one tab to destroy another tab's work.
+  function clearDraft(expect) {
+    if (!expect || typeof expect !== "object") {
+      throw new Error("clearDraft needs to say which draft it is removing");
+    }
+    let raw;
+    try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) {
+      const err = new Error(DRAFT_UNREADABLE); err.code = DRAFT_UNREADABLE; throw err;
+    }
+    if (raw === null || raw === undefined) return true;      // nothing to remove
+
+    if (typeof expect.raw === "string") {
+      if (raw !== expect.raw) {
+        const e = new Error(DRAFT_CONFLICT); e.code = DRAFT_CONFLICT; throw e;
+      }
+    } else {
+      const current = readDraftState();
+      if (current.kind !== "ok") {
+        // Something is stored that this caller did not inspect.
+        const e = new Error(DRAFT_UNREADABLE); e.code = DRAFT_UNREADABLE; throw e;
+      }
+      if (current.draft.writer !== expect.writer || current.draft.rev !== expect.rev) {
+        const e = new Error(DRAFT_CONFLICT); e.code = DRAFT_CONFLICT;
+        e.theirRev = current.draft.rev; e.theirWriter = current.draft.writer;
+        throw e;
+      }
+    }
+    localStorage.removeItem(DRAFT_KEY);
+    if (localStorage.getItem(DRAFT_KEY) !== null) throw new Error(DRAFT_UNVERIFIED);
+    return true;
+  }
+
+  // Marks a draft as already written to history, for the case where clearing
+  // it failed. A draft carrying savedAs is reconciled, never restored.
+  // Guarded the same way: this rewrites the key, so it can destroy another
+  // tab's work exactly as a plain write can.
+  function markDraftSaved(sessionId, owner, expectedRev) {
+    const state = readDraftState();
+    if (state.kind !== "ok") return false;
+    // Same rule as a delete: only stamp the draft this caller inspected.
+    if (state.draft.writer !== owner || state.draft.rev !== expectedRev) return false;
+    const next = Object.assign({}, state.draft, { savedAs: sessionId });
+    const text = JSON.stringify(next);
+    localStorage.setItem(DRAFT_KEY, text);
+    return localStorage.getItem(DRAFT_KEY) === text;
+  }
+
+  // For the recovery copy of a draft that cannot be read: the original text,
+  // byte for byte, never re-serialised.
+  function draftRecoveryText() {
+    try { return localStorage.getItem(DRAFT_KEY); } catch (e) { return null; }
+  }
+
   window.Store = {
     available, readAll, readAllForWrite, add, put, findById, remove, clear, newId,
     importPayload, exportPayload, exportState, UNREADABLE,
+    DRAFT_KEY, DRAFT_VERSION, validateDraft, readDraftState, writeDraft,
+    clearDraft, markDraftSaved, draftRecoveryText,
+    DRAFT_UNREADABLE, DRAFT_UNVERIFIED, DRAFT_CONFLICT,
   };
 })();

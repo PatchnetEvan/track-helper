@@ -88,6 +88,10 @@
         if (!pendingId) pendingId = makeId();
         return pendingId;
       },
+      // Restored from a draft: an attempt that wrote but could not be
+      // verified survives a refresh, so the retry still reconciles that record
+      // instead of writing a second copy of the same outing.
+      adoptPendingId(id) { if (id) pendingId = String(id); return this; },
       // Returns the decision rather than acting on it, so the caller cannot
       // start a save the rules would refuse.
       beginSave() {
@@ -177,6 +181,72 @@
   // CONTENT matched. Everything this app cannot do - cloud, sync, queued
   // uploads, draft recovery - is absent on purpose, not by omission. A test
   // asserts this vocabulary never acquires those words.
+  // --- Draft state (PR 6) ---------------------------------------------------
+  //
+  // "Kept" is a claim about a SPECIFIC revision. Every edit bumps editSeq; a
+  // write that is read back and matched sets keptSeq. They are only equal when
+  // what is on disk is what the rider last typed, so an earlier success can
+  // never speak for later edits - which is the difference between a safety net
+  // and the appearance of one.
+  function createDraftState() {
+    let editSeq = 0;
+    let keptSeq = -1;
+    let scheduled = false;     // a debounce timer is running
+    let writing = false;
+    let failed = false;
+    let unreadable = false;
+    let conflict = false;
+    let restored = false;
+    let suspended = false;     // never write while the stored draft is unreadable
+    let disposalFailed = false;  // a draft we meant to discard is still there
+    let identityUnrecorded = false;  // a save attempt the draft could not name
+    return {
+      get editSeq() { return editSeq; },
+      get keptSeq() { return keptSeq; },
+      get scheduled() { return scheduled; },
+      get writing() { return writing; },
+      get failed() { return failed; },
+      get unreadable() { return unreadable; },
+      get conflict() { return conflict; },
+      get restored() { return restored; },
+      get suspended() { return suspended; },
+      get disposalFailed() { return disposalFailed; },
+      get identityUnrecorded() { return identityUnrecorded; },
+      markIdentityUnrecorded() { identityUnrecorded = true; return this; },
+      markDisposalFailed() { disposalFailed = true; return this; },
+      disposalOk() { disposalFailed = false; identityUnrecorded = false; return this; },
+      // There are edits that are not on disk yet. This is the only question
+      // the status asks, so it is the only one kept.
+      get behind() { return editSeq > keptSeq; },
+      edited() { editSeq += 1; restored = false; return this; },
+      scheduleStarted() { scheduled = true; return this; },
+      // Cancelling must leave editSeq alone: the edits still are not kept.
+      cancelled() { scheduled = false; return this; },
+      writeStarted() { scheduled = false; writing = true; return this; },
+      writeSucceeded(seq) {
+        writing = false; failed = false; conflict = false;
+        keptSeq = seq === undefined ? editSeq : seq;
+        return this;
+      },
+      writeFailed() { writing = false; failed = true; return this; },
+      writeConflicted() { writing = false; conflict = true; return this; },
+      markUnreadable() { unreadable = true; suspended = true; return this; },
+      markRestored() { restored = true; return this; },
+      // A new session, or a discarded draft: nothing is kept and nothing is
+      // outstanding. Deliberately does NOT clear `unreadable`, because the
+      // thing that could not be read is still sitting there.
+      // Deliberately leaves `unreadable` and `disposalFailed` alone: both
+      // describe something still sitting in storage, which resetting this
+      // tab's bookkeeping does not change.
+      reset() {
+        editSeq = 0; keptSeq = -1; scheduled = false; writing = false;
+        failed = false; conflict = false; restored = false;
+        return this;
+      },
+      resume() { unreadable = false; suspended = false; return this; },
+    };
+  }
+
   function saveStatusFor(facts) {
     const f = facts || {};
     if (!f.storageReady) {
@@ -189,9 +259,53 @@
       // something unestablished.
       return { key: "failed", tone: "warn", text: "Not saved \u00b7 try Save again" };
     }
+    // Draft trouble outranks a past success, because it is about the entries
+    // in front of the rider right now.
+    if (f.autosave && f.draftUnreadable && f.hasContent) {
+      return { key: "draft-unreadable", tone: "warn",
+        text: "Not saved yet \u00b7 a kept draft could not be read" };
+    }
+    if (f.autosave && f.draftConflict && f.hasContent) {
+      return { key: "draft-conflict", tone: "warn",
+        text: "Not saved yet \u00b7 another tab is keeping a draft" };
+    }
+    if (f.autosave && f.draftIdentityUnrecorded) {
+      return { key: "draft-identity-unrecorded", tone: "warn",
+        text: "Saving, but this device could not record the attempt" };
+    }
+    if (f.autosave && f.draftDisposalFailed) {
+      return { key: "draft-not-discarded", tone: "warn",
+        text: "A discarded draft is still on this device" };
+    }
+    if (f.autosave && f.draftFailed && f.hasContent) {
+      return { key: "draft-failed", tone: "warn",
+        text: "Not saved yet \u00b7 draft could not be kept" };
+    }
     if (f.alreadySaved && f.savedAtLabel) {
       return { key: "saved", tone: "good",
         text: "Saved on this device \u00b7 " + f.savedAtLabel };
+    }
+    // "Draft restored" implies the draft is still there protecting the form, so
+    // it must not outlive the draft: another tab replacing or deleting the key
+    // withdraws this exactly as it withdraws "draft kept".
+    if (f.autosave && f.draftRestored && f.hasContent && f.draftPresent) {
+      return { key: "draft-restored", tone: "dim", text: "Draft restored \u00b7 not saved yet" };
+    }
+    if (f.autosave && f.hasContent) {
+      // A write is scheduled or running: the LATEST edits are not on disk, and
+      // saying "kept" here would be a claim about an older revision.
+      if (f.draftBehind) {
+        return { key: "draft-keeping", tone: "dim", text: "Keeping draft\u2026" };
+      }
+      // Gated on the same verified fact as the footer. Another tab can replace
+      // or delete the key at any moment, and this tab would otherwise go on
+      // claiming protection for entries that are no longer kept anywhere.
+      if (!f.draftPresent) {
+        return { key: "draft-not-kept", tone: "warn",
+          text: "Not saved yet \u00b7 this draft is no longer kept on this device" };
+      }
+      return { key: "draft-kept", tone: "dim",
+        text: "Not saved yet \u00b7 draft kept on this device" };
     }
     if (f.hasContent) {
       return { key: "unsaved", tone: "dim", text: "Not saved yet \u00b7 REVIEW saves it" };
@@ -199,8 +313,36 @@
     return { key: "none", tone: "dim", text: "" };
   }
 
+  // What the footer may truthfully promise about a refresh. "Your draft comes
+  // back" is a claim about the entries on screen RIGHT NOW, so it cannot rest
+  // on the switch alone: during the debounce, or after a failed write, the
+  // latest changes are not on disk and a refresh would not bring them back.
+  function footerDraftNote(f) {
+    const facts = f || {};
+    if (!facts.storageReady || !facts.autosave) return "Refresh wipes the current session.";
+    if (facts.draftUnreadable || facts.draftConflict || facts.draftFailed
+        || facts.draftIdentityUnrecorded) {
+      return "Your latest changes are not being kept right now.";
+    }
+    // A finished session is not a draft. After a save there is nothing kept to
+    // come back, and the honest thing to describe is what a refresh would
+    // actually do with the form still on screen.
+    if (facts.sessionSaved) {
+      return "Session saved. Refresh clears the form; saved history remains.";
+    }
+    if (!facts.hasContent) return "Anything you enter is kept on this device.";
+    if (facts.draftBehind) return "Your most recent changes have not been kept yet.";
+    // The promise is only made about a draft that was VERIFIED to exist when
+    // this was rendered. Inferring it from "auto-save is on and nothing has
+    // failed" claimed a draft in every window where one had just been
+    // discarded - after a save, after a reset, before the first write.
+    if (!facts.draftExists) return "Your most recent changes have not been kept yet.";
+    return "A refresh brings your draft back.";
+  }
+
   const api = {
-    nextLabelFrom, createStageState, createSaveState, saveStatusFor,
+    nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
+    footerDraftNote,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

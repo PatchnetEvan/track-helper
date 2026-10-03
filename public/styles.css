@@ -822,6 +822,49 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   scroll-margin-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + 12px);
 }
 
+/* --- Auto-save switch (C6) ------------------------------------------------ */
+
+.setting-row { margin: 14px 0; }
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 8px 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.switch-track {
+  flex: none;
+  width: 3rem; height: 1.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  position: relative;
+  transition: background 120ms linear;
+}
+.switch-knob {
+  position: absolute;
+  top: 50%; left: 0.18rem;
+  transform: translateY(-50%);
+  width: 1.3rem; height: 1.3rem;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: left 120ms linear, background 120ms linear;
+}
+.switch[aria-checked="true"] .switch-track { background: var(--accent-dim); border-color: var(--accent); }
+.switch[aria-checked="true"] .switch-knob { left: calc(100% - 1.48rem); background: var(--accent); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch[disabled] { opacity: 0.6; cursor: default; }
+.switch-label { min-width: 0; overflow-wrap: break-word; }
+.switch-sub { margin: 0 0 0 0; color: var(--text-dim); font-size: 0.875rem; overflow-wrap: break-word; }
+
 /* --- Save status (C7) ----------------------------------------------------- */
 
 /* One short line under the context header. It costs nothing when there is

@@ -53,6 +53,24 @@
   const saveState = SP.createSaveState();
   const nextLabelFrom = SP.nextLabelFrom;
   let _copiedFrom = null;      // { id, summary } - set only by Copy to form
+  const draftState = SP.createDraftState();
+  // Identifies this page among tabs sharing the storage. Two tabs must never
+  // silently overwrite each other's draft.
+  const TAB_ID = "t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+  const AUTOSAVE_KEY = "mototrack.autosave";
+  const DRAFT_DEBOUNCE_MS = 800;
+  let _draftTimer = null;
+  // The exact {writer, rev} this form last verified to be ITS draft on disk.
+  //
+  // Not "this tab's id and revision": a restored draft was written by the
+  // PREVIOUS page load, whose writer is gone, and it still protects the
+  // entries on screen. So the pair is adopted on restore and replaced after
+  // this tab writes, and every decision about the stored draft - is the form
+  // protected, may this write go ahead, may this delete go ahead - compares
+  // against it.
+  let _verified = null;        // { writer, rev } | null
+  let _recoveryRaw = null;     // the exact bytes handed to the rider to recover
+  let _autosave = false;
   // Assigned once the listeners are wired; calculators that write into the
   // saved session call it, because their own inputs are not session fields.
   let markSessionDirty = function () {};
@@ -208,6 +226,227 @@
     renderCopyOrigin(nothingNew);
   }
 
+  // --- Auto-save draft (C6) -------------------------------------------------
+  //
+  // Opt in, off by default: with it off the app behaves exactly as it always
+  // has, and a refresh clears the form. Drafts live under their own key, so
+  // nothing here can touch saved history.
+
+  function autosaveEnabled() {
+    try { return localStorage.getItem(AUTOSAVE_KEY) === "true"; } catch (e) { return false; }
+  }
+
+  function buildDraft(rev, pendingIdOverride) {
+    return {
+      v: 1,
+      rev: rev,
+      writer: TAB_ID,
+      updatedAt: new Date().toISOString(),
+      stage: {
+        name: _stage,
+        postUnlocked: stageState.postUnlocked,
+        preEditable: stageState.preEditable,
+      },
+      copiedFrom: _copiedFrom ? _copiedFrom.id : null,
+      // Carried so a write that could not be verified is still reconciled
+      // after a refresh, instead of being written a second time.
+      pendingId: pendingIdOverride || saveState.pendingId || null,
+      savedAs: null,
+      session: collectSession(),
+    };
+  }
+
+  // Every exit from the draft path goes through here. An old timer must never
+  // recreate a draft that has just been discarded, nor write the previous
+  // session over the next one.
+  function cancelDraftWrite() {
+    if (_draftTimer !== null) { clearTimeout(_draftTimer); _draftTimer = null; }
+    draftState.cancelled();
+  }
+
+  function scheduleDraftWrite() {
+    if (!_autosave || draftState.suspended) return;
+    draftState.edited();
+    cancelDraftWrite();
+    draftState.scheduleStarted();
+    renderSaveStatus();
+    _draftTimer = setTimeout(writeDraftNow, DRAFT_DEBOUNCE_MS);
+  }
+
+  // A synchronous write, for the moments where waiting out the debounce would
+  // lose something that cannot be reconstructed after a reload.
+  // Returns whether the draft on disk now carries what was asked of it. The
+  // caller needs to know: an unrecorded save attempt cannot be reconciled
+  // after a reload, and that limitation is reported rather than papered over.
+  function persistDraftImmediately(pendingIdOverride) {
+    if (!_autosave || draftState.suspended) return true;   // not applicable
+    if (!hasSessionContent()) return true;
+    cancelDraftWrite();
+    const seqBefore = draftState.editSeq;
+    draftState.edited();
+    writeDraftNow(pendingIdOverride);
+    return draftState.keptSeq === seqBefore + 1;
+  }
+
+  function writeDraftNow(pendingIdOverride) {
+    _draftTimer = null;
+    if (!_autosave || draftState.suspended) { draftState.cancelled(); return; }
+    if (!hasSessionContent()) { discardDraft(); return; }
+    const seq = draftState.editSeq;
+    draftState.writeStarted();
+    const rev = (_verified === null ? 0 : _verified.rev) + 1;
+    try {
+      Store.writeDraft(buildDraft(rev, pendingIdOverride), _verified === null ? null : _verified.rev);
+      // This tab is now the verified writer of that revision.
+      _verified = { writer: TAB_ID, rev: rev };
+      // The sequence written is recorded, not "now": edits made during the
+      // write are still outstanding and must not be reported as kept.
+      draftState.writeSucceeded(seq);
+    } catch (e) {
+      if (e && e.code === Store.DRAFT_CONFLICT) draftState.writeConflicted();
+      else if (e && e.code === Store.DRAFT_UNREADABLE) draftState.markUnreadable();
+      else draftState.writeFailed();
+    }
+    renderSaveStatus();
+  }
+
+  // Discards this tab's draft. Always cancels first, so a timer already in
+  // flight cannot put it straight back.
+  //
+  // Returns whether the draft is really gone. A failure is NOT swallowed: an
+  // undisposed draft can come back after a refresh, and saying nothing would
+  // leave the rider believing discarded work was discarded.
+  function discardDraft() {
+    cancelDraftWrite();
+    if (!_autosave) {
+      // With auto-save off this tab owns no draft. Touching the key here is
+      // how one tab's Reset used to delete another tab's work.
+      draftState.reset();
+      return true;
+    }
+    if (draftState.suspended) { draftState.reset(); return true; }
+    try {
+      Store.clearDraft(verifiedExpectation());
+      _verified = null;
+      draftState.reset();
+      draftState.disposalOk();
+      return true;
+    } catch (e) {
+      // Another tab's draft, or a storage that will not let go of it.
+      draftState.reset();
+      if (e && e.code === Store.DRAFT_CONFLICT) { draftState.writeConflicted(); return false; }
+      draftState.markDisposalFailed();
+      return false;
+    }
+  }
+
+  // A session has just been written to history. The draft that produced it is
+  // no longer a draft, but clearing it can fail - and a successful save must
+  // stay successful. So: try to remove it; if that fails, stamp it with the
+  // record it became, so a later load reconciles it instead of restoring it as
+  // a new unsaved session. If even that fails, the pendingId it already
+  // carries is enough for the same reconciliation.
+  function retireDraftAfterSave(sessionId) {
+    cancelDraftWrite();
+    if (!_autosave) { draftState.reset(); return; }
+    try {
+      Store.clearDraft(verifiedExpectation());
+      _verified = null;
+      draftState.reset();
+      draftState.disposalOk();
+      return;
+    } catch (e) { /* fall through - the save itself still stands */ }
+    // Could not remove it: stamp it with the record it became, so a later
+    // load reconciles it away instead of offering it as unsaved work.
+    let stamped = false;
+    try {
+      stamped = _verified
+        ? Store.markDraftSaved(sessionId, _verified.writer, _verified.rev)
+        : false;
+    } catch (e) { stamped = false; }
+    draftState.reset();
+    if (stamped) { draftState.disposalOk(); return; }
+    // Neither worked. The pendingId the draft already carries is still the
+    // reconciliation information - a retry writes under that id and the store
+    // upserts - but the rider is told, rather than left to find out.
+    draftState.markDisposalFailed();
+  }
+
+  // Does this stored draft describe a session that is already in history?
+  //
+  // ONLY savedAs counts - the stamp written after a save that was verified.
+  // A pendingId must NOT: that is precisely the unverified write, and the
+  // rider is owed their entries back so the retry can finish. Nothing is
+  // duplicated by restoring it, because the retry writes under the same id
+  // and Store.put upserts.
+  function draftAlreadySaved(draft) {
+    if (!draft || !draft.savedAs) return false;
+    let record = null;
+    try { record = Store.findById(draft.savedAs); } catch (e) { return false; }
+    if (!record) return false;
+    // The stamp names a record that really is in history, so this draft has
+    // already become a session.
+    return true;
+  }
+
+  // Restore on load. No prompt: a "restore?" dialog costs a tap and asks a
+  // question the rider has no basis to answer at a track.
+  function restoreDraftOnLoad() {
+    if (!_autosave) return;
+    let state;
+    try { state = Store.readDraftState(); } catch (e) { return; }
+    if (state.kind === "none") return;
+    if (state.kind === "unreadable") {
+      // Left exactly where it is, and writing is suspended - otherwise the
+      // first keystroke after a failed restore destroys recoverable text.
+      draftState.markUnreadable();
+      renderSaveStatus();
+      return;
+    }
+    const draft = state.draft;
+    if (draftAlreadySaved(draft)) {
+      // It became a saved session already; this is the residue of a delete
+      // that did not take. Remove it, and never present it as unsaved work.
+      try {
+        // Exactly the draft just inspected - never a newer one another tab
+        // wrote while this load was in progress.
+        Store.clearDraft({ writer: draft.writer, rev: draft.rev });
+        _verified = null;
+      } catch (e) { /* another tab has moved on; leaving it is the safe act */ }
+      return;
+    }
+    restoreSession(draft.session);
+    // Exactly as recorded: coming back in is not undone by a refresh, and a
+    // PRE the rider had reopened stays open.
+    stageState.reset();
+    if (draft.stage.postUnlocked) stageState.backIn();
+    if (draft.stage.preEditable) stageState.correctPre();
+    renderPreEditable();
+    // An unverified write survives the reload, so the retry reconciles onto
+    // the same record. Identity comes ONLY from what was recorded. Matching
+    // values prove nothing: a copy of a session has identical values to the
+    // original, and inferring identity from them would overwrite the record
+    // the rider was promised would be left alone - or collapse two genuinely
+    // separate outings that happen to read the same.
+    saveState.adoptPendingId(draft.pendingId);
+    saveState.markDirty();
+    if (draft.copiedFrom) {
+      let origin = null;
+      try { origin = Store.findById(draft.copiedFrom); } catch (e) { origin = null; }
+      if (origin) {
+        _copiedFrom = { id: origin.id, summary: sessionDateLabel(origin.savedAt) + " \u2014 " + sessionTitle(origin) };
+      }
+    }
+    // Adopt the restored draft's identity: it was written by the previous page
+    // load, and it is exactly what protects the form now on screen.
+    _verified = { writer: draft.writer, rev: draft.rev };
+    draftState.reset();
+    draftState.writeSucceeded(draftState.editSeq);   // what is on disk IS the form
+    draftState.markRestored();
+    renderContext();
+    showTab(draft.stage.name);
+  }
+
   // --- Save status (C7) -----------------------------------------------------
   //
   // One line under the context header. It holds no state: every word comes
@@ -235,7 +474,21 @@
       alreadySaved: saveState.alreadySaved,
       savedAtLabel: savedAtLabel(saveState.lastSavedAt),
       hasContent: hasSessionContent(),
+      autosave: _autosave,
+      draftBehind: draftState.behind,
+      draftFailed: draftState.failed,
+      draftConflict: draftState.conflict,
+      draftUnreadable: draftState.unreadable,
+      draftDisposalFailed: draftState.disposalFailed,
+      draftIdentityUnrecorded: draftState.identityUnrecorded,
+      draftPresent: _autosave && draftIsStored(),
+      draftRestored: draftState.restored,
     });
+    // The footer makes a claim about the same facts and must follow them even
+    // when the status text happens to be unchanged - it was previously updated
+    // after the guard below, so it went stale exactly when a draft disappeared
+    // without the status wording moving.
+    renderAutosaveUi();
     // Written only when it actually changes. This is a polite live region:
     // re-assigning it on every keystroke would make a screen reader announce
     // the save status on every keystroke.
@@ -429,7 +682,154 @@
   // Start in a known state: PRE editable, POST locked, dock rendered for DAY.
   renderPreEditable();
   renderDock();
-  renderSaveStatus();
+
+  // --- Auto-save switch wiring ---------------------------------------------
+  // Is THIS form's own draft on disk at this moment?
+  //
+  // Not merely "some draft is stored": another tab replacing the key leaves a
+  // perfectly readable draft that is not this form's, and promising a refresh
+  // would then restore someone else's session, not the entries on screen. So
+  // the stored draft has to match the identity and revision this tab last
+  // verified for itself.
+  // What this form believes is on disk, in the shape the store's guards take.
+  // Null when nothing has been verified, which every guard treats as "do not
+  // assume anything is mine".
+  function verifiedExpectation() {
+    return _verified ? { writer: _verified.writer, rev: _verified.rev } : { writer: TAB_ID, rev: null };
+  }
+
+  function draftIsStored() {
+    try {
+      const st = Store.readDraftState();
+      if (!_verified) return false;
+      return st.kind === "ok"
+        && st.draft.writer === _verified.writer
+        && st.draft.rev === _verified.rev;
+    } catch (e) { return false; }
+  }
+
+  function renderAutosaveUi() {
+    const sw = document.getElementById("autosave-switch");
+    const sub = document.getElementById("autosave-sub");
+    const note = document.getElementById("autosave-note");
+    const rec = document.getElementById("draft-recovery");
+    if (!sw) return;
+    const usable = storageReady();
+    sw.setAttribute("aria-checked", _autosave ? "true" : "false");
+    sw.disabled = !usable;
+    if (sub) {
+      sub.textContent = !usable
+        ? "Unavailable \u00b7 this browser blocks storage"
+        : (_autosave ? "On \u00b7 drafts kept in this browser" : "Off \u00b7 refresh clears the draft");
+    }
+    if (note) {
+      if (_autosave && draftState.unreadable) {
+        note.hidden = false;
+        note.textContent = "A draft is stored on this device but cannot be read. "
+          + "MotoTrack is not writing drafts until it is dealt with, so nothing is written over it. "
+          + "A draft is not a backup \u2014 your saved sessions are untouched.";
+      } else { note.hidden = true; note.textContent = ""; }
+    }
+    if (rec) rec.hidden = !(_autosave && draftState.unreadable);
+    // The footer must not keep promising a refresh wipes the form once the
+    // rider has asked for drafts to be kept.
+    const foot = document.getElementById("footer-draft-note");
+    if (foot) {
+      foot.textContent = SP.footerDraftNote({
+        storageReady: usable,
+        autosave: _autosave,
+        hasContent: hasSessionContent(),
+        // Read from storage, not assumed: the promise is about a draft that
+        // is there right now.
+        draftExists: usable && _autosave && draftIsStored(),
+        sessionSaved: saveState.alreadySaved && !!saveState.lastSavedAt,
+        draftBehind: draftState.behind,
+        draftFailed: draftState.failed,
+        draftConflict: draftState.conflict,
+        draftUnreadable: draftState.unreadable,
+        draftIdentityUnrecorded: draftState.identityUnrecorded,
+      });
+    }
+  }
+
+  function setAutosave(on) {
+    _autosave = !!on;
+    try { localStorage.setItem(AUTOSAVE_KEY, _autosave ? "true" : "false"); } catch (e) { /* reported below */ }
+    renderAutosaveUi();
+    renderSaveStatus();
+  }
+
+  const autosaveSwitch = document.getElementById("autosave-switch");
+  if (autosaveSwitch) {
+    autosaveSwitch.addEventListener("click", () => {
+      if (!storageReady()) return;
+      if (_autosave) {
+        // Turning it off discards the kept draft, so the sub-line stays true.
+        // Confirm only when there is actually something to discard.
+        let hasStored = false;
+        try { hasStored = Store.readDraftState().kind !== "none"; } catch (e) { hasStored = false; }
+        if (hasStored) {
+          const ok = window.confirm(
+            "Turning auto-save off will discard the draft kept on this device.\n\n"
+            + "The form in front of you stays exactly as it is, and your saved sessions are not affected."
+          );
+          if (!ok) return;
+        }
+        discardDraft();
+        setAutosave(false);
+      } else {
+        setAutosave(true);
+        // Whatever is already on screen becomes the first kept revision.
+        if (hasSessionContent()) scheduleDraftWrite();
+      }
+    });
+  }
+
+  const draftRecovery = document.getElementById("draft-recovery");
+  if (draftRecovery) {
+    draftRecovery.addEventListener("click", () => {
+      const raw = Store.draftRecoveryText();
+      _recoveryRaw = raw;
+      if (raw === null || raw === undefined) {
+        window.alert("Recovery failed. The stored draft could not be read at all, so no file was created.");
+        return;
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadBlob(raw, "text/plain", `mototrack-DRAFT-RECOVERY-UNREADABLE-${stamp}.txt`);
+      const ok = window.confirm(
+        "Recovery copy downloaded.\n\nDiscard the unreadable draft now so auto-save can start keeping drafts again?"
+      );
+      if (!ok) return;
+      try {
+        // Only the bytes the rider actually downloaded, so a draft written
+        // since the download is not thrown away with them.
+        Store.clearDraft({ raw: _recoveryRaw });
+        _verified = null;
+        draftState.resume();
+        draftState.reset();
+      } catch (e) {
+        window.alert("The draft could not be removed, so nothing was changed.");
+      }
+      renderAutosaveUi();
+      renderSaveStatus();
+      if (hasSessionContent()) scheduleDraftWrite();
+    });
+  }
+
+  // Another tab can replace or delete the draft at any moment. Without this,
+  // the claim was only re-checked when something happened HERE, so a tab left
+  // sitting idle went on promising a recovery that no longer existed.
+  if (window.addEventListener) {
+    window.addEventListener("storage", (event) => {
+      const key = event && event.key;
+      // A null key is a whole-storage clear, which takes the draft with it.
+      if (key !== null && key !== undefined && key !== Store.DRAFT_KEY) return;
+      renderSaveStatus();
+    });
+  }
+
+  _autosave = autosaveEnabled();
+  renderAutosaveUi();
   watchDockLayout();
 
   const aboutOpen = document.getElementById("about-open");
@@ -521,6 +921,9 @@
       // its own guard against rewriting unchanged text, so a live region is
       // still not re-announced on every keystroke.
       renderSaveStatus();
+      // Each edit restarts the debounce and marks the draft behind, so the
+      // status cannot claim the latest keystrokes are kept.
+      scheduleDraftWrite();
     };
     const fromSessionField = (event) => {
       const el = event && event.target;
@@ -1095,6 +1498,7 @@
     renderPreEditable();
     _copiedFrom = null;
     saveState.reset();
+    discardDraft();
     renderSaveStatus();
   }
 
@@ -1334,6 +1738,9 @@
   // buttons. A failed save changes NOTHING: not the flags, not the label, not
   // a single field.
   function guardedSave() {
+    // Cancel first: a timer that fires mid-save would write a draft of a
+    // session that is about to become a saved record.
+    cancelDraftWrite();
     const gate = saveState.beginSave();
     if (!gate.start) {
       return gate.reason === "in-flight"
@@ -1341,6 +1748,13 @@
         : { ok: false, alreadySaved: true };
     }
     renderSaveDock();
+    // Claim the id and RECORD IT IN THE DRAFT BEFORE history is written.
+    // Afterwards is too late: a crash or refresh between the two leaves a
+    // record in history that nothing names, and the next save would mint a
+    // fresh id and duplicate it.
+    const attemptId = saveState.claimSaveId(() => (window.Store ? Store.newId() : String(Date.now())));
+    const identityRecorded = persistDraftImmediately(attemptId);
+    if (!identityRecorded) draftState.markIdentityUnrecorded();
     let r = { ok: false };
     try {
       r = doSave();
@@ -1349,6 +1763,11 @@
       // place, so the rider can simply try again.
       if (r && r.ok) {
         saveState.saveSucceeded(r.id, r.savedAt || new Date().toISOString());
+        // The session is safely in history. Clearing the draft is best effort
+        // and MUST NOT turn a successful save into a failure - but a draft
+        // left behind must never come back later as a new unsaved session, so
+        // it is marked with the record it became.
+        retireDraftAfterSave(r.id);
         // The copy now has its own record, so the warning has done its job.
         // It stays put until this point - a failed save leaves it showing.
         _copiedFrom = null;
@@ -1416,10 +1835,15 @@
       const next = nextLabelFrom(labelEl.value);
       if (next.clean) labelEl.value = next.label;
     }
+    // Cancel before clearing: a pending write would otherwise land the
+    // PREVIOUS session's fields on top of the next one.
+    cancelDraftWrite();
     clearTransientFields();
     renderContext();
     // Cleared fields mean this is a new session: nothing saved, nothing new.
     saveState.advanced();
+    // The next outing is a new draft, not a continuation of the saved one.
+    discardDraft();
     // The next outing has not been ridden yet, so POST locks again.
     stageState.reset();
     renderPreEditable();
@@ -1534,9 +1958,12 @@
       // Copied values are new relative to storage: this draft has never been
       // saved, and saving it will create its own record.
       // A copy is not saved, however saved the session it came from was.
+      cancelDraftWrite();
       saveState.reset();
       saveState.markDirty();
+      draftState.reset();
       renderSaveStatus();
+      scheduleDraftWrite();
       showTab("day");
     } else if (action === "delete") {
       const ok = window.confirm("Delete this saved session? This cannot be undone.");
@@ -2004,4 +2431,9 @@
 
   // Initial state
   showStorageWarning();
+  // Last, deliberately: restoring a draft calls through helpers declared
+  // further down this module, so it cannot run from the init block above.
+  restoreDraftOnLoad();
+  renderAutosaveUi();
+  renderSaveStatus();
 })();

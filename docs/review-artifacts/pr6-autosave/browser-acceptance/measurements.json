@@ -1,0 +1,138 @@
+{
+ "switchOffByDefault": {
+  "aria": "false",
+  "disabled": false,
+  "sub": "Off \u00b7 refresh clears the draft"
+ },
+ "footerOff": "Refresh wipes the current session.",
+ "switchOn": {
+  "aria": "true",
+  "disabled": false,
+  "sub": "On \u00b7 drafts kept in this browser"
+ },
+ "duringDebounce": {
+  "footer": "Your most recent changes have not been kept yet.",
+  "hidden": false,
+  "status": "Keeping draft\u2026"
+ },
+ "afterDebounce": {
+  "footer": "A refresh brings your draft back.",
+  "hidden": false,
+  "status": "Not saved yet \u00b7 draft kept on this device"
+ },
+ "draftStored": 1,
+ "afterRefresh": {
+  "bike": "Panigale V4 #21",
+  "track": "Barber",
+  "footer": "A refresh brings your draft back.",
+  "hidden": false,
+  "status": "Draft restored \u00b7 not saved yet"
+ },
+ "draftWriteFailed": {
+  "footer": "Your latest changes are not being kept right now.",
+  "hidden": false,
+  "status": "Not saved yet \u00b7 draft could not be kept"
+ },
+ "unreadableDraft": {
+  "footer": "Your latest changes are not being kept right now.",
+  "hidden": false,
+  "status": "Not saved yet \u00b7 a kept draft could not be read",
+  "bytesUntouched": true,
+  "recoveryOffered": true,
+  "aboutNote": "A draft is stored on this device but cannot be read. MotoTrack is not writing drafts until it is dealt with, so nothing is written over it. A draft is not a backup \u2014 your saved sessions are untouched."
+ },
+ "afterTurningOff": {
+  "footer": "Refresh wipes the current session.",
+  "hidden": false,
+  "status": "Not saved yet \u00b7 REVIEW saves it",
+  "aria": "false",
+  "disabled": false,
+  "sub": "Off \u00b7 refresh clears the draft",
+  "draftGone": true
+ },
+ "footerCorrectionRound": {
+  "draftKept": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  },
+  "afterSaveOnly": {
+   "footer": "Session saved. Refresh clears the form; saved history remains.",
+   "status": "Saved on this device \u00b7 02:33 PM",
+   "draft": null,
+   "saved": 1
+  },
+  "refreshAfterSaveOnly": {
+   "bike": "",
+   "saved": 1,
+   "footer": "Anything you enter is kept on this device."
+  },
+  "afterSaveAndNext": {
+   "footer": "Your most recent changes have not been kept yet.",
+   "status": "Keeping draft\u2026",
+   "bike": "Panigale V4 #21",
+   "frontPre": "",
+   "draft": null,
+   "label": "Session 3"
+  },
+  "carriedDraftWritten": {
+   "footer": "A refresh brings your draft back.",
+   "draftRev": 1
+  },
+  "refreshAfterCarried": {
+   "bike": "Panigale V4 #21",
+   "frontPre": "31.0",
+   "label": "Session 3",
+   "saved": 1,
+   "footer": "A refresh brings your draft back.",
+   "status": "Draft restored \u00b7 not saved yet"
+  }
+ },
+ "crossTabTakeover": {
+  "A_protected": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  },
+  "A_rev": 1,
+  "B_wrote": {
+   "rev": 2,
+   "bike": "Tab B bike"
+  },
+  "A_after_B": {
+   "footer": "Your most recent changes have not been kept yet.",
+   "status": "Not saved yet \u00b7 this draft is no longer kept on this device",
+   "formUnchanged": "Tab A bike"
+  },
+  "B_bytes_untouched": true,
+  "B_still_protected": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  }
+ },
+ "restoreIdentity": {
+  "afterRestoreNoEdit": {
+   "footer": "A refresh brings your draft back.",
+   "status": "Draft restored \u00b7 not saved yet",
+   "bike": "Tab A bike",
+   "frontPre": "30.5",
+   "draftUnchanged": true
+  },
+  "afterOtherTabReplaced": {
+   "footer": "Your most recent changes have not been kept yet.",
+   "status": "Not saved yet \u00b7 this draft is no longer kept on this device",
+   "bike": "Tab A bike",
+   "frontPre": "30.5",
+   "otherBytesUntouched": true
+  },
+  "resetAfterRestore": {
+   "draft": null,
+   "bike": "",
+   "footer": "Anything you enter is kept on this device."
+  },
+  "saveAfterRestore": {
+   "saved": 1,
+   "draft": null,
+   "footer": "Session saved. Refresh clears the form; saved history remains.",
+   "status": "Saved on this device \u00b7 03:20 PM"
+  }
+ }
+}
