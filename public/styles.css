@@ -124,14 +124,22 @@ main {
   margin-bottom: 14px;
 }
 
+/* Headings scale with the rider's text size, and Orbitron's words are wide:
+   at 400% a single word like "Session" is wider than a 320px phone. Let them
+   break rather than push the page sideways - the wording and the size are both
+   preserved, which clipping or shrinking would not do. */
 h2 {
   margin: 0 0 12px;
   font-size: 1.2rem;
   font-family: Orbitron, Barlow, system-ui, sans-serif;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 h3 {
   margin: 14px 0 8px;
   font-size: 0.95rem;
+  overflow-wrap: break-word;
+  word-break: break-word;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -173,18 +181,22 @@ input:focus, textarea:focus {
   border-color: var(--accent);
 }
 
+/* minmax(0, 1fr), not 1fr: a grid item's min-width is auto, so a 1fr column
+   cannot shrink below its content and a long label pushes the whole page
+   sideways at large text. Same cause as the status text and the context
+   spans - the column may now shrink, and the label wraps instead. */
 .grid-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 .grid-3 {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 @media (max-width: 480px) {
-  .grid-3 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .checkbox-row {
@@ -684,15 +696,22 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
    that ignores the rider's text setting is the one line they most need to
    read at a glance. rem at the default 16px root reproduces the intended
    18/15 exactly and scales from there. */
+/* Same constraint as the status text, for the same reason: .context-line is a
+   flex container, so a long bike or track name cannot wrap until its item is
+   allowed to shrink. A rider's own label must never be cut off or scaled down. */
 .context-bike {
   font-size: 1.125rem;
   font-weight: 700;
+  min-width: 0;
   overflow-wrap: break-word;
+  word-break: break-word;
 }
 .context-where {
   font-size: 0.9375rem;
   color: var(--text-dim);
+  min-width: 0;
   overflow-wrap: break-word;
+  word-break: break-word;
 }
 /* The header's one button. Log has no account, so About is what sits here.
    Icon above label, and never below the tap floor. */
@@ -801,6 +820,52 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + var(--space-gap, 12px)); }
 .panel :is(input, select, textarea, button) {
   scroll-margin-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + 12px);
+}
+
+/* --- Save status (C7) ----------------------------------------------------- */
+
+/* One short line under the context header. It costs nothing when there is
+   nothing to say, because it is hidden outright rather than left empty.
+   It WRAPS at large text rather than being clamped to one line or shrunk:
+   the words are the whole point, and a status the rider cannot read is worse
+   than one that takes a second line. */
+.save-status {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--text-dim);
+  overflow-wrap: break-word;
+}
+/* The whole point of the separate element: a flex item only shrinks below its
+   content width when min-width is overridden, so overflow-wrap can finally do
+   its job. The text is NOT clipped and NOT scaled down - it wraps, for as many
+   lines as it needs. */
+.save-status-text {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.save-status::before {
+  content: "";
+  flex: none;
+  width: 1.125em; height: 1.125em;
+  margin-top: 0.1em;
+  background: currentColor;
+  -webkit-mask: url("icons/circle-dashed.svg") center / contain no-repeat;
+  mask: url("icons/circle-dashed.svg") center / contain no-repeat;
+}
+.save-status--good { color: var(--good); }
+.save-status--good::before {
+  -webkit-mask: url("icons/check.svg") center / contain no-repeat;
+  mask: url("icons/check.svg") center / contain no-repeat;
+}
+.save-status--warn { color: var(--warn); }
+.save-status--warn::before {
+  -webkit-mask: url("icons/triangle-alert.svg") center / contain no-repeat;
+  mask: url("icons/triangle-alert.svg") center / contain no-repeat;
 }
 
 /* --- The docked action (C4, C5, C13) ------------------------------------- */

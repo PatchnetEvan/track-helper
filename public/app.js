@@ -155,6 +155,7 @@
     }
     if (onReview) renderSaveDock();
     if (_stage === "post") renderPreReference();
+    renderSaveStatus();
     dock.hidden = !copy && !onReview;
 
     // The POST cell reads as locked only while it actually refuses.
@@ -205,6 +206,50 @@
         : "Keeps bike, track, tires and clicks";
     }
     renderCopyOrigin(nothingNew);
+  }
+
+  // --- Save status (C7) -----------------------------------------------------
+  //
+  // One line under the context header. It holds no state: every word comes
+  // from saveState, storage availability and whether the session has content,
+  // so it cannot claim something that did not happen.
+  function savedAtLabel(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    try {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch (e) {
+      return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    }
+  }
+
+  let _statusKey = null;
+  let _statusText = null;
+  function renderSaveStatus() {
+    const el = document.getElementById("save-status");
+    if (!el) return;
+    const status = SP.saveStatusFor({
+      storageReady: storageReady(),
+      failed: saveState.failed,
+      alreadySaved: saveState.alreadySaved,
+      savedAtLabel: savedAtLabel(saveState.lastSavedAt),
+      hasContent: hasSessionContent(),
+    });
+    // Written only when it actually changes. This is a polite live region:
+    // re-assigning it on every keystroke would make a screen reader announce
+    // the save status on every keystroke.
+    if (status.key === _statusKey && status.text === _statusText) return;
+    _statusKey = status.key;
+    _statusText = status.text;
+    el.hidden = status.key === "none";
+    // The text lives in its own element so it can shrink and wrap. Writing it
+    // on the <p> would delete that element, and the <p> is a flex container -
+    // a bare text node in one is an anonymous flex item with min-width:auto,
+    // which no overflow-wrap can get past.
+    const textEl = document.getElementById("save-status-text") || el;
+    textEl.textContent = status.text;
+    el.className = "save-status save-status--" + status.tone;
   }
 
   // Says, in the place the rider is about to tap, that this will become its
@@ -384,6 +429,7 @@
   // Start in a known state: PRE editable, POST locked, dock rendered for DAY.
   renderPreEditable();
   renderDock();
+  renderSaveStatus();
   watchDockLayout();
 
   const aboutOpen = document.getElementById("about-open");
@@ -468,6 +514,13 @@
       // just named the outing.
       if (_stage === "day") renderDock();
       else if (_stage === "review" || !wasDirty) renderSaveDock();
+      // Recomputed on EVERY relevant edit, not just the first. Typing into the
+      // last remaining field and then clearing it takes the session back to
+      // empty, and a status that only recomputed on the dirty transition went
+      // on claiming "Not saved yet" about nothing. renderSaveStatus() keeps
+      // its own guard against rewriting unchanged text, so a live region is
+      // still not re-announced on every keystroke.
+      renderSaveStatus();
     };
     const fromSessionField = (event) => {
       const el = event && event.target;
@@ -1042,6 +1095,7 @@
     renderPreEditable();
     _copiedFrom = null;
     saveState.reset();
+    renderSaveStatus();
   }
 
   // --- Session shape & form <-> object helpers ------------------------------
@@ -1213,6 +1267,30 @@
     el.hidden = storageReady();
   }
 
+  // Does this session describe an outing yet?
+  //
+  // Reads the SAVED session rather than the form, so the two can never
+  // disagree. setup.geometryConstants is excluded deliberately: those are the
+  // calculators' bike constants, and a wheelbase typed into the geometry tool
+  // must not make an otherwise empty session look like unsaved work. Rider
+  // Feedback text and tags ARE content - they are the rider's own words.
+  function sessionHasContent(s) {
+    if (!s) return false;
+    const setup = Object.assign({}, s.setup);
+    delete setup.geometryConstants;
+    const fb = s.riderFeedback || {};
+    return Object.values(setup).some(Boolean)
+      || Object.values(s.tires).some((v) => v !== "" && v !== false)
+      || Object.values(s.suspension).some((v) => (Array.isArray(v) ? v.length : Boolean(v)))
+      || Boolean(fb.text)
+      || (Array.isArray(fb.tags) && fb.tags.length > 0)
+      || Boolean(s.laps && s.laps.times && s.laps.times.length);
+  }
+
+  function hasSessionContent() {
+    try { return sessionHasContent(collectSession()); } catch (e) { return false; }
+  }
+
   function doSave() {
     const out = document.getElementById("save-result");
     if (!storageReady()) {
@@ -1220,21 +1298,35 @@
       return { ok: false };
     }
     const s = collectSession();
-    const hasAny = Object.values(s.setup).some(Boolean)
-      || Object.values(s.tires).some((v) => v !== "" && v !== false)
-      || Object.values(s.suspension).some((v) => (Array.isArray(v) ? v.length : Boolean(v)))
-      || (s.laps.times && s.laps.times.length);
-    if (!hasAny) {
+    // The id comes from the save state, so a retry after an unverified write
+    // reuses it and RECONCILES that record rather than writing a second copy.
+    s.id = saveState.claimSaveId(() => (window.Store ? Store.newId() : String(Date.now())));
+    if (!sessionHasContent(s)) {
       out.innerHTML = `<p>Nothing to save yet — fill in some details first.</p>`;
       return { ok: false };
     }
     try {
-      Store.add(s);
-      return { ok: true, out, id: s.id };
+      Store.put(s);
     } catch (e) {
-      out.innerHTML = `<p class="warn">Could not save: ${escapeHtml(e.message || String(e))}</p>`;
+      // An unreadable history is NOT a retry case: the write was refused on
+      // purpose so the existing sessions are not replaced by a guess. Say so,
+      // rather than inviting the rider to tap Save until it works.
+      const unreadable = window.Store && Store.UNREADABLE && e && e.message === Store.UNREADABLE;
+      out.innerHTML = unreadable
+        ? `<p class="warn">Not saved. The sessions already on this device could not be read, and MotoTrack will not replace them. Export from About to download a recovery copy of what is stored \u2014 that keeps a copy, but it does not repair the saved sessions or make saving work again.</p>`
+        : `<p class="warn">Not saved — try Save again.</p>`;
       return { ok: false };
     }
+    // Read it back and compare the CONTENT, not just the id. A throwing write
+    // is handled above; this catches one that reported success and did not
+    // land, or landed as something else.
+    let stored = null;
+    try { stored = Store.findById(s.id); } catch (e) { stored = null; }
+    if (!stored || JSON.stringify(stored) !== JSON.stringify(s)) {
+      out.innerHTML = `<p class="warn">Not saved — try Save again.</p>`;
+      return { ok: false, unverified: true };
+    }
+    return { ok: true, out, id: s.id, savedAt: s.savedAt };
   }
 
   // Every save goes through here so that the double-tap guard, the dirty flag
@@ -1256,7 +1348,7 @@
       // A failed or throwing save leaves the form dirty and every value in
       // place, so the rider can simply try again.
       if (r && r.ok) {
-        saveState.saveSucceeded(r.id);
+        saveState.saveSucceeded(r.id, r.savedAt || new Date().toISOString());
         // The copy now has its own record, so the warning has done its job.
         // It stays put until this point - a failed save leaves it showing.
         _copiedFrom = null;
@@ -1264,6 +1356,7 @@
         saveState.saveFailed();
       }
       renderSaveDock();
+      renderSaveStatus();
     }
     return r;
   }
@@ -1330,6 +1423,9 @@
     // The next outing has not been ridden yet, so POST locks again.
     stageState.reset();
     renderPreEditable();
+    // The new session is NOT saved. Nothing about the record just written
+    // carries forward into how this one is described.
+    renderSaveStatus();
     if (out) {
       out.innerHTML = advancingOnly
         ? `<p class="good">Ready for the next session — bike, track, tire brand, and suspension settings carried over. The saved session was not duplicated.</p>`
@@ -1437,13 +1533,22 @@
       renderPreEditable();
       // Copied values are new relative to storage: this draft has never been
       // saved, and saving it will create its own record.
+      // A copy is not saved, however saved the session it came from was.
       saveState.reset();
       saveState.markDirty();
+      renderSaveStatus();
       showTab("day");
     } else if (action === "delete") {
       const ok = window.confirm("Delete this saved session? This cannot be undone.");
       if (!ok) return;
-      Store.remove(id);
+      try {
+        Store.remove(id);
+      } catch (err) {
+        // Same refusal as a save: rewriting a history that could not be read
+        // would delete far more than the one session asked for.
+        window.alert("Could not delete: the saved sessions on this device could not be read, so nothing was changed.");
+        return;
+      }
       renderHistory();
     } else if (action === "view") {
       const el = document.getElementById("view-" + id);
@@ -1569,20 +1674,63 @@
   });
 
   // --- Export / Import / Clear ---------------------------------------------
-  document.getElementById("export-history").addEventListener("click", () => {
-    if (!storageReady()) { window.alert("Storage unavailable in this browser."); return; }
-    const payload = Store.exportPayload();
-    if (!payload.sessions.length) { window.alert("No saved sessions to export yet."); return; }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  function downloadBlob(text, type, filename) {
+    const blob = new Blob([text], { type: type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `mototrack-${stamp}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Export has three honest outcomes, not one.
+  //
+  // A damaged history used to export as zero sessions, and the rider was told
+  // "no saved sessions to export yet" about a device that still held them. A
+  // list with some junk in it exported the readable entries silently, so the
+  // backup was partial and looked complete. Neither is acceptable when the
+  // save path is telling riders to come here first.
+  document.getElementById("export-history").addEventListener("click", () => {
+    if (!storageReady()) { window.alert("Storage unavailable in this browser."); return; }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const state = Store.exportState();
+
+    if (state.kind === "unreadable") {
+      // Nothing was handed over, so there is nothing to put in a file. Do not
+      // write one: an empty download here would read as a successful backup.
+      window.alert(
+        "Recovery failed. The saved sessions on this device could not be read at all, "
+        + "so no file was created and no backup exists. Nothing on this device was changed."
+      );
+      return;
+    }
+
+    if (state.kind === "raw") {
+      // The TEXT is readable, it just is not a valid history. Preserve it
+      // exactly - byte for byte, not re-serialised - under a name that cannot
+      // be mistaken for a working backup.
+      const ok = window.confirm(
+        "The saved sessions on this device are damaged and cannot be read as sessions.\n\n"
+        + "MotoTrack can download the stored text exactly as it is, as a recovery copy. "
+        + "It is NOT a usable backup and it cannot be imported.\n\n"
+        + "Download the recovery copy?"
+      );
+      if (!ok) return;
+      downloadBlob(state.raw, "text/plain", `mototrack-RECOVERY-UNREADABLE-${stamp}.txt`);
+      window.alert(
+        "Recovery copy downloaded. Keep it somewhere safe.\n\n"
+        + "This preserves a copy of what is stored. It does not repair the saved sessions "
+        + "and it does not let saving work again \u2014 MotoTrack still will not write over "
+        + "a history it cannot read."
+      );
+      return;
+    }
+
+    if (!state.payload.sessions.length) { window.alert("No saved sessions to export yet."); return; }
+    downloadBlob(JSON.stringify(state.payload, null, 2), "application/json", `mototrack-${stamp}.json`);
   });
 
   document.getElementById("import-history").addEventListener("change", (e) => {

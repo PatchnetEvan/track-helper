@@ -152,7 +152,13 @@ export function createDom() {
     querySelector(sel, scope) { return matchAll(sel, scope)[0] || null; },
     querySelectorAll(sel, scope) { return matchAll(sel, scope); },
     documentElement: makeEl("", "HTML"),
+    body: makeEl("", "BODY"),
     createElement: (tag) => makeEl("", String(tag).toUpperCase()),
+  };
+  dom.document.body.removeChild = function (child) {
+    const i = this.children.indexOf(child);
+    if (i !== -1) this.children.splice(i, 1);
+    return child;
   };
   dom.makeEl = makeEl;
   dom.byId = byId;

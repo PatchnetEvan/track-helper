@@ -176,3 +176,94 @@ test("the same result drives the display and the field", () => {
     assert.equal(r.label, input.trim(), "unchanged, so writing it changes nothing");
   }
 });
+
+// ---------------------------------------------------------------------------
+// 5. Save status (PR 5). The line holds no state of its own, so these are the
+//    rules in full: given the facts, what does it say?
+// ---------------------------------------------------------------------------
+
+const { saveStatusFor } = globalThis.SessionProgress;
+const facts = (over) => Object.assign(
+  { storageReady: true, failed: false, alreadySaved: false, savedAtLabel: "", hasContent: false },
+  over,
+);
+
+test("an empty form with nothing saved says nothing at all", () => {
+  const s = saveStatusFor(facts());
+  assert.equal(s.key, "none");
+  assert.equal(s.text, "");
+});
+
+test("entries that have not been saved say so", () => {
+  const s = saveStatusFor(facts({ hasContent: true }));
+  assert.equal(s.key, "unsaved");
+  assert.match(s.text, /Not saved yet/);
+});
+
+test("Saved is claimed only with a recorded save time", () => {
+  assert.equal(saveStatusFor(facts({ alreadySaved: true, savedAtLabel: "", hasContent: true })).key,
+    "unsaved", "alreadySaved without a time is not enough to claim Saved");
+  assert.equal(saveStatusFor(facts({ alreadySaved: true, savedAtLabel: "" })).key, "none",
+    "and with nothing entered either, it says nothing");
+  const s = saveStatusFor(facts({ alreadySaved: true, savedAtLabel: "17:38", hasContent: true }));
+  assert.equal(s.key, "saved");
+  assert.equal(s.text, "Saved on this device · 17:38");
+});
+
+test("a failed save says to try again and names no cause", () => {
+  const s = saveStatusFor(facts({ failed: true, hasContent: true }));
+  assert.equal(s.key, "failed");
+  assert.equal(s.text, "Not saved · try Save again");
+  assert.ok(!/refused|quota|full|denied|private/i.test(s.text),
+    "no cause is asserted - the app cannot tell which one it was");
+});
+
+test("blocked storage outranks everything and is not a toast", () => {
+  const s = saveStatusFor(facts({ storageReady: false, failed: true, alreadySaved: true, savedAtLabel: "17:38", hasContent: true }));
+  assert.equal(s.key, "blocked");
+  assert.match(s.text, /blocks storage/);
+});
+
+test("a failed save outranks a previous success", () => {
+  const s = saveStatusFor(facts({ failed: true, alreadySaved: true, savedAtLabel: "17:38" }));
+  assert.equal(s.key, "failed", "the last thing that happened is what is reported");
+});
+
+test("the status never claims a capability this app does not have", () => {
+  const FORBIDDEN = /synced|syncing|cloud|backed up|back-up|uploading|uploaded|queued|queue|offline|draft saved|recovered|autosaved|auto-saved/i;
+  const every = [
+    facts(), facts({ hasContent: true }),
+    facts({ alreadySaved: true, savedAtLabel: "17:38" }),
+    facts({ failed: true }), facts({ storageReady: false }),
+  ].map((f) => saveStatusFor(f).text);
+  for (const text of every) {
+    assert.ok(!FORBIDDEN.test(text), `status must not promise a missing capability: "${text}"`);
+  }
+});
+
+test("advancing clears the saved-at time, so the next session cannot inherit Saved", () => {
+  const sv = createSaveState().markDirty();
+  sv.beginSave(); sv.saveSucceeded("s_1", "2026-09-30T17:38:00.000Z");
+  assert.equal(sv.alreadySaved, true);
+  assert.ok(sv.lastSavedAt, "a time was recorded");
+  sv.advanced();
+  assert.equal(sv.lastSavedAt, null, "the time went with it");
+  assert.equal(sv.alreadySaved, false);
+  assert.equal(saveStatusFor(facts({ alreadySaved: sv.alreadySaved, savedAtLabel: "", hasContent: true })).key,
+    "unsaved", "the carried-over session reads as unsaved");
+});
+
+test("a pending id survives a failure and is reused, then cleared on success", () => {
+  const sv = createSaveState().markDirty();
+  let minted = 0;
+  const mint = () => "s_" + (++minted);
+  const first = sv.claimSaveId(mint);
+  sv.beginSave(); sv.saveFailed();
+  assert.equal(sv.failed, true);
+  const second = sv.claimSaveId(mint);
+  assert.equal(second, first, "the retry writes under the SAME id");
+  assert.equal(minted, 1, "no second id was minted");
+  sv.beginSave(); sv.saveSucceeded(second, "2026-09-30T17:40:00.000Z");
+  assert.equal(sv.pendingId, null, "nothing pending once it is verified");
+  assert.equal(sv.failed, false);
+});
