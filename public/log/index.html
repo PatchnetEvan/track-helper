@@ -21,6 +21,13 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">MotoTrack</span>
       </div>
+      <!-- The context sits beside About rather than under it: on a phone that
+           row would otherwise cost a line the rider needs for the pressures. -->
+      <p class="context-line" id="context-line" hidden>
+        <span class="context-bike" id="context-bike"></span>
+        <span class="context-where" id="context-where"></span>
+        <span class="stage-chip" id="stage-chip" hidden></span>
+      </p>
       <!-- Log has no account, so the header's one button is About. -->
       <button type="button" class="about-open" id="about-open" aria-label="About MotoTrack">
         <span class="about-open-icon" aria-hidden="true"></span>
@@ -32,10 +39,6 @@
          number is worse than no context line. No stage chip and no save-status
          line yet - PRE/POST state arrives in PR 4 and the status rules in
          PR 5, and neither can be shown truthfully before that. -->
-    <p class="context-line" id="context-line" hidden>
-      <span class="context-bike" id="context-bike"></span>
-      <span class="context-where" id="context-where"></span>
-    </p>
     <!-- Save status (C7). One short line, hidden entirely until there is
          something true to say. It never claims cloud, sync, a queued upload or
          a recovered draft: none of those exist in Log. -->
@@ -148,57 +151,263 @@
     <section class="panel" id="panel-tires" role="tabpanel" hidden>
       <h2>Tires</h2>
 
-      <div class="grid-2">
-        <label class="field">
-          <span>Tire brand</span>
-          <input type="text" id="tire-brand" autocomplete="off" placeholder="e.g. Pirelli" />
+      <!-- The tire details sit behind a disclosure so the pressures are
+           reachable without scrolling. The inputs keep their ids and stay in
+           the DOM, so saving, the draft and read-only locking are unaffected. -->
+
+      <div class="tire-fields" id="tire-fields" hidden>
+        <div class="grid-2">
+          <label class="field">
+            <span>Tire brand</span>
+            <input type="text" id="tire-brand" autocomplete="off" placeholder="e.g. Pirelli" />
+          </label>
+          <label class="field">
+            <span>Model / compound</span>
+            <input type="text" id="tire-model" autocomplete="off" placeholder="e.g. Supercorsa SC1" />
+          </label>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="warmer-on" />
+          <span>Tire warmers used</span>
         </label>
+
         <label class="field">
-          <span>Model / compound</span>
-          <input type="text" id="tire-model" autocomplete="off" placeholder="e.g. Supercorsa SC1" />
+          <span>Warmer time (minutes)</span>
+          <input type="text" id="warmer-time" inputmode="numeric" placeholder="e.g. 45" />
         </label>
       </div>
 
-      <p class="hint">Pre-session is the pressure your tire is at right before you roll out — hot off the warmer if you use warmers, cold from the pit if you don't. Post-session is the reading the moment you're back in.</p>
+      <div class="section-row" data-stage="pre">
+        <p class="section-label">PRE-SESSION PRESSURE</p>
+      </div>
+      <div class="section-row" data-stage="post">
+        <p class="section-label">HOT PRESSURE</p>
+      </div>
 
       <!-- Split by stage (C1). The ids, the inputs and the saved-session shape
            are untouched; only which stage shows them changes. -->
-      <div class="grid-2" data-stage="pre">
-        <label class="field">
-          <span>Front pre-session PSI</span>
-          <input type="text" id="front-pre" inputmode="decimal" placeholder="e.g. 30" />
-        </label>
-        <label class="field">
-          <span>Rear pre-session PSI</span>
-          <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 28" />
-        </label>
+      <div class="pressure-stack" data-stage="pre">
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="front-pre">
+          <button type="button" class="tire-row" id="front-pre-row"
+                  aria-expanded="false" aria-controls="front-pre-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">FRONT</span>
+              <span class="tire-pill" id="front-pre-pill" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="front-pre-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="front-pre-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+              <span class="tire-delta" id="front-pre-delta" hidden></span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="front-pre-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="front-pre" data-step-dir="-1"
+                      aria-label="Decrease front pressure">&minus;</button>
+              <div class="drag-pad" id="front-pre-pad" data-pad-for="front-pre" role="slider" tabindex="0"
+                   aria-label="Front pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="front-pre-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="front-pre-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="front-pre" data-step-dir="1"
+                      aria-label="Increase front pressure">+</button>
+            </div>
+
+            <div class="field-row">
+              <label class="typed-field">
+                <span class="sr-only">Front pressure</span>
+                <input type="text" id="front-pre" inputmode="decimal" placeholder="e.g. 30" autocomplete="off" />
+                <span class="typed-unit">psi</span>
+              </label>
+              <button type="button" class="btn-secondary tire-same" id="front-pre-same" hidden></button>
+            </div>
+
+            <p class="tire-note" id="front-pre-note"></p>
+          </div>
+        </div>
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="rear-pre">
+          <button type="button" class="tire-row" id="rear-pre-row"
+                  aria-expanded="false" aria-controls="rear-pre-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">REAR</span>
+              <span class="tire-pill" id="rear-pre-pill" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="rear-pre-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="rear-pre-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+              <span class="tire-delta" id="rear-pre-delta" hidden></span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="rear-pre-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="rear-pre" data-step-dir="-1"
+                      aria-label="Decrease rear pressure">&minus;</button>
+              <div class="drag-pad" id="rear-pre-pad" data-pad-for="rear-pre" role="slider" tabindex="0"
+                   aria-label="Rear pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="rear-pre-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="rear-pre-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="rear-pre" data-step-dir="1"
+                      aria-label="Increase rear pressure">+</button>
+            </div>
+
+            <div class="field-row">
+              <label class="typed-field">
+                <span class="sr-only">Rear pressure</span>
+                <input type="text" id="rear-pre" inputmode="decimal" placeholder="e.g. 30" autocomplete="off" />
+                <span class="typed-unit">psi</span>
+              </label>
+              <button type="button" class="btn-secondary tire-same" id="rear-pre-same" hidden></button>
+            </div>
+
+            <p class="tire-note" id="rear-pre-note"></p>
+          </div>
+        </div>
       </div>
-      <div class="pre-ref" data-stage="post">
-        <p class="pre-ref-line">Went out on <strong id="pre-ref-front">—</strong> front · <strong id="pre-ref-rear">—</strong> rear</p>
-        <button type="button" class="btn-secondary" id="correct-pre">Correct PRE</button>
-      </div>
-      <div class="grid-2" data-stage="post">
-        <label class="field">
-          <span>Front post-session PSI</span>
-          <input type="text" id="front-post" inputmode="decimal" placeholder="e.g. 33" />
-        </label>
-        <label class="field">
-          <span>Rear post-session PSI</span>
-          <input type="text" id="rear-post" inputmode="decimal" placeholder="e.g. 31" />
-        </label>
+      <div class="pressure-stack" data-stage="post">
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="front-post">
+          <button type="button" class="tire-row" id="front-post-row"
+                  aria-expanded="false" aria-controls="front-post-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">FRONT</span>
+              <span class="tire-pill" id="front-post-pill" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="front-post-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="front-post-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+              <span class="tire-delta" id="front-post-delta" hidden></span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="front-post-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="front-post" data-step-dir="-1"
+                      aria-label="Decrease front hot pressure">&minus;</button>
+              <div class="drag-pad" id="front-post-pad" data-pad-for="front-post" role="slider" tabindex="0"
+                   aria-label="Front hot pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="front-post-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="front-post-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="front-post" data-step-dir="1"
+                      aria-label="Increase front hot pressure">+</button>
+            </div>
+
+            <div class="field-row">
+              <label class="typed-field">
+                <span class="sr-only">Front hot pressure</span>
+                <input type="text" id="front-post" inputmode="decimal" placeholder="e.g. 30" autocomplete="off" />
+                <span class="typed-unit">psi</span>
+              </label>
+              <button type="button" class="btn-secondary tire-same" id="front-post-same" hidden></button>
+            </div>
+
+            <p class="tire-note" id="front-post-note"></p>
+          </div>
+        </div>
+        <!-- Tire card (v2). Closed it is one row; open it carries the drag pad,
+             the typed field and the note. The input keeps its existing id and
+             stays in the document either way, so saving, the draft and the PRE
+             read-only lock are untouched. -->
+        <div class="tire-card" data-tire="rear-post">
+          <button type="button" class="tire-row" id="rear-post-row"
+                  aria-expanded="false" aria-controls="rear-post-panel">
+            <span class="tire-col-left">
+              <span class="tire-name">REAR</span>
+              <span class="tire-pill" id="rear-post-pill" hidden></span>
+            </span>
+            <span class="tire-col-right">
+              <span class="tire-today" id="rear-post-today">Today &middot; not measured</span>
+              <span class="tire-value">
+                <span class="tire-num tire-num--blank" id="rear-post-num">&mdash;</span>
+                <span class="tire-unit">psi</span>
+              </span>
+              <span class="tire-delta" id="rear-post-delta" hidden></span>
+            </span>
+          </button>
+
+          <div class="tire-panel" id="rear-post-panel" hidden>
+            <div class="control-row">
+              <button type="button" class="pad-btn" data-step-for="rear-post" data-step-dir="-1"
+                      aria-label="Decrease rear hot pressure">&minus;</button>
+              <div class="drag-pad" id="rear-post-pad" data-pad-for="rear-post" role="slider" tabindex="0"
+                   aria-label="Rear hot pressure" aria-valuemin="10" aria-valuemax="45">
+                <div class="pad-lines" id="rear-post-lines" aria-hidden="true"></div>
+                <span class="pad-label" aria-hidden="true">
+                  <b class="pad-label-main" id="rear-post-padmain">&#9666; DRAG &#9656;</b>
+                  <i class="pad-label-sub">0.1 per notch</i>
+                </span>
+              </div>
+              <button type="button" class="pad-btn" data-step-for="rear-post" data-step-dir="1"
+                      aria-label="Increase rear hot pressure">+</button>
+            </div>
+
+            <div class="field-row">
+              <label class="typed-field">
+                <span class="sr-only">Rear hot pressure</span>
+                <input type="text" id="rear-post" inputmode="decimal" placeholder="e.g. 30" autocomplete="off" />
+                <span class="typed-unit">psi</span>
+              </label>
+              <button type="button" class="btn-secondary tire-same" id="rear-post-same" hidden></button>
+            </div>
+
+            <p class="tire-note" id="rear-post-note"></p>
+          </div>
+        </div>
       </div>
 
-      <label class="checkbox-row">
-        <input type="checkbox" id="warmer-on" />
-        <span>Tire warmers used</span>
-      </label>
+      <!-- Current bike state (v2 item 6). Only rows backed by fields that
+           exist are rendered; nothing new is invented here. -->
+      <div class="bike-state">
+        <div class="bike-state-head">
+          <p class="bike-state-title">CURRENT BIKE STATE</p>
+        </div>
+        <div id="bike-state-rows"></div>
+      </div>
 
-      <label class="field">
-        <span>Warmer time (minutes)</span>
-        <input type="text" id="warmer-time" inputmode="numeric" placeholder="e.g. 45" />
-      </label>
+      <!-- Correct PRE sits under the bike state, as a secondary action: it is
+           a correction, not the thing the rider came to POST to do. -->
+      <div class="correct-pre-row" data-stage="post">
+        <button type="button" class="btn-outline" id="correct-pre">Correct PRE</button>
+      </div>
 
-      <button type="button" class="btn-secondary" id="calc-tires">Calculate deltas &amp; suggestions</button>
+      <!-- Moved to POST: a delta needs both readings, and on PRE there is
+           nothing yet to compare against. -->
+      <div data-stage="post">
+        <button type="button" class="btn-secondary" id="calc-tires">Calculate deltas &amp; suggestions</button>
+      </div>
 
       <div class="result" id="tire-result" aria-live="polite"></div>
     </section>
@@ -206,41 +415,168 @@
     <!-- Suspension -->
     <section class="panel" id="panel-suspension" role="tabpanel" hidden>
       <h2>Suspension</h2>
+      <!-- Set on the stand before the day starts, so this lives on DAY. One
+           adjuster is open at a time, the same pattern as the tire rows. -->
+      <!-- Shown only when the rider came here from CURRENT BIKE STATE, so the
+           way back is the way they came. -->
+      <button type="button" class="btn-outline susp-done" id="suspension-done" hidden></button>
 
-      <!-- Clicks are set before going out, so they belong to PRE. -->
-      <div data-stage="pre">
-      <h3>Fork</h3>
-      <div class="grid-3">
-        <label class="field">
-          <span>Preload</span>
-          <input type="text" id="fork-preload" autocomplete="off" placeholder="turns / lines" />
-        </label>
-        <label class="field">
-          <span>Compression</span>
-          <input type="text" id="fork-comp" autocomplete="off" placeholder="clicks" />
-        </label>
-        <label class="field">
-          <span>Rebound</span>
-          <input type="text" id="fork-reb" autocomplete="off" placeholder="clicks" />
-        </label>
+      <div class="adj-group">
+        <p class="section-label">FORK</p>
+        <div class="adj-card" data-adjuster="fork-preload">
+          <button type="button" class="adj-row" id="fork-preload-row"
+                  aria-expanded="false" aria-controls="fork-preload-panel">
+            <span class="adj-name">Preload</span>
+            <span class="adj-value" id="fork-preload-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="fork-preload-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="fork-preload" data-adj-dir="-1"
+                      aria-label="Decrease fork preload">&minus;</button>
+              <span class="adj-big" id="fork-preload-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="fork-preload" data-adj-dir="1"
+                      aria-label="Increase fork preload">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Fork Preload</span>
+              <input type="text" id="fork-preload" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Fork Preload unit">
+              <button type="button" class="unit-opt" data-unit-for="fork-preload" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="fork-preload" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="fork-preload-unit" value="" />
+          </div>
+        </div>
+        <div class="adj-card" data-adjuster="fork-comp">
+          <button type="button" class="adj-row" id="fork-comp-row"
+                  aria-expanded="false" aria-controls="fork-comp-panel">
+            <span class="adj-name">Compression</span>
+            <span class="adj-value" id="fork-comp-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="fork-comp-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="fork-comp" data-adj-dir="-1"
+                      aria-label="Decrease fork compression">&minus;</button>
+              <span class="adj-big" id="fork-comp-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="fork-comp" data-adj-dir="1"
+                      aria-label="Increase fork compression">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Fork Compression</span>
+              <input type="text" id="fork-comp" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Fork Compression unit">
+              <button type="button" class="unit-opt" data-unit-for="fork-comp" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="fork-comp" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="fork-comp-unit" value="" />
+          </div>
+        </div>
+        <div class="adj-card" data-adjuster="fork-reb">
+          <button type="button" class="adj-row" id="fork-reb-row"
+                  aria-expanded="false" aria-controls="fork-reb-panel">
+            <span class="adj-name">Rebound</span>
+            <span class="adj-value" id="fork-reb-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="fork-reb-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="fork-reb" data-adj-dir="-1"
+                      aria-label="Decrease fork rebound">&minus;</button>
+              <span class="adj-big" id="fork-reb-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="fork-reb" data-adj-dir="1"
+                      aria-label="Increase fork rebound">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Fork Rebound</span>
+              <input type="text" id="fork-reb" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Fork Rebound unit">
+              <button type="button" class="unit-opt" data-unit-for="fork-reb" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="fork-reb" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="fork-reb-unit" value="" />
+          </div>
+        </div>
       </div>
 
-      <h3>Shock</h3>
-      <div class="grid-3">
-        <label class="field">
-          <span>Preload</span>
-          <input type="text" id="shock-preload" autocomplete="off" placeholder="turns" />
-        </label>
-        <label class="field">
-          <span>Compression</span>
-          <input type="text" id="shock-comp" autocomplete="off" placeholder="clicks" />
-        </label>
-        <label class="field">
-          <span>Rebound</span>
-          <input type="text" id="shock-reb" autocomplete="off" placeholder="clicks" />
-        </label>
-      </div>
-
+      <div class="adj-group">
+        <p class="section-label">SHOCK</p>
+        <div class="adj-card" data-adjuster="shock-preload">
+          <button type="button" class="adj-row" id="shock-preload-row"
+                  aria-expanded="false" aria-controls="shock-preload-panel">
+            <span class="adj-name">Preload</span>
+            <span class="adj-value" id="shock-preload-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="shock-preload-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="shock-preload" data-adj-dir="-1"
+                      aria-label="Decrease shock preload">&minus;</button>
+              <span class="adj-big" id="shock-preload-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="shock-preload" data-adj-dir="1"
+                      aria-label="Increase shock preload">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Shock Preload</span>
+              <input type="text" id="shock-preload" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Shock Preload unit">
+              <button type="button" class="unit-opt" data-unit-for="shock-preload" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="shock-preload" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="shock-preload-unit" value="" />
+          </div>
+        </div>
+        <div class="adj-card" data-adjuster="shock-comp">
+          <button type="button" class="adj-row" id="shock-comp-row"
+                  aria-expanded="false" aria-controls="shock-comp-panel">
+            <span class="adj-name">Compression</span>
+            <span class="adj-value" id="shock-comp-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="shock-comp-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="shock-comp" data-adj-dir="-1"
+                      aria-label="Decrease shock compression">&minus;</button>
+              <span class="adj-big" id="shock-comp-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="shock-comp" data-adj-dir="1"
+                      aria-label="Increase shock compression">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Shock Compression</span>
+              <input type="text" id="shock-comp" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Shock Compression unit">
+              <button type="button" class="unit-opt" data-unit-for="shock-comp" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="shock-comp" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="shock-comp-unit" value="" />
+          </div>
+        </div>
+        <div class="adj-card" data-adjuster="shock-reb">
+          <button type="button" class="adj-row" id="shock-reb-row"
+                  aria-expanded="false" aria-controls="shock-reb-panel">
+            <span class="adj-name">Rebound</span>
+            <span class="adj-value" id="shock-reb-display">&mdash;</span>
+          </button>
+          <div class="adj-panel" id="shock-reb-panel" hidden>
+            <div class="adj-controls">
+              <button type="button" class="pad-btn" data-adj-for="shock-reb" data-adj-dir="-1"
+                      aria-label="Decrease shock rebound">&minus;</button>
+              <span class="adj-big" id="shock-reb-big">&mdash;</span>
+              <button type="button" class="pad-btn" data-adj-for="shock-reb" data-adj-dir="1"
+                      aria-label="Increase shock rebound">+</button>
+            </div>
+            <label class="typed-field">
+              <span class="sr-only">Shock Rebound</span>
+              <input type="text" id="shock-reb" inputmode="decimal" placeholder="e.g. 10" autocomplete="off" />
+            </label>
+            <div class="unit-switch" role="group" aria-label="Shock Rebound unit">
+              <button type="button" class="unit-opt" data-unit-for="shock-reb" data-unit="clicks" aria-pressed="false">Clicks</button>
+              <button type="button" class="unit-opt" data-unit-for="shock-reb" data-unit="turns" aria-pressed="false">Turns</button>
+            </div>
+            <input type="hidden" id="shock-reb-unit" value="" />
+          </div>
+        </div>
       </div>
 
       <!-- Symptoms are observed after the outing, so they belong to POST, and
@@ -607,6 +943,7 @@
       <h3>How to use it in a session</h3>
       <ol>
         <li><strong>Setup</strong> &mdash; before you roll out: bike, track, session label, ambient and track temp.</li>
+        <li><strong>Pre-session vs post-session pressure</strong> &mdash; pre-session is the pressure your tire is at right before you roll out: hot off the warmer if you use warmers, cold from the pit if you don&rsquo;t. Post-session is the reading the moment you&rsquo;re back in.</li>
         <li><strong>Tires</strong> &mdash; brand and model/compound; pre-session PSI right before you roll out (hot off the warmer or cold from the pit); post-session PSI the moment you&rsquo;re back in. Tap <strong>Calculate</strong> for deltas and conservative suggestions.</li>
         <li><strong>Suspension</strong> &mdash; log your clicks, tick the symptoms you felt (push, chatter, brake dive). Fixes appear for common ones.</li>
         <li><strong>Laps</strong> &mdash; paste laps one per line (<code>1:42.318</code> or <code>102.4</code>). Get best, average, and delta-from-best.</li>
@@ -642,7 +979,7 @@
         <span class="btn-transition-verb" id="save-next-verb">Save &amp; start next session</span>
         <span class="btn-transition-effect" id="save-next-effect">Keeps bike, track, tires and clicks</span>
       </button>
-      <button type="button" class="btn-secondary" id="save-session">Save only</button>
+      <button type="button" class="btn-secondary" id="save-session"><span class="btn-icon btn-icon-check" aria-hidden="true"></span>Save only</button>
       <div class="result" id="save-result" aria-live="polite"></div>
     </div>
   </div>

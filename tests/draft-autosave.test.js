@@ -392,7 +392,7 @@ test("with auto-save off nothing is written and a refresh clears the form", () =
   a.fill();
   a.clock.flush();
   assert.equal(a.draft(), null, "no draft is kept");
-  assert.match(a.status(), /REVIEW saves it/, "and the status says so");
+  assert.match(a.status(), /on REVIEW, tap Save only or Save & next/, "and the status names both save controls");
   const b = reload(a);
   assert.equal(b.el("bike").value, "", "a refresh clears the form, as before");
 });

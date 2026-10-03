@@ -18,9 +18,11 @@
   // refuses by declining to navigate - it never performs the transition. All
   // session progression goes through the docked action instead.
   const STAGE_PANELS = {
-    day: ["panel-setup"],
-    pre: ["panel-tires", "panel-suspension", "panel-calculators"],
-    post: ["panel-tires", "panel-suspension"],
+    // Suspension is set on the stand before the day starts, so it belongs to
+    // DAY. PRE and POST only confirm it, through CURRENT BIKE STATE.
+    day: ["panel-setup", "panel-suspension"],
+    pre: ["panel-tires", "panel-calculators"],
+    post: ["panel-tires"],
     laps: ["panel-laps"],
     notes: ["panel-notes"],
     review: ["panel-review", "panel-history"],
@@ -95,6 +97,13 @@
       el.readOnly = !editable;
       el.classList.toggle("is-locked", !editable);
     });
+    // PRE locking is the one that changes a stepper's availability without any
+    // edit, so the buttons are re-synced wherever the lock is applied - which
+    // is also restore, Correct PRE, Copy to form, Reset and Save & next.
+    syncSteppers();
+    renderTireSummary();
+    renderAllPressures();
+    renderAllAdjusters();
   }
 
 
@@ -118,7 +127,16 @@
     if (activeCell && activeCell.scrollIntoView) {
       activeCell.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+    if (stage !== "day" && _suspensionReturn) {
+      // The rider left DAY another way; the way back no longer applies.
+      _suspensionReturn = null;
+    }
     _stage = stage;
+    // Arriving at PRE or POST opens the tire still to be measured - the one
+    // the rider came here for. Both measured, nothing is forced open.
+    if (stage === "pre" || stage === "post") openFirstBlankTire(stage);
+    renderContext();
+    renderSuspensionDone();
     renderDock();
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
   }
@@ -130,7 +148,7 @@
   // view. LAPS and NOTES are on the route but not mandatory - the rail reaches
   // REVIEW from POST in one tap for a rider with no laps to enter.
   let _stage = "day";
-  const ADVANCE = { day: "pre", pre: "post", post: "laps", laps: "notes", notes: "review" };
+  const ADVANCE = { day: "pre", pre: "post", post: "review", laps: "notes", notes: "review" };
 
   function dockCopy(stage) {
     if (stage === "day") {
@@ -148,7 +166,8 @@
       return { verb: "Back in \u2192 POST", effect: "Unlocks POST \u00b7 PRE becomes read-only" };
     }
     if (stage === "post") {
-      return { verb: "Go to LAPS", effect: "Laps and notes are optional \u00b7 REVIEW saves" };
+      // Navigation only. It does not save and does not change session state.
+      return { verb: "Go to REVIEW", effect: "Save only or Save & next is there", nav: true };
     }
     if (stage === "laps") return { verb: "Go to NOTES", effect: "Nothing is saved yet" };
     if (stage === "notes") return { verb: "Go to REVIEW", effect: "Nothing is saved yet" };
@@ -170,9 +189,11 @@
     if (copy && advance) {
       document.getElementById("dock-verb").textContent = copy.verb;
       document.getElementById("dock-effect").textContent = copy.effect;
+      // A navigation button is outlined, not solid orange, so it doesn't read
+      // as the control that commits the session.
+      advance.className = copy.nav ? "btn-dock-nav" : "btn-transition";
     }
     if (onReview) renderSaveDock();
-    if (_stage === "post") renderPreReference();
     renderSaveStatus();
     dock.hidden = !copy && !onReview;
 
@@ -184,16 +205,6 @@
       else postCell.setAttribute("aria-disabled", "true");
     }
     applyDockLayout();
-  }
-
-  // What the rider went out on, shown on POST beside the readings they are
-  // taking now. Read from the same fields PRE writes, so it cannot drift.
-  function renderPreReference() {
-    const f = document.getElementById("pre-ref-front");
-    const r = document.getElementById("pre-ref-rear");
-    const dash = "\u2014";
-    if (f) f.textContent = str("front-pre") || dash;
-    if (r) r.textContent = str("rear-pre") || dash;
   }
 
   function renderSaveDock() {
@@ -224,6 +235,610 @@
         : "Keeps bike, track, tires and clicks";
     }
     renderCopyOrigin(nothingNew);
+  }
+
+  // --- Steppers (C8) --------------------------------------------------------
+  //
+  // Big minus/plus either side of the existing input. The input keeps its id,
+  // its inputmode and its label, and typing is untouched - the stepper is a
+  // second way in, not a replacement.
+  const STEPPER_STEPS = {
+    "front-pre": "0.5", "rear-pre": "0.5", "front-post": "0.5", "rear-post": "0.5",
+    "fork-comp": "1", "fork-reb": "1", "shock-comp": "1", "shock-reb": "1",
+  };
+
+  // A stepper may act only when there is a number to act on and the field is
+  // open for editing. Both the handler and the button's disabled state read
+  // THIS, so they cannot disagree - a disabled-looking button that still works
+  // is worse than no button.
+  function stepperUsable(id) {
+    const el = document.getElementById(id);
+    if (!el || el.readOnly || el.disabled) return false;
+    const step = STEPPER_STEPS[id];
+    if (!step) return false;
+    if (PRESSURE_FIELDS.indexOf(id) !== -1) {
+      // With no reference and nothing typed there is no value to step from, so
+      // the buttons stay inactive rather than invent a starting point.
+      const refs = referencesFor(id);
+      const ref = refs.primary ? refs.primary.value : null;
+      return SP.rulerStep(el.value, -1, ref) !== null || SP.rulerStep(el.value, 1, ref) !== null;
+    }
+    // The SAME rule stepValue applies. Number() alone was too generous: it
+    // reads "1e-2" and "0x1A" as numbers this stepper cannot describe, so the
+    // buttons offered to step values they would then have mangled.
+    return SP.canStep(el.value, step);
+  }
+
+  function syncSteppers() {
+    document.querySelectorAll("[data-step-for]").forEach((btn) => {
+      const id = btn.dataset.stepFor;
+      if (!id) return;
+      btn.disabled = !stepperUsable(id);
+    });
+  }
+
+  function wireSteppers() {
+    document.querySelectorAll("[data-step-for]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.stepFor;
+        const step = STEPPER_STEPS[id];
+        if (!id || !step || !stepperUsable(id)) return;
+        const el = document.getElementById(id);
+        const dir = Number(btn.dataset.stepDir) < 0 ? -1 : 1;
+        // A pressure follows the ruler: one notch, held at the ends of the
+        // interaction range, and outside that range only toward it.
+        let next;
+        if (PRESSURE_FIELDS.indexOf(id) !== -1) {
+          const refs = referencesFor(id);
+          next = SP.rulerStep(el.value, dir, refs.primary ? refs.primary.value : null);
+        } else {
+          next = SP.stepValue(el.value, step, dir);
+        }
+        // A refused step - blank, unreadable, or below zero - changes nothing,
+        // and must not mark the session dirty or schedule a draft write.
+        if (next === null || next === el.value) return;
+        el.value = next;
+        // The SAME signal typing produces, so dirty tracking, the save status
+        // and the 800ms draft write all follow. No second persistence path.
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        // Keep focus on the button that was pressed. Moving it to the input
+        // would open the on-screen keyboard, which is what this control is for
+        // avoiding, and would make a second tap land somewhere else.
+        if (btn.focus) btn.focus();
+        syncSteppers();
+        if (PRESSURE_FIELDS.indexOf(id) !== -1) renderTire(id);
+      });
+    });
+    syncSteppers();
+  }
+
+  // --- Pressure control (C8 revised: centred value + tenths ruler) ----------
+  //
+  // History is reference, never a measurement. Today's pressure starts blank
+  // on PRE and on POST, and no code path here writes a value the rider did not
+  // type, drag, step or explicitly choose with "Same as".
+  const PRESSURE_FIELDS = ["front-pre", "rear-pre", "front-post", "rear-post"];
+
+  function pressureContext() {
+    return { bike: str("bike"), brand: str("tire-brand"), model: str("tire-model") };
+  }
+
+  function referencesFor(field) {
+    let sessions = [];
+    try { sessions = Store.readAll(); } catch (e) { sessions = []; }
+    const pre = field === "front-post" ? str("front-pre")
+              : field === "rear-post" ? str("rear-pre") : "";
+    return SP.pressureReferences(sessions, pressureContext(), field, pre);
+  }
+
+  function drawPad(field, refs) {
+    const lines = document.getElementById(field + "-lines");
+    const pad = document.getElementById(field + "-pad");
+    if (!lines || !pad) return;
+    const el = document.getElementById(field);
+    const raw = (el && el.value || "").trim();
+    const value = SP.usablePsi(raw);
+    const inRange = value !== null && SP.psiInRulerRange(value);
+    const at = inRange ? value : SP.padStart(refs.primary ? refs.primary.value : null);
+    // The pattern moves with the value, so a drag is visibly doing something.
+    // 20px between lines, offset by where we are within the current tenth.
+    const SPACING = 20;
+    const shift = -((at * 10) % 5) * (SPACING / 5);
+    while (lines.firstChild) lines.removeChild(lines.firstChild);
+    for (let i = -10; i <= 10; i += 1) {
+      const tenth = Math.round(at * 10) + i;
+      const line = document.createElement("i");
+      // Every fifth tenth is a long line; the rest are short.
+      line.className = "pad-line" + (tenth % 5 === 0 ? " pad-line--long" : "");
+      line.style.left = "calc(50% + " + (i * SPACING + shift).toFixed(1) + "px)";
+      lines.appendChild(line);
+    }
+  }
+
+  // One tire is open at a time, per stage.
+  let _openTire = { pre: null, post: null };
+
+  function stageOf(field) { return field.indexOf("-post") !== -1 ? "post" : "pre"; }
+
+  function renderTire(field) {
+    const el = document.getElementById(field);
+    const row = document.getElementById(field + "-row");
+    if (!el || !row) return;
+    const raw = (el.value || "").trim();
+    const refs = referencesFor(field);
+    const hasRef = refs.primary !== null;
+    const locked = el.readOnly;
+
+    const chipText = SP.deltaChip(raw, refs);
+    const today = document.getElementById(field + "-today");
+    if (today) {
+      // The chip takes the caption's place once there is a value, so a closed
+      // row stays within its 72px minimum.
+      today.textContent = SP.todayLabel(raw);
+      today.hidden = chipText !== "";
+    }
+
+    const num = document.getElementById(field + "-num");
+    if (num) {
+      num.textContent = raw === "" ? "\u2014" : raw;
+      num.classList.toggle("tire-num--blank", raw === "");
+    }
+
+    // The reference is history: its own dashed pill, never the value.
+    const pill = document.getElementById(field + "-pill");
+    if (pill) {
+      pill.hidden = refs.sources.length === 0;
+      pill.textContent = refs.sources
+        .map((srcItem) => srcItem.text + " " + srcItem.value).join(" \u00b7 ");
+    }
+
+    const delta = document.getElementById(field + "-delta");
+    if (delta) {
+      delta.hidden = chipText === "";
+      delta.textContent = chipText;
+    }
+
+    const note = document.getElementById(field + "-note");
+    if (note) note.textContent = SP.pressureNote(raw, hasRef);
+
+    // "Same as" is the only way history becomes today's value, and only the
+    // rider can trigger it.
+    const same = document.getElementById(field + "-same");
+    if (same) {
+      const offer = !locked && raw === "" && hasRef;
+      same.hidden = !offer;
+      same.textContent = offer ? refs.primary.button + " \u00b7 " + refs.primary.value : "";
+    }
+
+    const pad = document.getElementById(field + "-pad");
+    const padMain = document.getElementById(field + "-padmain");
+    if (pad) {
+      const usable = !locked && SP.rulerDraggable(raw, hasRef ? refs.primary.value : null);
+      pad.setAttribute("aria-disabled", usable ? "false" : "true");
+      pad.setAttribute("tabindex", usable ? "0" : "-1");
+      pad.classList.toggle("drag-pad--off", !usable);
+      // Written only when it changes: rewriting it mid-drag removes the node
+      // the pointer capture belongs to and the gesture stops.
+      if (padMain && padMain.dataset.usable !== String(usable)) {
+        padMain.dataset.usable = String(usable);
+        padMain.innerHTML = usable ? "&#9666; DRAG &#9656;" : "TYPE OR &minus; / +";
+      }
+      const value = SP.usablePsi(raw);
+      if (value !== null && SP.psiInRulerRange(value)) {
+        pad.setAttribute("aria-valuenow", String(value));
+        pad.setAttribute("aria-valuetext", raw + " psi");
+      } else {
+        pad.removeAttribute("aria-valuenow");
+        pad.setAttribute("aria-valuetext", raw === "" ? "not measured" : raw);
+      }
+      drawPad(field, refs);
+    }
+  }
+
+  function renderAllPressures() { PRESSURE_FIELDS.forEach(renderTire); }
+
+  function setTireOpen(field, open) {
+    const row = document.getElementById(field + "-row");
+    const panel = document.getElementById(field + "-panel");
+    const card = row && row.parentElement;
+    if (!row || !panel) return;
+    panel.hidden = !open;
+    row.setAttribute("aria-expanded", open ? "true" : "false");
+    if (card && card.classList) card.classList.toggle("tire-card--open", open);
+    _openTire[stageOf(field)] = open ? field : (_openTire[stageOf(field)] === field ? null : _openTire[stageOf(field)]);
+  }
+
+  // Bring a newly opened card's controls above the dock. Without this, opening
+  // the second tire can leave its pad behind the dock on a short viewport.
+  function revealTire(field) {
+    const panel = document.getElementById(field + "-panel");
+    const dock = document.getElementById("dock");
+    if (!panel || !dock || typeof panel.getBoundingClientRect !== "function") return;
+    const panelRect = panel.getBoundingClientRect();
+    const dockRect = dock.getBoundingClientRect();
+    const overlap = panelRect.bottom - dockRect.top;
+    if (overlap <= 0) return;
+    const reduced = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const top = (window.scrollY || 0) + overlap + 8;
+    if (typeof window.scrollTo === "function") {
+      window.scrollTo(reduced ? { top: top, behavior: "auto" }
+                              : { top: top, behavior: "smooth" });
+    }
+  }
+
+  function openTire(field) {
+    // Opening one closes the other on the same stage.
+    PRESSURE_FIELDS.forEach((f) => {
+      if (stageOf(f) === stageOf(field)) setTireOpen(f, f === field);
+    });
+    renderAllPressures();
+    revealTire(field);
+  }
+
+  // On arriving at a stage, the first tire still to be measured is the one the
+  // rider needs, so it opens. If both are done, nothing is forced open.
+  function openFirstBlankTire(stage) {
+    const fields = PRESSURE_FIELDS.filter((f) => stageOf(f) === stage);
+    const blank = fields.find((f) => {
+      const el = document.getElementById(f);
+      return el && (el.value || "").trim() === "" && !el.readOnly;
+    });
+    fields.forEach((f) => setTireOpen(f, blank ? f === blank : false));
+    renderAllPressures();
+    if (blank) revealTire(blank);
+  }
+
+  // Every path that changes a pressure - drag, keyboard, buttons, "Same as" -
+  // goes through here, so they share one edit signal and one set of guards.
+  function setPressure(field, text) {
+    const el = document.getElementById(field);
+    if (!el || el.readOnly) return false;
+    const next = String(text);
+    if (next === el.value) return false;
+    el.value = next;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+
+  function wireTireCards() {
+    PRESSURE_FIELDS.forEach((field) => {
+      const row = document.getElementById(field + "-row");
+      const pad = document.getElementById(field + "-pad");
+      const el = document.getElementById(field);
+      const same = document.getElementById(field + "-same");
+      if (!row || !el) return;
+
+      row.addEventListener("click", () => {
+        const panel = document.getElementById(field + "-panel");
+        if (panel && !panel.hidden) setTireOpen(field, false);
+        else openTire(field);
+      });
+
+      if (same) {
+        same.addEventListener("click", () => {
+          const refs = referencesFor(field);
+          if (!refs.primary || el.readOnly) return;
+          setPressure(field, refs.primary.value);
+        });
+      }
+
+      if (!pad) return;
+      let drag = null;
+      pad.addEventListener("pointerdown", (e) => {
+        if (el.readOnly) return;
+        const refs = referencesFor(field);
+        const refValue = refs.primary ? refs.primary.value : null;
+        if (!SP.rulerDraggable(el.value, refValue)) return;
+        const current = SP.usablePsi(el.value);
+        drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false,
+                 start: current !== null ? current : SP.padStart(refValue) };
+        // Capture here, not on the first move. On touch the pointer is
+        // implicitly captured by whatever child is under the finger, and
+        // re-targeting it to the pad up front is what keeps the moves coming.
+        if (pad.setPointerCapture) {
+          try { pad.setPointerCapture(e.pointerId); drag.captured = true; } catch (err) {}
+        }
+      });
+
+      pad.addEventListener("pointermove", (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        // Until the gesture is clearly horizontal the page keeps it, so an
+        // ordinary vertical scroll that starts on the pad still scrolls.
+        if (!drag.moved) {
+          if (!SP.shouldCaptureDrag(dx, dy)) return;
+          drag.moved = true;
+        }
+        if (e.cancelable) e.preventDefault();
+        const next = SP.psiFromDrag(drag.start, dx);
+        if (next === null) return;
+        if (setPressure(field, next.toFixed(1)) && navigator.vibrate) {
+          try { navigator.vibrate(8); } catch (err) {}
+        }
+      });
+
+      // A cancelled pointer just ends the drag and leaves the pad usable, with
+      // whatever was committed intact.
+      const endDrag = (e) => {
+        if (!drag || (e && e.pointerId !== undefined && e.pointerId !== drag.id)) return;
+        if (drag.captured && pad.releasePointerCapture) {
+          try { pad.releasePointerCapture(drag.id); } catch (err) {}
+        }
+        drag = null;
+      };
+      pad.addEventListener("pointerup", endDrag);
+      pad.addEventListener("pointercancel", endDrag);
+      // Only the pad's own loss of capture ends the drag. On touch a child
+      // holds the implicit capture first, and its lostpointercapture bubbles
+      // here the moment the pad takes over - which used to kill the gesture
+      // before it began.
+      pad.addEventListener("lostpointercapture", (e) => {
+        if (e && e.target !== pad) return;
+        endDrag(e);
+      });
+
+      pad.addEventListener("keydown", (e) => {
+        if (el.readOnly) return;
+        const step = { ArrowLeft: -SP.PSI_STEP, ArrowRight: SP.PSI_STEP,
+                       ArrowDown: -SP.PSI_STEP, ArrowUp: SP.PSI_STEP,
+                       PageDown: -1, PageUp: 1 }[e.key];
+        if (step === undefined) return;
+        const refs = referencesFor(field);
+        const refValue = refs.primary ? refs.primary.value : null;
+        if (!SP.rulerDraggable(el.value, refValue)) return;
+        if (e.preventDefault) e.preventDefault();
+        const current = SP.usablePsi(el.value);
+        const from = current !== null ? current : SP.padStart(refValue);
+        setPressure(field, SP.snapPsi(from + step).toFixed(1));
+      });
+    });
+  }
+
+  // --- Suspension adjusters (v2) --------------------------------------------
+  //
+  // Same pattern as the tire rows: a compact closed row, one open at a time,
+  // and the buttons sized for a gloved hand. No drag pad - a click is a
+  // detent you count, not a value you sweep to.
+  function unitOf(id) {
+    const el = document.getElementById(id + "-unit");
+    return SP.adjusterUnit(el ? el.value : "", id);
+  }
+
+  function renderAdjuster(id) {
+    const el = document.getElementById(id);
+    const row = document.getElementById(id + "-row");
+    if (!el || !row) return;
+    const unit = unitOf(id);
+    const display = document.getElementById(id + "-display");
+    if (display) display.textContent = SP.adjusterDisplay(el.value, unit);
+    const big = document.getElementById(id + "-big");
+    if (big) {
+      const value = SP.readAdjuster(el.value);
+      big.textContent = value === null ? "\u2014" : SP.compactAdjuster(value, unit);
+    }
+    document.querySelectorAll('[data-unit-for="' + id + '"]').forEach((b) => {
+      const on = b.dataset.unit === unit;
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.classList.toggle("is-on", on);
+    });
+    document.querySelectorAll('[data-adj-for="' + id + '"]').forEach((b) => {
+      b.disabled = el.readOnly
+        || SP.adjusterStep(el.value, Number(b.dataset.adjDir) < 0 ? -1 : 1, unit) === null;
+    });
+  }
+
+  function renderAllAdjusters() { SP.ADJUSTERS.forEach(renderAdjuster); }
+
+  function setAdjusterOpen(id, open) {
+    const row = document.getElementById(id + "-row");
+    const panel = document.getElementById(id + "-panel");
+    if (!row || !panel) return;
+    panel.hidden = !open;
+    row.setAttribute("aria-expanded", open ? "true" : "false");
+    const card = row.parentElement;
+    if (card && card.classList) card.classList.toggle("adj-card--open", open);
+  }
+
+  // One adjuster at a time, across both groups.
+  function openAdjuster(id) {
+    SP.ADJUSTERS.forEach((a) => setAdjusterOpen(a, a === id));
+    renderAllAdjusters();
+  }
+
+  function setAdjuster(id, text) {
+    const el = document.getElementById(id);
+    if (!el || el.readOnly) return false;
+    if (String(text) === el.value) return false;
+    el.value = String(text);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+
+  // Where to go back to when the rider came here from CURRENT BIKE STATE.
+  let _suspensionReturn = null;
+
+  function renderSuspensionDone() {
+    const btn = document.getElementById("suspension-done");
+    if (!btn) return;
+    btn.hidden = !_suspensionReturn;
+    btn.textContent = _suspensionReturn
+      ? "Done \u00b7 back to " + _suspensionReturn.toUpperCase() : "";
+  }
+
+  function wireAdjusters() {
+    // Android's decimal keypad often has no minus key, so a rider may paste or
+    // type a true minus or an en dash. Those are folded to a plain hyphen as
+    // they land, so what is stored and saved stays an ordinary "-2".
+    SP.ADJUSTERS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("input", () => {
+        const normalized = SP.normalizeMinus(el.value);
+        if (normalized !== el.value) el.value = normalized;
+      });
+    });
+
+    const done = document.getElementById("suspension-done");
+    if (done) {
+      done.addEventListener("click", () => {
+        const back = _suspensionReturn;
+        _suspensionReturn = null;
+        renderSuspensionDone();
+        if (back) showTab(back);
+      });
+    }
+    SP.ADJUSTERS.forEach((id) => {
+      const row = document.getElementById(id + "-row");
+      if (!row) return;
+      row.addEventListener("click", () => {
+        const panel = document.getElementById(id + "-panel");
+        if (panel && !panel.hidden) setAdjusterOpen(id, false);
+        else openAdjuster(id);
+      });
+    });
+    document.querySelectorAll("[data-adj-for]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.adjFor;
+        const el = document.getElementById(id);
+        if (!el || el.readOnly) return;
+        const next = SP.adjusterStep(el.value, Number(btn.dataset.adjDir) < 0 ? -1 : 1, unitOf(id));
+        if (next === null) return;
+        setAdjuster(id, next);
+        if (btn.focus) btn.focus();
+      });
+    });
+    document.querySelectorAll("[data-unit-for]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.unitFor;
+        const el = document.getElementById(id);
+        const store = document.getElementById(id + "-unit");
+        if (!el || !store || el.readOnly) return;
+        const unit = btn.dataset.unit === "turns" ? "turns" : "clicks";
+        if (store.value === unit) return;
+        store.value = unit;
+        // The number is re-read at the new precision, never converted: a click
+        // is not a turn, and converting would invent a reading.
+        const next = SP.adjusterOnUnitChange(el.value, unit);
+        if (next !== el.value) el.value = next;
+        // Always signal the edit, even when the number is unchanged: the unit
+        // is part of the setup and a changed unit is an unsaved change.
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        renderAdjuster(id);
+      });
+    });
+    renderAllAdjusters();
+  }
+
+  // --- Current bike state (v2 item 6) ---------------------------------------
+  //
+  // Only rows backed by fields that exist are rendered. Nothing is invented,
+  // and a missing detail never reads as a known setup.
+  function renderBikeState() {
+    const out = document.getElementById("bike-state-rows");
+    if (!out) return;
+    const on = document.getElementById("warmer-on");
+    while (out.firstChild) out.removeChild(out.firstChild);
+
+    const mk = (tag, cls, text) => {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      if (text !== undefined) el.textContent = text;
+      return el;
+    };
+    // One Edit per row, each doing the thing its own row is about.
+    const editButton = (id, label, onClick) => {
+      const b = mk("button", "btn-secondary state-edit");
+      b.type = "button";
+      b.id = id;
+      b.textContent = "Edit";
+      b.setAttribute("aria-label", label);
+      b.addEventListener("click", onClick);
+      return b;
+    };
+
+    // --- Tires -------------------------------------------------------------
+    const tires = mk("div", "state-row");
+    tires.appendChild(mk("span", "state-label", "Tires"));
+    tires.appendChild(mk("span", "state-value", SP.tiresSummary(
+      str("tire-brand"), str("tire-model"), !!(on && on.checked), str("warmer-time"))));
+    const tireFields = document.getElementById("tire-fields");
+    const tireOpen = !!(tireFields && !tireFields.hidden);
+    const tireEdit = editButton("edit-tires", "Edit tires", () => {
+      const fields = document.getElementById("tire-fields");
+      if (!fields) return;
+      // The same control closes it again, so the fields are never stuck open.
+      // Updated in place rather than re-rendering the card: rebuilding the
+      // button the rider just pressed would throw away its focus.
+      const open = fields.hidden;
+      fields.hidden = !open;
+      tireEdit.textContent = open ? "Done" : "Edit";
+      tireEdit.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        const first = document.getElementById("tire-brand");
+        if (first && first.focus && !first.readOnly) first.focus();
+        if (fields.scrollIntoView) fields.scrollIntoView({ block: "nearest" });
+      }
+    });
+    tireEdit.textContent = tireOpen ? "Done" : "Edit";
+    tireEdit.setAttribute("aria-expanded", tireOpen ? "true" : "false");
+    tireEdit.setAttribute("aria-controls", "tire-fields");
+    tires.appendChild(tireEdit);
+    out.appendChild(tires);
+
+    // --- Suspension --------------------------------------------------------
+    const head = mk("div", "state-row state-row--head");
+    head.appendChild(mk("span", "state-label", "Suspension"));
+    if (_stage === "pre") {
+      // PRE can send the rider back to DAY to change it. POST only shows it.
+      head.appendChild(editButton("edit-suspension", "Edit suspension", () => {
+        _suspensionReturn = _stage;
+        showTab("day");
+        openAdjuster(SP.ADJUSTERS[0]);
+        renderSuspensionDone();
+        const panel = document.getElementById("panel-suspension");
+        if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: "start" });
+      }));
+    }
+    out.appendChild(head);
+
+    // A small grid reads far better than one long line: the columns line the
+    // two ends up against each other, which is how a rider compares them.
+    // Rows that wrap rather than a rigid grid: at large text the value columns
+    // fall under the label instead of being squeezed into each other.
+    const grid = mk("div", "susp-grid");
+    const headRow = mk("div", "susp-row");
+    headRow.appendChild(mk("span", "susp-corner", ""));
+    ["Preload", "Comp", "Reb"].forEach((h) => headRow.appendChild(mk("span", "susp-head", h)));
+    grid.appendChild(headRow);
+    [["FORK", "fork"], ["SHOCK", "shock"]].forEach(([name, prefix]) => {
+      const row = mk("div", "susp-row");
+      row.appendChild(mk("span", "susp-end", name));
+      ["preload", "comp", "reb"].forEach((part) => {
+        const id = prefix + "-" + part;
+        const unit = unitOf(id);
+        const value = SP.readAdjuster(str(id));
+        const cell = mk("span", "susp-cell");
+        if (value === null) {
+          cell.appendChild(mk("span", "susp-value susp-value--none", "\u2013"));
+        } else {
+          cell.appendChild(mk("span", "susp-value", SP.compactAdjuster(value, unit)));
+          // Turns are marked; clicks are the unmarked default.
+          if (unit === "turns") cell.appendChild(mk("span", "susp-unit", "t"));
+        }
+        row.appendChild(cell);
+      });
+      grid.appendChild(row);
+    });
+    out.appendChild(grid);
+  }
+
+  function renderTireSummary() { renderBikeState(); }
+
+  function wirePressureRulers() {
+    wireTireCards();
+    renderAllPressures();
   }
 
   // --- Auto-save draft (C6) -------------------------------------------------
@@ -619,16 +1234,40 @@
   // is worse than no context at all, so an empty Setup leaves the line hidden.
   // The rider's session label is shown exactly as entered - it is free text
   // they own, not a number for us to parse.
+  // C3: which stage the context line is describing. Wording follows the stage
+  // the rider is actually on; PRE and POST get the handoff's fuller phrasing
+  // because those two are the ones with a before/after meaning.
+  const STAGE_CHIP = {
+    day: "DAY", pre: "PRE \u00b7 BEFORE ROLLOUT", post: "POST \u00b7 JUST IN",
+    laps: "LAPS", notes: "NOTES", review: "REVIEW",
+  };
+
+  function renderStageChip() {
+    const chip = document.getElementById("stage-chip");
+    if (!chip) return;
+    const text = STAGE_CHIP[_stage] || "";
+    chip.textContent = text;
+    chip.hidden = !text;
+  }
+
   function renderContext() {
     const line = document.getElementById("context-line");
     if (!line) return;
     const bike = str("bike");
     const track = str("track");
     const label = str("session-label");
-    const where = [track, label].filter(Boolean).join(" · ");
-    document.getElementById("context-bike").textContent = bike;
+    // An unset bike or track says so rather than leaving the line empty.
+    // The short stage name only: "No bike set \u00b7 DAY", not the whole chip.
+    const chipText = String(STAGE_CHIP[_stage] || "").split(" \u00b7 ")[0];
+    const bikeLine = SP.headerBikeLine(bike, chipText);
+    const where = SP.headerTrackLine(track, label);
+    document.getElementById("context-bike").textContent = bikeLine;
     document.getElementById("context-where").textContent = where;
-    line.hidden = !(bike || where);
+    renderStageChip();
+    // The chip is part of this line and belongs on every stage, so the line
+    // stays visible whenever there is a chip to show - even before the rider
+    // has named a bike.
+    line.hidden = !(bike || where || !document.getElementById("stage-chip").hidden);
   }
   ["bike", "track", "session-label"].forEach((id) => {
     const el = document.getElementById(id);
@@ -663,8 +1302,22 @@
       }
       if (typeof bar.getBoundingClientRect !== "function") return;
       const rect = bar.getBoundingClientRect();
-      const h = rect ? Math.ceil(rect.height) : 0;
-      if (h > 0) root.style.setProperty("--stage-bar-h", Math.max(h, 64) + "px");
+      // Floor, not ceil: rounding the bar UP left the dock sitting a fraction
+      // of a pixel above it, which rendered as a hairline gap with page
+      // content behind it. Rounding down makes them overlap instead. The
+      // measurement already includes the bar's safe-area padding, so nothing
+      // else may add env(safe-area-inset-bottom) on top of this value.
+      const measured = rect ? Math.floor(rect.height) : 0;
+      // The dock is sticky and the bar is fixed, so the two resolve against
+      // different viewports. On Android Chrome the address bar collapsing
+      // leaves the fixed bar sitting lower than the sticky dock expects, and
+      // it covers the dock's sub-line. Reserving the distance from the bar's
+      // TOP to the bottom of the viewport - never less than the bar's own
+      // height - keeps the dock clear of wherever the bar actually landed.
+      const viewportBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+      const fromBottom = rect ? Math.round(viewportBottom - rect.top) : 0;
+      const h = Math.max(measured, fromBottom > 0 ? fromBottom : 0);
+      if (h > 0) root.style.setProperty("--stage-bar-h", h + "px");
     };
     apply();
     // Crossing the breakpoint swaps bar for rail, so re-apply on the query as
@@ -680,7 +1333,16 @@
   }
   watchStageBarHeight();
   // Start in a known state: PRE editable, POST locked, dock rendered for DAY.
+  // showTab is what decides which panels a stage shows, so DAY is applied here
+  // rather than trusted from the markup - the HTML's initial hidden flags were
+  // hand-matched to an older panel list and silently went stale when
+  // Suspension moved to DAY.
+  showTab("day");
   renderPreEditable();
+  wireSteppers();
+  wirePressureRulers();
+  wireAdjusters();
+  renderTireSummary();
   renderDock();
 
   // --- Auto-save switch wiring ---------------------------------------------
@@ -921,6 +1583,12 @@
       // its own guard against rewriting unchanged text, so a live region is
       // still not re-announced on every keystroke.
       renderSaveStatus();
+      renderTireSummary();
+      renderAllPressures();
+      renderAllAdjusters();
+      // Typing can make a field steppable or stop it being so - emptying it,
+      // or leaving text that is not a number.
+      syncSteppers();
       // Each edit restarts the debounce and marks the draft behind, so the
       // status cannot claim the latest keystrokes are kept.
       scheduleDraftWrite();
@@ -1556,6 +2224,17 @@
         shockPreload: str("shock-preload"),
         shockComp: str("shock-comp"),
         shockReb: str("shock-reb"),
+        // Additive: which unit each adjuster was recorded in. Older sessions
+        // have none and fall back to the adjuster's default, so their numbers
+        // are read exactly as they were saved.
+        units: {
+          forkPreload: unitOf("fork-preload"),
+          forkComp: unitOf("fork-comp"),
+          forkReb: unitOf("fork-reb"),
+          shockPreload: unitOf("shock-preload"),
+          shockComp: unitOf("shock-comp"),
+          shockReb: unitOf("shock-reb"),
+        },
         symptoms: Array.from(document.querySelectorAll("#symptoms input:checked")).map((i) => i.value),
       },
       laps: {
@@ -1605,6 +2284,13 @@
     setCheck("warmer-on", t.warmerOn);
     setId("warmer-time", t.warmerTime);
 
+    const savedUnits = (s.suspension && s.suspension.units) || {};
+    const unitKey = { "fork-preload": "forkPreload", "fork-comp": "forkComp", "fork-reb": "forkReb",
+                      "shock-preload": "shockPreload", "shock-comp": "shockComp", "shock-reb": "shockReb" };
+    SP.ADJUSTERS.forEach((id) => {
+      const store = document.getElementById(id + "-unit");
+      if (store) store.value = SP.adjusterUnit(savedUnits[unitKey[id]], id);
+    });
     setId("fork-preload", s.suspension && s.suspension.forkPreload);
     setId("fork-comp", s.suspension && s.suspension.forkComp);
     setId("fork-reb", s.suspension && s.suspension.forkReb);
@@ -1683,9 +2369,13 @@
     const setup = Object.assign({}, s.setup);
     delete setup.geometryConstants;
     const fb = s.riderFeedback || {};
+    // The unit each adjuster is recorded in is a preference, not a reading, so
+    // it must never make an untouched form look like it holds a session.
+    const suspension = Object.assign({}, s.suspension);
+    delete suspension.units;
     return Object.values(setup).some(Boolean)
       || Object.values(s.tires).some((v) => v !== "" && v !== false)
-      || Object.values(s.suspension).some((v) => (Array.isArray(v) ? v.length : Boolean(v)))
+      || Object.values(suspension).some((v) => (Array.isArray(v) ? v.length : Boolean(v)))
       || Boolean(fb.text)
       || (Array.isArray(fb.tags) && fb.tags.length > 0)
       || Boolean(s.laps && s.laps.times && s.laps.times.length);
@@ -1839,6 +2529,9 @@
     // PREVIOUS session's fields on top of the next one.
     cancelDraftWrite();
     clearTransientFields();
+    // Save & next CLEARS all four pressures and keeps the clicks, so the PSI
+    // steppers go back to disabled while the click steppers carry on.
+    syncSteppers();
     renderContext();
     // Cleared fields mean this is a new session: nothing saved, nothing new.
     saveState.advanced();

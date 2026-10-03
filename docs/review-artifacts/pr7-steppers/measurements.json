@@ -1,0 +1,232 @@
+{
+ "layout": [
+  {
+   "focusedBottom": 597,
+   "focusedReachable": true,
+   "inputClipped": false,
+   "labelClipped": false,
+   "labelText": "Front pre-session PSI",
+   "minusH": 64,
+   "minusText": "\u2212",
+   "minusW": 64,
+   "obstructTop": 678,
+   "offenders": [],
+   "pageScrollsSideways": false,
+   "plusH": 64,
+   "plusText": "+",
+   "plusW": 64,
+   "width": 320,
+   "text": "100%",
+   "rootPx": 17.0
+  },
+  {
+   "focusedBottom": 287,
+   "focusedReachable": true,
+   "inputClipped": false,
+   "labelClipped": false,
+   "labelText": "Front pre-session PSI",
+   "minusH": 64,
+   "minusText": "\u2212",
+   "minusW": 64,
+   "obstructTop": 504,
+   "offenders": [],
+   "pageScrollsSideways": false,
+   "plusH": 64,
+   "plusText": "+",
+   "plusW": 64,
+   "width": 320,
+   "text": "200%",
+   "rootPx": 34.0
+  },
+  {
+   "focusedBottom": 399,
+   "focusedReachable": true,
+   "inputClipped": false,
+   "labelClipped": false,
+   "labelText": "Front pre-session PSI",
+   "minusH": 106,
+   "minusText": "\u2212",
+   "minusW": 74,
+   "obstructTop": 666,
+   "offenders": [],
+   "pageScrollsSideways": false,
+   "plusH": 106,
+   "plusText": "+",
+   "plusW": 74,
+   "width": 320,
+   "text": "400%",
+   "rootPx": 68.0
+  },
+  {
+   "focusedBottom": 498,
+   "focusedReachable": true,
+   "inputClipped": false,
+   "labelClipped": false,
+   "labelText": "Front pre-session PSI",
+   "minusH": 64,
+   "minusText": "\u2212",
+   "minusW": 64,
+   "obstructTop": 695,
+   "offenders": [],
+   "pageScrollsSideways": false,
+   "plusH": 64,
+   "plusText": "+",
+   "plusW": 64,
+   "width": 390,
+   "text": "100%",
+   "rootPx": 17.0
+  },
+  {
+   "focusedBottom": 328,
+   "focusedReachable": true,
+   "inputClipped": false,
+   "labelClipped": false,
+   "labelText": "Front pre-session PSI",
+   "minusH": 64,
+   "minusText": "\u2212",
+   "minusW": 64,
+   "obstructTop": 584,
+   "offenders": [],
+   "pageScrollsSideways": false,
+   "plusH": 64,
+   "plusText": "+",
+   "plusW": 64,
+   "width": 390,
+   "text": "200%",
+   "rootPx": 34.0
+  },
+  {
+   "focusedBottom": 400,
+   "focusedReachable": true,
+   "inputClipped": false,
+   "labelClipped": false,
+   "labelText": "Front pre-session PSI",
+   "minusH": 106,
+   "minusText": "\u2212",
+   "minusW": 74,
+   "obstructTop": 666,
+   "offenders": [],
+   "pageScrollsSideways": false,
+   "plusH": 106,
+   "plusText": "+",
+   "plusW": 74,
+   "width": 390,
+   "text": "400%",
+   "rootPx": 68.0
+  }
+ ],
+ "behaviour": {
+  "precision_30_25_plus": "30.75",
+  "precision_30_1_plus": "30.6",
+  "reversible": "30.1",
+  "fractional_click": "9.5",
+  "blank_disabled": true,
+  "blank_after_click": "",
+  "invalid_disabled": true,
+  "invalid_text": "about 31",
+  "zero_guard": "0",
+  "typed_negative_kept": "-2",
+  "keyboard": {
+   "focusStaysOnButton": false,
+   "focusable": false,
+   "tabbable": true,
+   "value": "33.5"
+  },
+  "readonly_pre": {
+   "disabled": true,
+   "postStillUsable": true,
+   "readOnly": true,
+   "unchanged": true
+  },
+  "after_correct_pre": true,
+  "autosave_status_after_step": "Keeping draft\u2026",
+  "draft_has_stepped_value": "30.5",
+  "restored_value": "30.5",
+  "restored_stepper_usable": true,
+  "calc_runs": true
+ },
+ "numericContract": {
+  "scientific": {
+   "after": "1e-2",
+   "before": "1e-2",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "scientific-caps": {
+   "after": "1E3",
+   "before": "1E3",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "hex": {
+   "after": "0x1A",
+   "before": "0x1A",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "binary": {
+   "after": "0b101",
+   "before": "0b101",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "excess-precision": {
+   "after": "30.123456789012345678",
+   "before": "30.123456789012345678",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "unsafe-magnitude": {
+   "after": "999999999999999999999",
+   "before": "999999999999999999999",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "unsafe-when-scaled": {
+   "after": "999999999999.9999",
+   "before": "999999999999.9999",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "thousands-separator": {
+   "after": "1,500",
+   "before": "1,500",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "infinity": {
+   "after": "Infinity",
+   "before": "Infinity",
+   "minusDisabled": true,
+   "plusDisabled": true,
+   "threw": null,
+   "unchanged": true
+  },
+  "roundTrip": {
+   "up": "30.75",
+   "back": "30.25"
+  },
+  "autosaveUndisturbed": {
+   "unchanged": true,
+   "fieldKept": "1e-2",
+   "status": "Not saved yet \u00b7 draft kept on this device"
+  },
+  "consoleErrors": 0
+ }
+}

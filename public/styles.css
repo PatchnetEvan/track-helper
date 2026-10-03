@@ -185,9 +185,14 @@ input:focus, textarea:focus {
    cannot shrink below its content and a long label pushes the whole page
    sideways at large text. Same cause as the status text and the context
    spans - the column may now shrink, and the label wraps instead. */
+/* Two columns while they fit, one when they do not - decided by the rider's
+   own text size rather than a viewport guess. 8rem grows with the root font,
+   so at 200% and above a pair of fields that would be 120px wide each becomes
+   a single readable column instead. min(100%, ...) keeps a column from ever
+   exceeding the row, which is what stops the grid pushing the page sideways. */
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
   gap: 10px;
 }
 .grid-3 {
@@ -199,14 +204,18 @@ input:focus, textarea:focus {
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* The whole row is the target, not just the box: 48px tall and the label is
+   part of it, so a gloved tap anywhere along it toggles the checkbox. */
 .checkbox-row {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: var(--tap);
+  padding: 0 4px;
   margin-bottom: 10px;
+  cursor: pointer;
 }
-.checkbox-row input { width: 22px; height: 22px; }
+.checkbox-row input { width: 22px; height: 22px; accent-color: var(--accent); }
 
 .symptoms {
   display: flex;
@@ -305,6 +314,37 @@ button {
   text-align: center;
 }
 .btn-transition:active { background: var(--accent-dim); }
+
+/* POST's dock button is navigation, not a transition: outlined rather than
+   solid orange, because it doesn't save or change session state. */
+.btn-dock-nav {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 12px 16px;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.btn-dock-nav .btn-transition-verb { display: block; font-size: 1.125rem; font-weight: 700; }
+.btn-dock-nav .btn-transition-effect { display: block; color: var(--text-dim); font-size: 0.8125rem; }
+.btn-dock-nav:active { background: var(--bg-elev-2); }
+
+/* The check icon on Save only (C5 revised). Masked from a local SVG, because
+   style-src/img-src are 'self' and a CDN icon would be blocked. */
+.btn-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 6px;
+  vertical-align: -0.1em;
+  background: currentColor;
+  -webkit-mask: url(../icons/check.svg) center / contain no-repeat;
+  mask: url(../icons/check.svg) center / contain no-repeat;
+}
 /* rem, not the handoff's px: at a px size the dock is the one control on the
    screen that does NOT grow when the rider enlarges text, which is exactly
    backwards for the biggest action on the page. 1.125rem and 0.8125rem are
@@ -669,6 +709,11 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 .context-row {
   display: flex;
   align-items: flex-start;
+  /* The context takes the space; About keeps its own width at the right. */
+}
+.context-row > .context-line { flex: 1 1 12rem; min-width: 0; margin: 0; }
+.context-row > .about-open { flex: 0 0 auto; }
+.context-row {
   justify-content: space-between;
   gap: 8px 12px;
   /* At 320px with 200% text the brand alone is 213px and pushed the About
@@ -683,6 +728,20 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
    gets a chance, and the whole page scrolls sideways at very large text. */
 .context-row .brand-name { min-width: 0; }
 .brand-name { overflow-wrap: break-word; }
+/* Stage chip (C3). Never a solid fill - the rail already carries the active
+   state; this names the stage the context line is describing. */
+.stage-chip {
+  flex: none;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  overflow-wrap: break-word;
+}
 .context-line {
   margin: 6px 0 0;
   display: flex;
@@ -793,7 +852,7 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 .stage[aria-selected="true"] {
   border-top-color: var(--accent);
   background: rgba(255, 102, 0, .10);
-  color: #ff8a3d;
+  color: var(--accent);
 }
 .stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .stage-icon {
@@ -821,6 +880,426 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .panel :is(input, select, textarea, button) {
   scroll-margin-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + 12px);
 }
+
+/* --- Steppers (C8) -------------------------------------------------------- */
+
+/* The label is its own element now, because the buttons must NOT sit inside a
+   <label> - activating one there counts as activating the label and focuses
+   the input, opening the keyboard the stepper exists to avoid. */
+.field-label { display: block; }
+
+/* --- Pressure entry v2: tire cards and drag pad --------------------------- */
+
+.section-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin-bottom: 8px;
+}
+.section-label {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+
+/* Current bike state */
+.bike-state {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+}
+.bike-state-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.bike-state-title {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.tire-edit { flex: 0 0 auto; width: auto; min-height: 44px; padding: 10px 14px; }
+.state-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.state-row:first-child { border-top: 0; padding-top: 0; }
+.state-row--head { padding-bottom: 2px; }
+
+/* The two ends read as a small table: the columns line Fork up against Shock,
+   which is how a rider compares them. */
+.susp-grid { padding-bottom: 8px; }
+/* Flex, not grid: a grid cannot reflow, and at 200% the headers ran into each
+   other and the values were squeezed. With a shared basis the columns line up
+   at normal size and fall under the label when the text grows. */
+.susp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+/* Bases chosen with slack: at 4.5rem + 3x4rem the row came to 299px against
+   302px available and sub-pixel rounding wrapped the last column. */
+/* The basis is in rem, so it scales with the text while the card does not.
+   At normal size three columns fit on one line (64 + 3x64 + 30 = 286 of 302);
+   at 200% one column is wider than half the row, so they fall ONE per line
+   under the label rather than two, which would scramble which value is which. */
+.susp-corner, .susp-end { flex: 0 0 4rem; min-width: 0; }
+.susp-head, .susp-cell { flex: 1 1 4rem; min-width: 0; }
+.susp-head {
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  /* No letter-spacing: it pushed PRELOAD past its column and split it. */
+  text-transform: uppercase;
+}
+.susp-end {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.susp-cell { display: flex; align-items: baseline; gap: 3px; }
+.susp-value {
+  /* A reading is one token: 1.5 must never break into "1 . 5". */
+  white-space: nowrap;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.susp-value--none { color: var(--text-dim); }
+.susp-unit { color: var(--text-dim); font-size: 0.875rem; }
+.state-label { color: var(--text-dim); font-size: 0.875rem; }
+.state-value { min-width: 0; color: var(--text); font-size: 0.875rem; overflow-wrap: anywhere; text-align: right; }
+.tire-fields { margin-bottom: 12px; }
+
+/* The tire card. Closed it is one row; open it carries the controls. */
+.tire-card {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+}
+.tire-card--open { border: 2px solid var(--accent); }
+.tire-row {
+  display: flex;
+  flex-wrap: wrap;          /* at large text the value drops under the label */
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tire-col-left { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.tire-col-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
+.tire-name { font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; }
+/* The reference is history: dashed, dim, and never the value. */
+.tire-pill {
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px dashed var(--text-dim);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+/* Neutral by design: a delta is a fact, not a verdict. */
+.tire-delta {
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tire-today { color: var(--text-dim); font-size: 0.75rem; }
+.tire-value { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.tire-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+.tire-num--blank { color: var(--text-dim); }
+.tire-unit { color: var(--text-dim); font-size: 0.875rem; }
+
+.tire-panel { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.control-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; gap: 8px; }
+.pad-btn {
+  min-height: 72px;
+  border: 1px solid var(--text-dim);
+  border-radius: 12px;
+  background: var(--bg-elev-2);
+  color: var(--text);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.pad-btn:active { background: var(--bg-elev); }
+.drag-pad {
+  position: relative;
+  min-width: 0;
+  min-height: 72px;
+  border: 1px dashed var(--text-dim);
+  border-radius: 12px;
+  background: var(--bg-elev-2);
+  overflow: hidden;
+  touch-action: pan-y;
+  cursor: ew-resize;
+}
+.drag-pad:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drag-pad--off { opacity: 0.5; cursor: default; }
+/* Nothing inside the pad may take the pointer: on touch the child under the
+   finger captures it implicitly, and the drag then fights the pad for it. */
+.drag-pad > * { pointer-events: none; }
+.pad-lines { position: absolute; inset: 0; }
+.pad-line { position: absolute; top: 22px; bottom: 22px; width: 1px; background: var(--border); }
+.pad-line--long { top: 8px; bottom: 8px; }
+.pad-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+.pad-label-main {
+  padding: 1px 8px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+.pad-label-sub {
+  padding: 0 6px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.typed-field {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 52px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.typed-field:focus-within { border-color: var(--accent); }
+.typed-field input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: center;
+}
+.typed-field input:focus { outline: none; }
+.typed-unit { flex: none; color: var(--text-dim); font-size: 0.875rem; }
+
+/* The typed field and "Same as" share a row; the button drops under the field
+   only when it will not fit beside it. */
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+/* 6rem, not 8: at 390px an 8rem basis plus the "Same as" button is 9px wider
+   than the card, which pushed the button onto its own line and cost 64px of
+   height. It still wraps at 320px and at large text, where it genuinely
+   cannot fit. */
+.field-row > .typed-field { flex: 1 1 6rem; min-width: 0; }
+/* At 200% a fixed 10rem basis is wider than the card, which pushed the foot
+   past its own box. Capping the basis lets it fall to its own line instead. */
+/* Only shown when it applies: out of range, or text that is not a number. */
+.tire-note { min-width: 0; margin: 0; color: var(--text-dim); font-size: 0.875rem; line-height: 1.3; }
+.tire-note:empty { display: none; }
+.tire-same { flex: 0 1 auto; width: auto; max-width: 100%; min-height: 52px; padding: 10px 14px; white-space: normal; }
+
+/* 200% text: the controls grow and the pad's sub-line goes (v2 item 8). */
+@media (min-resolution: 0.001dppx) {
+  .control-row { grid-template-columns: minmax(72px, 4.5rem) minmax(0, 1fr) minmax(72px, 4.5rem); }
+  .pad-btn, .drag-pad { min-height: clamp(72px, 4.5rem, 80px); }
+}
+
+/* One stepper per row (C8)/* One stepper per row (C8)/* One stepper per row (C8): minus, the value, plus - so the number is never
+   squeezed between two fixed buttons. Replaces a 400px media query that put
+   the value on its own line below that width and crushed it to ~28px above
+   it, which is what a 412px phone was showing. */
+.stepper-stack { display: block; }
+.stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;                     /* the handoff's 8px between targets */
+  flex-wrap: wrap;
+}
+/* 64px floor, well above the 48px --tap, because these are pressed in gloves.
+   min-width/height rather than fixed, so they grow with the rider's text. */
+.stepper-btn {
+  flex: none;
+  min-width: 64px;
+  min-height: 64px;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  background: var(--bg-elev-2);
+  color: var(--text);
+  font-size: 1.875rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.stepper-btn:active { background: var(--accent-dim); color: #1a0a00; }
+.stepper-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stepper-btn[disabled] { opacity: 0.45; cursor: default; }
+/* min-width: 0 so the input may shrink between two fixed buttons at 320px -
+   the same flex-item rule that bit the status text and the context spans. */
+.stepper > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 64px;
+  text-align: center;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  /* 28px at the default root, scaling with the rider's text setting. */
+  font-size: 1.75rem;
+}
+.stepper-sub {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  overflow-wrap: break-word;
+}
+
+/* At large text two 64px buttons plus a readable number stop fitting side by
+   side. The row wraps instead of shrinking the targets or clipping the value:
+   the number takes its own line and the buttons stay full size. */
+/* No breakpoint: the row wraps when the number cannot sit comfortably beside
+   the buttons, which is a question about available space, not viewport width. */
+.stepper > input { flex: 1 1 6rem; }
+
+/* --- Suspension adjusters (v2) -------------------------------------------- */
+
+.adj-group { margin-bottom: 14px; }
+.adj-group > .section-label { margin-bottom: 8px; }
+.adj-card {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+}
+.adj-card--open { border: 2px solid var(--accent); }
+.adj-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.adj-name { font-size: 0.9375rem; font-weight: 700; }
+.adj-value {
+  min-width: 0;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.adj-panel { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+/* No drag pad here: a click is a detent you count, not a value you sweep to. */
+.adj-controls {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 72px;
+  align-items: center;
+  gap: 8px;
+}
+.adj-big {
+  min-width: 0;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+/* Two options, both a full tap target, the chosen one carrying the tint. */
+.unit-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.unit-opt {
+  min-height: 48px;
+  padding: 10px 8px;
+  border: 0;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.unit-opt + .unit-opt { border-left: 1px solid var(--text-dim); }
+.unit-opt.is-on { background: var(--accent); color: var(--bg); }
+.susp-done { margin-bottom: 14px; }
+.state-edit { flex: 0 0 auto; width: auto; min-height: 48px; padding: 10px 14px; margin-left: auto; }
 
 /* --- Auto-save switch (C6) ------------------------------------------------ */
 
@@ -921,7 +1400,9 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    that turns out to be. */
 .dock {
   position: sticky;
-  bottom: calc(var(--stage-bar-h) + env(safe-area-inset-bottom, 0px));
+  /* --stage-bar-h is measured from the live bar and already includes its
+     safe-area padding, so adding env() here again would re-open the gap. */
+  bottom: var(--stage-bar-h);
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -964,7 +1445,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 }
 
 /* A stage cell that will refuse to navigate says so before it is tapped. */
-.stage.is-locked { color: #7a828d; }
+.stage.is-locked { color: var(--text-dim); }
 .stage.is-locked .stage-icon {
   -webkit-mask: url("icons/lock.svg") center / contain no-repeat;
   mask: url("icons/lock.svg") center / contain no-repeat;
@@ -1092,5 +1573,37 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 }
 .tools-disclosure:not([open]) > summary::after { transform: none; }
 .tools-disclosure > summary > h2 { margin: 0; }
+/* Flex items again: without min-width the heading and its sub-line keep their
+   full content width and push the page sideways at large text. Same cause as
+   the status text, the context spans and the grid tracks. */
+.tools-disclosure > summary > h2,
+.tools-disclosure > summary > .tools-sub { min-width: 0; overflow-wrap: break-word; }
 .tools-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tools-sub { font-size: 0.8125rem; color: var(--text-dim); }
+
+/* The wordmark costs vertical space a rider needs for the pressures, and the
+   context header already says which bike and session this is. Phone only -
+   the desktop rail keeps it. */
+@media (max-width: 899px) {
+  .brand { display: none; }
+  /* The section label below says which pressure this is, so the panel heading
+     is redundant on a phone and costs a line the rider needs. */
+  #panel-tires > h2 { display: none; }
+  .app-header { padding: 10px 16px 8px; }
+  .save-status { margin: 3px 0 0; }
+}
+
+/* Correct PRE: a correction, so it reads as secondary to the stage's own work. */
+.correct-pre-row { margin-bottom: 12px; }
+.btn-outline {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 12px 16px;
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.btn-outline:active { background: var(--bg-elev-2); }

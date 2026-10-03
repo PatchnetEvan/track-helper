@@ -308,7 +308,9 @@
         text: "Not saved yet \u00b7 draft kept on this device" };
     }
     if (f.hasContent) {
-      return { key: "unsaved", tone: "dim", text: "Not saved yet \u00b7 REVIEW saves it" };
+      // Names the two controls that actually save, and where they are.
+      return { key: "unsaved", tone: "dim",
+        text: "Not saved yet \u00b7 on REVIEW, tap Save only or Save & next" };
     }
     return { key: "none", tone: "dim", text: "" };
   }
@@ -340,9 +342,488 @@
     return "A refresh brings your draft back.";
   }
 
+  // --- Steppers (C8) --------------------------------------------------------
+  //
+  // Decimal-safe, because the obvious version is wrong: 30.1 + 0.5 in binary
+  // floating point is 30.599999999999998, and a rider watching a pressure
+  // gain digits would be right not to trust it.
+  //
+  // Everything is done in integers scaled to the most decimal places either
+  // side carries, so the rider's own precision survives: 30.25 + 0.5 is 30.75,
+  // never 30.8. A fractional click is respected the same way - 8.5 + 1 is 9.5,
+  // not 9 - because rounding someone's entry into a shape the app prefers is
+  // not the app's decision to make.
+  // ORDINARY DECIMAL NOTATION ONLY.
+  //
+  // Number() is far more generous than this stepper can be: it reads "1e-2",
+  // "0x1A" and "0b101" happily, and the decimal count cannot describe any of
+  // them. Stepping "1e-2" by 0.5 used to produce "0.5" - the rider's 0.01
+  // silently discarded - and "0x1A" came back as "26.5", a hex entry rewritten
+  // as decimal. So the parser is deliberately narrow, and ONE rule decides both
+  // whether a button is available and what a step produces.
+  const ORDINARY_DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+  // toFixed throws above 100 places, and scaled arithmetic stops being exact
+  // long before that. Anything beyond this is refused rather than approximated.
+  const MAX_STEP_DECIMALS = 12;
+
+  function decimalsOf(text) {
+    const m = String(text).match(/\.(\d+)\s*$/);
+    return m ? m[1].length : 0;
+  }
+
+  // The shared eligibility rule. Returns the arithmetic plan, or null when this
+  // text is not something the stepper may touch - in which case the caller
+  // leaves it exactly as the rider typed it and offers no buttons.
+  function stepPlan(currentText, step) {
+    const raw = String(currentText == null ? "" : currentText).trim();
+    if (raw === "") return null;                       // blank stays blank
+    if (!ORDINARY_DECIMAL.test(raw)) return null;      // scientific, hex, words
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    const stepNum = Number(step);
+    if (!Number.isFinite(stepNum)) return null;
+
+    const places = Math.max(decimalsOf(raw), decimalsOf(step));
+    if (places > MAX_STEP_DECIMALS) return null;       // cannot be held exactly
+    const scale = Math.pow(10, places);
+    if (!Number.isFinite(scale)) return null;
+
+    const scaledValue = Math.round(value * scale);
+    const scaledStep = Math.round(stepNum * scale);
+    // Beyond the safe-integer range the scaled arithmetic silently invents
+    // digits, so a magnitude that cannot be represented is refused outright
+    // rather than stepped approximately.
+    if (!Number.isSafeInteger(scaledValue) || !Number.isSafeInteger(scaledStep)) return null;
+    if (!Number.isSafeInteger(scaledValue + scaledStep)
+        || !Number.isSafeInteger(scaledValue - scaledStep)) return null;
+    return { places: places, scale: scale, scaledValue: scaledValue, scaledStep: scaledStep };
+  }
+
+  // Is this field steppable at all? The buttons and the handler both ask this,
+  // so a button can never look available while the handler refuses - or worse,
+  // look available and then mangle the value.
+  function canStep(currentText, step) {
+    return stepPlan(currentText, step) !== null;
+  }
+
+  // The rule, as a pure function. Returns the new text, or null when there is
+  // no legitimate step to take - blank, not a number, or a decrement that
+  // would cross below zero.
+  function stepValue(currentText, step, direction, opts) {
+    const plan = stepPlan(currentText, step);
+    if (plan === null) return null;              // same rule the buttons use
+    const scaled = plan.scaledValue + (direction < 0 ? -1 : 1) * plan.scaledStep;
+    // An ENTRY guard, not an opinion about tyre pressure: a decrement may not
+    // take a field below zero. It does not clamp and it never rewrites what
+    // the rider typed - a value already below zero simply refuses to go lower,
+    // and increments are always allowed.
+    //
+    // Suspension opts out: a clicker can legitimately sit below its reference,
+    // so those fields pass allowNegative. Pressures never do, and the default
+    // is unchanged so nothing else has to know about this.
+    const allowNegative = !!(opts && opts.allowNegative);
+    if (!allowNegative && direction < 0 && scaled < 0) return null;
+    const next = scaled / plan.scale;
+    if (!Number.isFinite(next)) return null;
+    const text = next.toFixed(plan.places);
+    // A last check that what we are about to write is something this same
+    // parser would accept. toFixed can return exponential notation for very
+    // large magnitudes, and writing a value the stepper then refuses to read
+    // would be a trap of our own making.
+    return ORDINARY_DECIMAL.test(text) ? text : null;
+  }
+
+  // --- Pressure ruler (C8 revised: centred value + tenths ruler) ------------
+  //
+  // 10-45 PSI is how far the ruler can be DRAGGED. It is not a recommendation
+  // and not validation: a value typed outside it is kept exactly as typed, and
+  // nothing in here ever labels a pressure high, low or unsafe.
+  const PSI_MIN = 10;
+  const PSI_MAX = 45;
+  const PSI_STEP = 0.1;       // one tick is a tenth
+  const TICK_PX = 24;         // ...and 24px of drag (v2)
+  const DRAG_INTENT_PX = 10;  // before which the page keeps the gesture
+
+  function tenths(value) { return Math.round(value * 10) / 10; }
+
+  function psiInRulerRange(value) {
+    return Number.isFinite(value) && value >= PSI_MIN && value <= PSI_MAX;
+  }
+
+  // Ordinary decimal text only. Scientific and hex notation are not numbers a
+  // rider types into a pressure field, and treating them as numbers is how
+  // digits get invented.
+  const ORDINARY_PSI = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+  function readPsi(text) {
+    const raw = String(text == null ? "" : text).trim();
+    if (raw === "" || !ORDINARY_PSI.test(raw)) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // A value the ruler can actually represent and step.
+  function usablePsi(text) {
+    const state = pressureState(text);
+    if (state !== "in-range" && state !== "typed-outside") return null;
+    return readPsi(text);
+  }
+
+  // What kind of thing is in the field right now. Every bit of copy and every
+  // enabled/disabled decision is derived from this, so they cannot disagree.
+  function pressureState(text) {
+    const raw = String(text == null ? "" : text).trim();
+    if (raw === "") return "blank";
+    if (!ORDINARY_PSI.test(raw)) return "not-a-number";
+    // The numeric contract from the stepper work still holds: text with more
+    // decimals than can be stepped accurately, or a magnitude that is not safe
+    // once scaled, is kept exactly as typed and cannot be stepped. Rounding it
+    // to a tenth would invent digits the rider never entered.
+    if (stepPlan(raw, String(PSI_STEP)) === null) return "unsupported";
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return "unsupported";
+    return psiInRulerRange(n) ? "in-range" : "typed-outside";
+  }
+
+  function snapPsi(value) {
+    if (!Number.isFinite(value)) return null;
+    const held = Math.min(PSI_MAX, Math.max(PSI_MIN, tenths(value)));
+    return tenths(held);
+  }
+
+  // Dragging LEFT increases the value, as the design file does it.
+  function psiFromDrag(startPsi, dx) {
+    if (!Number.isFinite(startPsi)) return null;
+    const notches = Math.round(-dx / TICK_PX);
+    return snapPsi(startPsi + notches * PSI_STEP);
+  }
+
+  // Take the gesture over only once it is clearly horizontal, so an ordinary
+  // vertical scroll that happens to start on the ruler still scrolls.
+  function shouldCaptureDrag(dx, dy) {
+    return Math.abs(dx) > DRAG_INTENT_PX && Math.abs(dx) > Math.abs(dy);
+  }
+
+  // -/+ are a tenth. Outside the ruler's range they still step from the typed
+  // value - they are the way back - but they never go below zero and they
+  // never rewrite text that is not a number. From blank they start at the
+  // reference; with no reference there is nothing to start from, so they stay
+  // inactive rather than invent one.
+  function rulerStep(currentText, direction, referenceValue) {
+    const dir = direction < 0 ? -1 : 1;
+    const state = pressureState(currentText);
+    if (state === "not-a-number" || state === "unsupported") return null;
+    if (state === "blank") {
+      const ref = padStart(referenceValue);
+      const next = tenths(ref + dir * PSI_STEP);
+      if (dir < 0 && next < 0) return null;
+      return next.toFixed(1);
+    }
+    // Stepping goes through the same decimal-safe arithmetic the click
+    // steppers use, so a typed 30.25 becomes 30.35 rather than being rounded
+    // to a tenth the rider never asked for.
+    const next = stepValue(String(currentText).trim(), String(PSI_STEP), dir);
+    if (next === null) return null;
+    const n = Number(next);
+    if (dir < 0 && n < 0) return null;
+    // Inside the range the ruler holds its ends.
+    if (state === "in-range" && !psiInRulerRange(n)) return null;
+    return next;
+  }
+
+  // The ruler may be dragged only when there is a position to drag from: a
+  // value inside the range, or a reference to start from while blank.
+  // v2: the pad is usable whenever the value is blank or inside the range.
+  // From blank it starts at the reference, or at PAD_DEFAULT when no reference
+  // matched - a starting POSITION for a deliberate drag, never a value: the
+  // field stays empty until the rider actually moves it.
+  const PAD_DEFAULT = 30;
+
+  function padStart(referenceValue) {
+    const ref = usablePsi(referenceValue);
+    return ref === null ? PAD_DEFAULT : ref;
+  }
+
+  function rulerDraggable(currentText, referenceValue) {
+    const state = pressureState(currentText);
+    return state === "in-range" || state === "blank";
+  }
+
+  // --- References ------------------------------------------------------------
+  //
+  // A reference is history, never a measurement. It is only shown when it is
+  // genuinely the same thing: the same bike on the same tire brand and model.
+  // Anything less exact is omitted, because a pressure from a different bike
+  // sitting next to today's is worse than no pressure at all.
+  const PRESSURE_KEYS = {
+    "front-pre": "frontPre", "rear-pre": "rearPre",
+    "front-post": "frontPost", "rear-post": "rearPost",
+  };
+
+  function lastMatchingSession(sessions, context) {
+    if (!Array.isArray(sessions) || !context) return null;
+    const bike = String(context.bike || "").trim().toLowerCase();
+    const brand = String(context.brand || "").trim().toLowerCase();
+    const model = String(context.model || "").trim().toLowerCase();
+    if (!bike || !brand || !model) return null;
+    let best = null;
+    for (const s of sessions) {
+      if (!s || !s.setup || !s.tires) continue;
+      if (String(s.setup.bike || "").trim().toLowerCase() !== bike) continue;
+      if (String(s.tires.brand || "").trim().toLowerCase() !== brand) continue;
+      if (String(s.tires.model || "").trim().toLowerCase() !== model) continue;
+      if (best === null || String(s.savedAt || "") > String(best.savedAt || "")) best = s;
+    }
+    return best;
+  }
+
+  // A session number is used only when the saved session actually carries a
+  // label. It is never derived, guessed at or counted up to.
+  function sessionTag(session) {
+    const label = String(session && session.sessionLabel || "").trim();
+    const m = label.match(/(\d+)\s*$/);
+    return m ? "S" + m[1] : null;
+  }
+
+  function pressureReferences(sessions, context, field, thisSessionPre) {
+    const key = PRESSURE_KEYS[field];
+    const out = { primary: null, sources: [] };
+    if (!key) return out;
+    const last = lastMatchingSession(sessions, context);
+    const tag = last ? sessionTag(last) : null;
+    const historic = last ? readPsi(last.tires[key]) : null;
+    const isPost = field.indexOf("-post") !== -1;
+    if (historic !== null) {
+      const value = historic.toFixed(1);
+      const source = isPost
+        ? { tag: tag, text: (tag ? tag + " hot" : "Last session hot"), value: value }
+        : { tag: tag, text: (tag ? "Last session (" + tag + ")" : "Last session"), value: value };
+      out.sources.push(source);
+      out.primary = { value: value, tag: tag, text: source.text,
+                      button: tag ? "Same as " + tag : "Same as last session" };
+    }
+    if (isPost) {
+      const pre = readPsi(thisSessionPre);
+      if (pre !== null) {
+        out.sources.push({ tag: "PRE", text: "PRE", value: pre.toFixed(1) });
+        if (out.primary === null) {
+          out.primary = { value: pre.toFixed(1), tag: "PRE", text: "PRE",
+                          button: "Same as PRE" };
+        }
+      }
+    }
+    return out;
+  }
+
+  // --- Suspension adjusters (v2) --------------------------------------------
+  //
+  // Clicks are whole detents; turns are read off a collar to a tenth. The unit
+  // belongs to the adjuster, not the bike, because forks and shocks are marked
+  // differently and riders record what their own kit shows.
+  const ADJUSTERS = ["fork-preload", "fork-comp", "fork-reb",
+                     "shock-preload", "shock-comp", "shock-reb"];
+  // Preload is almost always turns; damping is almost always clicks.
+  const ADJUSTER_DEFAULT_UNIT = {
+    "fork-preload": "turns", "shock-preload": "turns",
+    "fork-comp": "clicks", "fork-reb": "clicks",
+    "shock-comp": "clicks", "shock-reb": "clicks",
+  };
+  const UNIT_STEP = { clicks: 1, turns: 0.5 };
+  const UNIT_PLACES = { clicks: 0, turns: 1 };
+
+  function adjusterUnit(stored, id) {
+    const raw = String(stored == null ? "" : stored).trim().toLowerCase();
+    if (raw === "clicks" || raw === "turns") return raw;
+    return ADJUSTER_DEFAULT_UNIT[id] || "clicks";
+  }
+
+  // How far an adjuster may be wound either way.
+  const ADJUSTER_LIMIT = { clicks: 40, turns: 10 };
+  // A true minus for display; a plain hyphen for anything stored or parsed.
+  const MINUS = "\u2212";
+  // Android's decimal keypad often has no minus key, so riders paste or type
+  // whichever dash they can reach. All of them mean the same thing.
+  function normalizeMinus(text) {
+    return String(text == null ? "" : text)
+      .replace(/^\s*[\u2212\u2013\u2014\u2010\u2011\u2012\u2015]/, "-");
+  }
+
+  function readAdjuster(text) {
+    const raw = normalizeMinus(text).trim();
+    if (raw === "" || !ORDINARY_PSI.test(raw)) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // Clicks round to whole detents; turns to a tenth. Nothing invents digits.
+  function formatAdjuster(value, unit) {
+    if (!Number.isFinite(value)) return "";
+    const places = UNIT_PLACES[unit] === undefined ? 0 : UNIT_PLACES[unit];
+    return value.toFixed(places);
+  }
+
+  function adjusterStep(currentText, direction, unit) {
+    const u = unit === "turns" ? "turns" : "clicks";
+    const step = UNIT_STEP[u];
+    const dir = direction < 0 ? -1 : 1;
+    const raw = normalizeMinus(currentText).trim();
+    // Blank starts at zero: an adjuster is counted from a reference, so the
+    // first press is a real reading rather than a guess.
+    const from = raw === "" ? 0 : readAdjuster(raw);
+    if (from === null) return null;
+    // Through zero and out the other side - a clicker can sit either way of
+    // its reference. The shared arithmetic keeps the tenths exact.
+    const stepped = stepValue(from.toFixed(UNIT_PLACES[u]), String(step), dir,
+      { allowNegative: true });
+    if (stepped === null) return null;
+    const next = Number(stepped);
+    // At the ends the button goes dead. It never clamps: a rider who presses
+    // and sees nothing move knows they are at the limit, where a value that
+    // silently stopped changing would just look broken.
+    const limit = ADJUSTER_LIMIT[u];
+    if (next > limit || next < -limit) return null;
+    return formatAdjuster(next, u);
+  }
+
+  // A trailing ".0" is noise on a collar reading: 3 turns, not 3.0 turns.
+  function compactAdjuster(value, unit) {
+    const text = formatAdjuster(value, unit);
+    const trimmed = text.indexOf(".") === -1 ? text : text.replace(/\.0$/, "");
+    // Shown, not stored: the field keeps a plain "-2".
+    return trimmed.replace(/^-/, MINUS);
+  }
+
+  // What the closed row shows: "12 clicks", "2.5 turns", or a dash.
+  function adjusterDisplay(text, unit) {
+    const value = readAdjuster(text);
+    if (value === null) return "\u2014";
+    const u = unit === "turns" ? "turns" : "clicks";
+    return compactAdjuster(value, u) + " " + u;
+  }
+
+  // Changing the unit re-reads the same number in the new unit's precision.
+  // It does not convert: a click is not a turn, and pretending otherwise would
+  // invent a measurement the rider never took.
+  function adjusterOnUnitChange(text, unit) {
+    const value = readAdjuster(text);
+    if (value === null) return String(text == null ? "" : text);
+    return formatAdjuster(value, unit === "turns" ? "turns" : "clicks");
+  }
+
+  // "Fork P 2.5t \u00b7 C12 \u00b7 R10 / Shock P 3t \u00b7 C8 \u00b7 R12".
+  // Clicks carry no suffix; turns carry "t"; a missing value is an en dash.
+  function suspensionSummary(values, units) {
+    const part = (id, letter) => {
+      const unit = adjusterUnit(units && units[id], id);
+      const value = readAdjuster(values && values[id]);
+      // Preload carries a space, damping does not - as the summary is specified.
+      const lead = letter === "P" ? "P " : letter;
+      if (value === null) return lead + "\u2013";
+      return lead + compactAdjuster(value, unit) + (unit === "turns" ? "t" : "");
+    };
+    const fork = "Fork " + ["P", "C", "R"].map((l, i) =>
+      part(["fork-preload", "fork-comp", "fork-reb"][i], l)).join(" \u00b7 ");
+    const shock = "Shock " + ["P", "C", "R"].map((l, i) =>
+      part(["shock-preload", "shock-comp", "shock-reb"][i], l)).join(" \u00b7 ");
+    return fork + " / " + shock;
+  }
+
+  // --- Tires summary and header copy ----------------------------------------
+  //
+  // The summary must never imply a setup that was not entered. With nothing
+  // set it says so plainly; with a partial setup it names only what is there.
+  function tiresSummary(brand, model, warmersOn, warmerTime) {
+    const parts = [];
+    const b = String(brand == null ? "" : brand).trim();
+    const m = String(model == null ? "" : model).trim();
+    const t = String(warmerTime == null ? "" : warmerTime).trim();
+    if (b) parts.push(b);
+    if (m) parts.push(m);
+    if (warmersOn) parts.push(t ? "warmers " + t + " min" : "warmers");
+    if (parts.length === 0) return "No tires set";
+    return parts.join(" \u00b7 ");
+  }
+
+  // An unset field says it is unset rather than leaving the line blank, so the
+  // header never reads as though a bike or track were already chosen.
+  function headerBikeLine(bike, stageLabel) {
+    const b = String(bike == null ? "" : bike).trim();
+    if (b) return b;
+    const stage = String(stageLabel == null ? "" : stageLabel).trim();
+    return stage ? "No bike set \u00b7 " + stage : "No bike set";
+  }
+
+  function headerTrackLine(track, sessionLabel) {
+    const t = String(track == null ? "" : track).trim();
+    const sLabel = String(sessionLabel == null ? "" : sessionLabel).trim();
+    const left = t || "No track set";
+    return sLabel ? left + " \u00b7 " + sLabel : left;
+  }
+
+  // --- Copy -----------------------------------------------------------------
+
+  function todayLabel(text) {
+    const state = pressureState(text);
+    if (state === "blank") return "Today \u00b7 not measured";
+    if (state === "in-range") return "Today";
+    return "Today \u00b7 typed";
+  }
+
+  function pressureNote(text, hasReference) {
+    const state = pressureState(text);
+    if (state === "not-a-number") return "Type a number, for example 30.5.";
+    if (state === "unsupported") {
+      return String(text).trim()
+        + " is kept as typed. \u2212 / + and the ruler work to one decimal place.";
+    }
+    if (state === "typed-outside") {
+      const shown = String(text).trim();
+      return shown + " is outside the drag range (" + PSI_MIN + "\u2013" + PSI_MAX
+        + "). Kept as typed. Use \u2212 / + or type to change it.";
+    }
+    // The blank state needs no sentence: the placeholder says what to type and
+    // the pad says what a notch is worth. Notes are for things that only apply
+    // sometimes.
+    if (state === "blank") return "";
+    return "";
+  }
+
+  // The delta chip: neutral, factual, and only once there is a value. It never
+  // colours a reading or calls it good or bad.
+  function deltaChip(text, refs) {
+    const value = usablePsi(text);
+    if (value === null || !refs) return "";
+    const parts = [];
+    for (const srcItem of (refs.sources || [])) {
+      const ref = usablePsi(srcItem.value);
+      if (ref === null) continue;
+      const d = tenths(value - ref);
+      const label = srcItem.tag || "last";
+      parts.push((d >= 0 ? "+" : "\u2212") + Math.abs(d).toFixed(1) + " vs " + label);
+    }
+    return parts.join(" \u00b7 ");
+  }
+
+  // POST only, and only once there is a value to compare.
+  function postDelta(postText, preText) {
+    const post = readPsi(postText);
+    const pre = readPsi(preText);
+    if (post === null || pre === null) return "";
+    const d = tenths(post - pre);
+    return (d >= 0 ? "+" : "\u2212") + Math.abs(d).toFixed(1) + " vs PRE";
+  }
+
   const api = {
     nextLabelFrom, createStageState, createSaveState, createDraftState, saveStatusFor,
-    footerDraftNote,
+    footerDraftNote, stepValue, decimalsOf, canStep, stepPlan,
+    PSI_MIN, PSI_MAX, PSI_STEP, TICK_PX, DRAG_INTENT_PX, PAD_DEFAULT, padStart, deltaChip,
+    psiInRulerRange, snapPsi, psiFromDrag, shouldCaptureDrag, rulerStep, rulerDraggable,
+    readPsi, usablePsi, pressureState, pressureReferences, lastMatchingSession, sessionTag,
+    todayLabel, pressureNote, postDelta, tiresSummary,
+    ADJUSTERS, ADJUSTER_DEFAULT_UNIT, adjusterUnit, readAdjuster, formatAdjuster,
+    adjusterStep, adjusterDisplay, adjusterOnUnitChange, suspensionSummary, compactAdjuster,
+    ADJUSTER_LIMIT, normalizeMinus, MINUS, headerBikeLine, headerTrackLine,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;
