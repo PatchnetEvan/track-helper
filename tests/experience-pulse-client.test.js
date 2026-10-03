@@ -76,7 +76,10 @@ assert.ok(/maybePrompt\(r\.out,\s*"after_save"\)/.test(appJs), "after_save promp
 assert.ok(/maybePrompt\(el,\s*"after_review"\)/.test(appJs), "after_review prompts in the summary-result region");
 // Save & next must NOT prompt (frozen decision). Slice its handler and assert
 // there is no maybePrompt in it.
-const sanStart = appJs.indexOf('getElementById("save-and-next")');
+// Anchor on the HANDLER, not on the first mention of the id: the dock renders
+// the same button's label, so a bare id lookup now matches earlier in the file
+// and would silently widen this slice over an unrelated handler.
+const sanStart = appJs.indexOf('getElementById("save-and-next").addEventListener');
 assert.ok(sanStart >= 0, "save-and-next handler present");
 const sanHandler = appJs.slice(sanStart, appJs.indexOf("function renderHistory"));
 assert.ok(!sanHandler.includes("maybePrompt"), "Save & next never triggers an automatic pulse (frozen decision)");
