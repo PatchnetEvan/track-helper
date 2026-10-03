@@ -5,10 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';" />
   <meta name="referrer" content="no-referrer" />
-  <meta name="theme-color" content="#121212" />
+  <!-- Updated by theme-stamp.js to match the chosen theme. -->
+  <meta name="theme-color" content="#EEF1F5" />
   <meta name="description" content="MotoTrack — a privacy-first, session-only trackside notebook for club racers and track-day riders." />
   <title>MotoTrack</title>
+  <!-- Tokens first: styles.css reads them and defines no colour of its own. -->
+  <link rel="stylesheet" href="../shared/mt-tokens.css" />
   <link rel="stylesheet" href="../styles.css" />
+  <!-- Before paint, so the first frame is already the right theme. -->
+  <script src="theme-stamp.js"></script>
 </head>
 <body>
   <!-- Context header (C3). In the document flow, never sticky: at 200% text
@@ -20,6 +25,7 @@
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">MotoTrack</span>
+        <span class="app-badge">Log &middot; free</span>
       </div>
       <!-- The context sits beside About rather than under it: on a phone that
            row would otherwise cost a line the rider needs for the pressures. -->
@@ -896,9 +902,9 @@
            confirmations. Clear all history still asks before deleting and
            still names the count. -->
       <div class="history-actions">
-        <button type="button" class="btn-secondary" id="export-history">Export backup</button>
+        <button type="button" class="btn-secondary" id="export-history">Save a backup</button>
         <label class="btn-secondary file-btn">
-          <span>Import backup</span>
+          <span>Restore a backup</span>
           <input type="file" id="import-history" accept="application/json,.json" hidden />
         </label>
         <button type="button" class="btn-danger" id="clear-history">Clear all history</button>
@@ -907,6 +913,18 @@
       <!-- Auto-save draft (C6). Off by default: with it off the app behaves
            exactly as it always has and a refresh clears the form. Drafts are
            kept under their own storage key, separate from saved sessions. -->
+      <!-- Theme (shared with Pro through mt.theme.mode). Auto follows the
+           phone, so the default needs no decision from the rider. -->
+      <div class="setting-row">
+        <p class="switch-label" id="theme-label">Theme</p>
+        <div class="theme-switch" role="radiogroup" aria-labelledby="theme-label">
+          <button type="button" class="theme-opt" data-theme="auto" role="radio" aria-checked="true">Auto</button>
+          <button type="button" class="theme-opt" data-theme="bright" role="radio" aria-checked="false">Bright</button>
+          <button type="button" class="theme-opt" data-theme="dark" role="radio" aria-checked="false">Dark</button>
+        </div>
+        <p class="switch-sub" id="theme-sub">Auto &middot; follows your phone</p>
+      </div>
+
       <div class="setting-row">
         <button type="button" class="switch" id="autosave-switch" role="switch" aria-checked="false">
           <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>

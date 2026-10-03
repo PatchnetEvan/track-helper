@@ -643,6 +643,37 @@
     return source.plan.length;
   }
 
+  // --- Theme (shared with Pro through mt.theme.mode) --------------------------
+  //
+  // theme-stamp.js owns applying it, because it has to run before first paint.
+  // This only keeps the About control in step with what it chose.
+  function renderThemeControl() {
+    const api = window.MotoTrackTheme;
+    if (!api) return;
+    const mode = api.get();
+    const sub = document.getElementById("theme-sub");
+    document.querySelectorAll("[data-theme]").forEach((b) => {
+      b.setAttribute("aria-checked", b.dataset.theme === mode ? "true" : "false");
+      b.classList.toggle("is-on", b.dataset.theme === mode);
+    });
+    if (sub) {
+      sub.textContent = mode === "auto" ? "Auto \u00b7 follows your phone"
+        : mode === "dark" ? "Dark \u00b7 always" : "Bright \u00b7 always";
+    }
+  }
+
+  function wireThemeControl() {
+    document.querySelectorAll("[data-theme]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const api = window.MotoTrackTheme;
+        if (!api) return;
+        api.set(btn.dataset.theme);
+        renderThemeControl();
+      });
+    });
+    renderThemeControl();
+  }
+
   // --- Leave-page guard (C16) ------------------------------------------------
   //
   // Only when auto-save is OFF and there is something unsaved - the same
@@ -1472,6 +1503,7 @@
   wireSteppers();
   wirePressureRulers();
   wireAdjusters();
+  wireThemeControl();
   renderTireSummary();
   renderDock();
 

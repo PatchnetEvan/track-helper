@@ -1,0 +1,113 @@
+/* Source of truth for Free and Pro. Pro copies this file; edit here only.
+ *
+ * Values come from Pro's trackside day flow (TRACKSIDE_DAY_FLOW_TOKENS_CSS and
+ * TRACKSIDE_DAY_FLOW_SCALE_CSS), with the rulings in
+ * DECISION_free_pro_one_language.md applied:
+ *   - the dark selector is [data-mt="dark"], not body[data-mt="sun"]
+ *   - --mt-tap is 48px, raised from Pro's 44
+ *   - --mt-text-label is 13px, raised from Pro's 12
+ *   - --mt-glove: 72px is new, for the tire rows, drag pad and +/- on PRE/POST
+ *
+ * Three layers: raw tokens per theme, then the scale, then the aliases every
+ * component reads. A component should never name a raw token or a literal.
+ */
+
+/* --- Raw tokens: bright --- */
+:root {
+  --bg: #EEF1F5;
+  --surface: #FFFFFF;
+  --surface2: #F4F7FB;
+  --line: #D8DEE7;
+  --ink: #0C1524;
+  --ink2: #5B6878;
+  --faint: #C6D2E2;
+  --blue: #0B5FFF;
+  --onblue: #FFFFFF;
+  --warnbg: #FEF3C7;
+  --warnline: #E0AE4A;
+  --warnink: #7C3D06;
+  --warndot: #B45309;
+  --ok: #067647;
+  --okbg: #DCFCE7;
+  --btn2: #F1F4F9;
+  --accent: #B45309;
+  --shadow: 0 1px 2px rgba(12,21,36,.06);
+  --tick: rgba(255,255,255,.22);
+  --slider: #0C1524;
+  /* Free-app additions, same in both themes unless noted.
+     --mt-brand is the MotoTrack orange. Per the decision it appears ONLY on
+     the header brand mark, never on a control. --mt-scrim is the dialog
+     backdrop, which has no equivalent in Pro's trackside flow. */
+  --mt-brand: #ff6600;
+  --mt-scrim: rgba(0, 0, 0, .6);
+}
+[data-mt="dark"] {
+  --bg: #05070B;
+  --surface: #0E141E;
+  --surface2: #141C29;
+  --line: #1E2839;
+  --ink: #FFFFFF;
+  --ink2: #9FB0C4;
+  --faint: #3A4759;
+  --blue: #2F7BFF;
+  --onblue: #FFFFFF;
+  --warnbg: #2A1D05;
+  --warnline: #6B4A0C;
+  --warnink: #FFCF70;
+  --warndot: #FFB020;
+  --ok: #12A85F;
+  --okbg: #0C2A1B;
+  --btn2: #1A2230;
+  --accent: #FFB020;
+  --shadow: none;
+  --tick: rgba(255,255,255,.2);
+  --slider: #141C29;
+  --mt-brand: #ff6600;
+  --mt-scrim: rgba(0, 0, 0, .72);
+}
+
+/* --- Scale and aliases --- */
+:root {
+  --mt-font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mt-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mt-space-1: 4px;
+  --mt-space-2: 8px;
+  --mt-space-3: 12px;
+  --mt-space-4: 16px;
+  --mt-space-6: 24px;
+  --mt-radius: 16px;
+  --mt-radius-sm: 12px;
+  --mt-tap: 48px;
+  --mt-tap-primary: 56px;
+  --mt-glove: 72px;
+  --mt-cta: 64px;
+  --mt-text-base: 15px;
+  --mt-text-sm: 13px;
+  --mt-text-label: 13px;
+  --mt-text-h2: 13px;
+  --mt-text-h1: 28px;
+  --mt-text-numeral: 54px;
+  --mt-shell-max: 430px;
+  --mt-outside: #191d23;
+}
+:root {
+  --mt-surface: var(--surface);
+  --mt-surface-alt: var(--surface2);
+  --mt-ground: var(--bg);
+  --mt-nav: var(--surface);
+  --mt-nav-text: var(--ink);
+  --mt-border: var(--line);
+  --mt-text: var(--ink);
+  --mt-text-muted: var(--ink2);
+  --mt-text-on-primary: var(--onblue);
+  --mt-primary: var(--blue);
+  --mt-primary-hover: var(--blue);
+  --mt-primary-soft: var(--surface2);
+  --mt-focus: var(--blue);
+  --mt-good: var(--ok);
+  --mt-good-soft: var(--okbg);
+  --mt-warn: var(--warnink);
+  --mt-warn-soft: var(--warnbg);
+  --mt-danger: var(--warndot);
+  --mt-danger-soft: var(--warnbg);
+}

@@ -43,6 +43,8 @@ const APPROVED_PUBLIC_FILES = [
   "investor-preview.html",
   "log.html",
   "log/index.html",
+  "log/theme-stamp.js", // applies the saved theme before first paint (PR 83)
+  "shared/mt-tokens.css", // design tokens shared with Pro; source of truth (PR 83)
   "privacy.html",
   "session-progress.js", // session-progress decision rules (PR 4), loaded by /log
   "storage.js",
