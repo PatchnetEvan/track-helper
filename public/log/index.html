@@ -11,22 +11,31 @@
   <link rel="stylesheet" href="../styles.css" />
 </head>
 <body>
+  <!-- Context header (C3). In the document flow, never sticky: at 200% text
+       the old sticky header stood 419px tall on a 320px phone and swallowed
+       the usable viewport. Only the tab strip sticks now, and it sits at
+       top: 0 because nothing tall is pinned above it. -->
   <header class="app-header">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-name">MotoTrack</span>
+    <div class="context-row">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">MotoTrack</span>
+      </div>
+      <!-- Log has no account, so the header's one button is About. -->
+      <button type="button" class="about-open" id="about-open" aria-label="About MotoTrack">
+        <span class="about-open-icon" aria-hidden="true"></span>
+        <span class="about-open-label">About</span>
+      </button>
     </div>
-    <p class="tagline">Local-first session notes. Your history stays in this browser.</p>
-    <a class="pro-cta" href="https://agent.mototrack.app/">
-      <strong>Track Agent Pro is invite-only and in development.</strong>
-      Explore the rider-controlled paddock workflow &rarr;
-    </a>
-    <!-- Hidden by default; revealed by app.js ONLY after GET /api/feedback
-         proves the feature is enabled. A build without FEEDBACK_ENABLED never
-         shows this entry, so a rider is never offered a surface whose backend
-         is unavailable, and no new data-collection surface appears before the
-         privacy/legal activation gate is satisfied. -->
-    <button type="button" class="feedback-open" id="feedback-open" hidden>Feedback</button>
+    <!-- Filled by app.js from the Setup fields the rider actually typed.
+         Empty until then: a context line that invents a bike or a session
+         number is worse than no context line. No stage chip and no save-status
+         line yet - PRE/POST state arrives in PR 4 and the status rules in
+         PR 5, and neither can be shown truthfully before that. -->
+    <p class="context-line" id="context-line" hidden>
+      <span class="context-bike" id="context-bike"></span>
+      <span class="context-where" id="context-where"></span>
+    </p>
   </header>
 
   <!-- Rider feedback (#55/#56 PR 2). One easily reachable entry that opens a
@@ -429,14 +438,6 @@
         <p class="warn">This browser has storage disabled (private mode?). Saving, loading, and importing are unavailable here.</p>
       </div>
 
-      <div class="history-actions">
-        <button type="button" class="btn-secondary" id="export-history">Export backup</button>
-        <label class="btn-secondary file-btn">
-          <span>Import backup</span>
-          <input type="file" id="import-history" accept="application/json,.json" hidden />
-        </label>
-        <button type="button" class="btn-danger" id="clear-history">Clear all history</button>
-      </div>
 
       <div id="history-empty" class="result">
         <p>No saved sessions yet. Fill in a session and tap <strong>Save this session</strong> on the Review tab.</p>
@@ -459,6 +460,37 @@
     <!-- About -->
     <section class="panel prose" id="panel-about" role="tabpanel" hidden>
       <h2>About MotoTrack</h2>
+
+      <!-- Moved here from the header (C9, C12). The tagline and the Pro link
+           are orientation, not tools: on a phone at 200% text they were the
+           tallest thing above the rider's work. -->
+      <p class="tagline">Local-first session notes. Your history stays in this browser.</p>
+      <a class="pro-cta" href="https://agent.mototrack.app/">
+        <strong>Track Agent Pro is invite-only and in development.</strong>
+        Explore the rider-controlled paddock workflow &rarr;
+      </a>
+
+      <h3>Your backup</h3>
+      <p>Saved sessions stay on this device only. Export a backup any time &mdash; it&rsquo;s a plain JSON file on your phone or computer.</p>
+      <!-- Moved from History unchanged: same ids, same handlers, same
+           confirmations. Clear all history still asks before deleting and
+           still names the count. -->
+      <div class="history-actions">
+        <button type="button" class="btn-secondary" id="export-history">Export backup</button>
+        <label class="btn-secondary file-btn">
+          <span>Import backup</span>
+          <input type="file" id="import-history" accept="application/json,.json" hidden />
+        </label>
+        <button type="button" class="btn-danger" id="clear-history">Clear all history</button>
+      </div>
+
+      <!-- Hidden by default; revealed by app.js ONLY after GET /api/feedback
+           proves the feature is enabled. A build without FEEDBACK_ENABLED never
+           shows this entry, so a rider is never offered a surface whose backend
+           is unavailable, and no new data-collection surface appears before the
+           privacy/legal activation gate is satisfied. Moving it here changes
+           where it lives, never whether it appears. -->
+      <p><button type="button" class="feedback-open" id="feedback-open" hidden>Feedback</button></p>
 
       <h3>What this is</h3>
       <p>A digital notebook for the pits. Log tire pressures, suspension clicks, and lap times in the moment, so your setup decisions between sessions are based on what you recorded, not what you remember.</p>

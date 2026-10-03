@@ -25,6 +25,46 @@
     window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
   }
 
+  // --- Context header (C3) ---
+  //
+  // Says which bike and session the rider is on, from the fields they typed.
+  // Nothing here derives, guesses or bumps a value: an invented "Session 2"
+  // is worse than no context at all, so an empty Setup leaves the line hidden.
+  // The rider's session label is shown exactly as entered - it is free text
+  // they own, not a number for us to parse.
+  function renderContext() {
+    const line = document.getElementById("context-line");
+    if (!line) return;
+    const bike = str("bike");
+    const track = str("track");
+    const label = str("session-label");
+    const where = [track, label].filter(Boolean).join(" · ");
+    document.getElementById("context-bike").textContent = bike;
+    document.getElementById("context-where").textContent = where;
+    line.hidden = !(bike || where);
+  }
+  ["bike", "track", "session-label"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", renderContext);
+  });
+  renderContext();
+
+  // The header's About entry. It selects the existing About panel rather than
+  // opening anything new, so there is one About and the tab strip still shows
+  // where you are. Focus moves to the panel heading, so a keyboard or screen
+  // reader user lands in the content instead of back at the top of the page.
+  const aboutOpen = document.getElementById("about-open");
+  if (aboutOpen) {
+    aboutOpen.addEventListener("click", () => {
+      showTab("about");
+      const heading = document.querySelector("#panel-about h2");
+      if (heading) {
+        heading.setAttribute("tabindex", "-1");
+        heading.focus();
+      }
+    });
+  }
+
   tabs.forEach((t) => {
     t.addEventListener("click", () => {
       showTab(t.dataset.tab);
@@ -628,6 +668,10 @@
     setId("track-temp", s.setup && s.setup.trackTemp);
     setId("humidity", s.setup && s.setup.humidity);
     setId("general-notes", s.setup && s.setup.notes);
+    // setId assigns .value directly and fires no input event, so the context
+    // header has to be told. Without this, loading a session leaves the
+    // header naming the previous one - the exact confusion it exists to end.
+    renderContext();
     const geometryConstants = s.setup && s.setup.geometryConstants || {};
     setId("geo-wheelbase", geometryConstants.wheelbaseMm);
     setId("geo-design-rake", geometryConstants.designRakeDeg);
@@ -768,6 +812,7 @@
     const labelEl = document.getElementById("session-label");
     if (labelEl) labelEl.value = bumpSessionLabel(labelEl.value.trim());
     clearTransientFields();
+    renderContext();
     r.out.innerHTML = `<p class="good">Saved. Form is ready for the next session — bike, track, tire brand, and suspension settings carried over.</p>`;
     showTab("setup");
   });

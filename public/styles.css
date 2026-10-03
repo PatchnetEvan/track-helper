@@ -40,9 +40,10 @@ main {
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  /* Deliberately NOT sticky (C3). This header stood 348px tall at 390px/200%
+     and 419px at 320px/200%; pinning it left almost no viewport for the task.
+     It scrolls away like any other content, which is also what lets the tab
+     strip below sit at top: 0 instead of guessing an offset. */
 }
 
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -73,7 +74,11 @@ main {
 
 .tabs {
   position: sticky;
-  top: 64px;
+  /* Was top: 64px - a hard-coded guess at the header's height that was wrong
+     at every text size above 100% and overlapped the content it was meant to
+     clear. Nothing tall is pinned above this any more, so the correct offset
+     is simply 0 and there is no height left to track. */
+  top: 0;
   z-index: 4;
   display: flex;
   gap: 4px;
@@ -629,3 +634,77 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 .pulse-opt:focus-visible { outline: 2px solid var(--accent); }
 .pulse-opt:disabled { opacity: .6; cursor: default; }
 .pulse-ack { margin: 0; font-size: .92rem; color: var(--good); }
+
+
+/* ── Context header (C3) ──────────────────────────────────────────────────
+   Says which bike and session the rider is looking at, so leaving Setup no
+   longer means losing the thread. Values come from the fields the rider
+   typed; when they are empty the line is hidden rather than filled with a
+   guess. */
+.context-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  /* At 320px with 200% text the brand alone is 213px and pushed the About
+     button off the right edge. Wrapping drops About onto its own line rather
+     than clipping it, which matters because it is the only way into About,
+     Feedback and the backups. */
+  flex-wrap: wrap;
+}
+.context-row .brand { min-width: 0; }
+.brand-name { overflow-wrap: break-word; }
+.context-line {
+  margin: 6px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+/* A display value in a stylesheet beats the [hidden] attribute's UA
+   display: none, so without this the "hidden" context line stayed in the
+   layout as an empty gap - visible nowhere, occupying space everywhere. */
+.context-line[hidden] { display: none; }
+/* The handoff's type table gives these as 18px and 15px, but its own
+   "Glove, sun, text size" rule says to keep rem units, and a context line
+   that ignores the rider's text setting is the one line they most need to
+   read at a glance. rem at the default 16px root reproduces the intended
+   18/15 exactly and scales from there. */
+.context-bike {
+  font-size: 1.125rem;
+  font-weight: 700;
+  overflow-wrap: break-word;
+}
+.context-where {
+  font-size: 0.9375rem;
+  color: var(--text-dim);
+  overflow-wrap: break-word;
+}
+/* The header's one button. Log has no account, so About is what sits here.
+   Icon above label, and never below the tap floor. */
+.about-open {
+  flex: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 56px;
+  min-height: var(--tap);
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+}
+.about-open:active { background: var(--bg-elev-2); }
+.about-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.about-open-icon {
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+  -webkit-mask: url("../icons/info.svg") center / 22px 22px no-repeat;
+  mask: url("../icons/info.svg") center / 22px 22px no-repeat;
+}
+.about-open-label { font-size: 0.75rem; font-weight: 600; line-height: 1; }
