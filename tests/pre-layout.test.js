@@ -303,3 +303,123 @@ test("the PRE summary shows a true minus and no plus", () => {
   assert.ok(!summary.includes("+"), "a positive value gets no plus");
   assert.ok(!summary.includes("-"), "no ASCII hyphen is ever displayed");
 });
+
+// ---------------------------------------------------------------------------
+// PR 81: Undo after Back in -> POST (C14)
+// ---------------------------------------------------------------------------
+
+test("the undo window counts down and closes on its own", () => {
+  const S = globalThis.SessionProgress;
+  const u = S.createUndoWindow();
+  assert.equal(u.open, false, "closed until the transition happens");
+  u.start();
+  assert.equal(u.remaining, 10);
+  assert.equal(u.label(), "Undo · back to PRE · 10s");
+  for (let i = 0; i < 9; i += 1) u.tick();
+  assert.equal(u.open, true, "still open at one second left");
+  assert.equal(u.label(), "Undo · back to PRE · 1s");
+  u.tick();
+  assert.equal(u.open, false, "gone after ten");
+  assert.equal(u.label(), "", "and says nothing once closed");
+});
+
+test("a POST reading ends the undo window", () => {
+  const S = globalThis.SessionProgress;
+  const u = S.createUndoWindow();
+  u.start();
+  u.endedByEntry();
+  assert.equal(u.open, false, "entering a value closes it");
+  assert.equal(u.remaining, 0);
+});
+
+test("undo restores the stage exactly, and Correct PRE still never re-locks POST", () => {
+  const S = globalThis.SessionProgress;
+  const st = S.createStageState();
+  assert.equal(st.postUnlocked, false);
+  st.backIn();
+  assert.equal(st.postUnlocked, true, "back in unlocks POST");
+  assert.equal(st.preEditable, false, "and locks PRE");
+  // Undo is exactly a reset of what the transition changed.
+  st.reset();
+  assert.equal(st.postUnlocked, false, "POST is locked again");
+  assert.equal(st.preEditable, true, "PRE is editable again");
+  // The separate guarantee, unchanged by any of this.
+  st.backIn();
+  st.correctPre();
+  assert.equal(st.preEditable, true);
+  assert.equal(st.postUnlocked, true, "Correct PRE never re-locks POST");
+});
+
+test("the undo control is announced once, not every second", () => {
+  const appJs = readFileSync(join(import.meta.dirname, "..", "public", "app.js"), "utf8");
+  const start = appJs.indexOf("function renderUndoButton");
+  const body = appJs.slice(start, appJs.indexOf("function postEntryEndsUndo", start));
+  assert.match(body, /_undoAnnounced/, "the announcement is guarded by a flag");
+  assert.match(body, /if \(!_undoAnnounced\)/, "so it fires once");
+});
+
+// ---------------------------------------------------------------------------
+// PR 81: Start session fills blank setup (C5)
+// ---------------------------------------------------------------------------
+
+const CARRY_SESSION = {
+  savedAt: "2026-09-27T10:00:00Z", sessionLabel: "Session 2",
+  setup: { bike: "Yamaha R3" },
+  tires: { brand: "Pirelli", model: "SC1", warmerTime: "45", warmerOn: true,
+           frontPre: "31.0", rearPre: "28.0", frontPost: "33.5" },
+  suspension: { forkPreload: "3", forkComp: "12", forkReb: "10",
+                shockPreload: "1.5", shockComp: "-2", shockReb: "8" },
+};
+
+test("blank setup fields are filled from the last session on this bike", () => {
+  const S = globalThis.SessionProgress;
+  const last = S.lastSessionForBike([CARRY_SESSION], "Yamaha R3");
+  assert.ok(last, "the session is found by bike");
+  const plan = S.carryPlan(last, {});
+  const ids = plan.map(([id]) => id);
+  assert.deepEqual(ids, ["tire-brand", "tire-model", "warmer-time", "fork-preload",
+    "fork-comp", "fork-reb", "shock-preload", "shock-comp", "shock-reb"]);
+  assert.deepEqual(plan.find(([id]) => id === "shock-comp"), ["shock-comp", "-2"],
+    "a negative click value carries like any other");
+});
+
+test("a value the rider entered is never overwritten", () => {
+  const S = globalThis.SessionProgress;
+  const last = S.lastSessionForBike([CARRY_SESSION], "Yamaha R3");
+  const plan = S.carryPlan(last, { "tire-brand": "Michelin", "fork-comp": "9" });
+  const ids = plan.map(([id]) => id);
+  assert.ok(!ids.includes("tire-brand"), "the entered brand stands");
+  assert.ok(!ids.includes("fork-comp"), "and so does the entered click count");
+  assert.ok(ids.includes("tire-model"), "while the blank ones are still filled");
+});
+
+test("pressures are never copied", () => {
+  const S = globalThis.SessionProgress;
+  const last = S.lastSessionForBike([CARRY_SESSION], "Yamaha R3");
+  const ids = S.carryPlan(last, {}).map(([id]) => id);
+  for (const p of ["front-pre", "rear-pre", "front-post", "rear-post"]) {
+    assert.ok(!ids.includes(p), `${p} is history, not today's reading`);
+  }
+  assert.ok(!S.CARRY_FIELDS.some(([id]) => /-(pre|post)$/.test(id)),
+    "and no pressure is even a candidate");
+});
+
+test("with no history, Start session does nothing and says so", () => {
+  const S = globalThis.SessionProgress;
+  assert.equal(S.lastSessionForBike([], "Yamaha R3"), null);
+  assert.equal(S.lastSessionForBike([CARRY_SESSION], "RSV4"), null, "another bike does not count");
+  assert.equal(S.lastSessionForBike([CARRY_SESSION], ""), null, "nor does an unnamed bike");
+  assert.deepEqual(S.carryPlan(null, {}), []);
+  assert.equal(S.startSessionEffect([], ""), "Opens PRE");
+});
+
+test("the sub-line names the session it would copy from", () => {
+  const S = globalThis.SessionProgress;
+  const last = S.lastSessionForBike([CARRY_SESSION], "Yamaha R3");
+  const plan = S.carryPlan(last, {});
+  assert.equal(S.startSessionEffect(plan, "Session 2"),
+    "Fills blank tires and clicks from S2 · opens PRE");
+  // No number in the label, no invented one.
+  assert.equal(S.startSessionEffect(plan, "Warm-up"),
+    "Fills blank tires and clicks from the last session · opens PRE");
+});

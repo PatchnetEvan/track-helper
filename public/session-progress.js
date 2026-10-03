@@ -616,6 +616,85 @@
     return out;
   }
 
+  // --- Undo after Back in -> POST (C14) --------------------------------------
+  //
+  // A ten-second window in which the transition can be taken back. It closes
+  // on the timer, or the moment the rider records anything on POST - once
+  // there is a reading, going back to PRE would be throwing work away.
+  const UNDO_SECONDS = 10;
+
+  function createUndoWindow() {
+    let remaining = 0;
+    let open = false;
+    return {
+      get open() { return open; },
+      get remaining() { return remaining; },
+      start() { open = true; remaining = UNDO_SECONDS; },
+      tick() {
+        if (!open) return false;
+        remaining -= 1;
+        if (remaining <= 0) { open = false; remaining = 0; }
+        return open;
+      },
+      // Any POST value ends it, including one cleared back to blank again:
+      // the rider has started working on POST either way.
+      endedByEntry() { open = false; remaining = 0; },
+      close() { open = false; remaining = 0; },
+      label() { return open ? "Undo \u00b7 back to PRE \u00b7 " + remaining + "s" : ""; },
+    };
+  }
+
+  // --- What Start session may fill (C5) --------------------------------------
+  //
+  // Only blank fields, and never a pressure: a pressure from a previous
+  // session is history, and copying it would turn it into today's reading.
+  const CARRY_FIELDS = [
+    ["tire-brand", (s) => s.tires && s.tires.brand],
+    ["tire-model", (s) => s.tires && s.tires.model],
+    ["warmer-time", (s) => s.tires && s.tires.warmerTime],
+    ["fork-preload", (s) => s.suspension && s.suspension.forkPreload],
+    ["fork-comp", (s) => s.suspension && s.suspension.forkComp],
+    ["fork-reb", (s) => s.suspension && s.suspension.forkReb],
+    ["shock-preload", (s) => s.suspension && s.suspension.shockPreload],
+    ["shock-comp", (s) => s.suspension && s.suspension.shockComp],
+    ["shock-reb", (s) => s.suspension && s.suspension.shockReb],
+  ];
+
+  // The most recent saved session for this bike, whatever its tires were.
+  function lastSessionForBike(sessions, bike) {
+    if (!Array.isArray(sessions)) return null;
+    const want = String(bike == null ? "" : bike).trim().toLowerCase();
+    if (!want) return null;
+    let best = null;
+    for (const s of sessions) {
+      if (!s || !s.setup) continue;
+      if (String(s.setup.bike || "").trim().toLowerCase() !== want) continue;
+      if (best === null || String(s.savedAt || "") > String(best.savedAt || "")) best = s;
+    }
+    return best;
+  }
+
+  // Which fields Start session would fill, given what is already entered.
+  function carryPlan(session, current) {
+    const out = [];
+    if (!session) return out;
+    CARRY_FIELDS.forEach(([id, pick]) => {
+      const entered = String((current && current[id]) || "").trim();
+      if (entered !== "") return;                  // never overwrite the rider
+      const value = String(pick(session) == null ? "" : pick(session)).trim();
+      if (value === "") return;
+      out.push([id, value]);
+    });
+    return out;
+  }
+
+  function startSessionEffect(plan, sourceLabel) {
+    if (!plan || plan.length === 0) return "Opens PRE";
+    const tag = sessionTag({ sessionLabel: sourceLabel });
+    return "Fills blank tires and clicks from " + (tag || "the last session")
+      + " \u00b7 opens PRE";
+  }
+
   // --- Suspension adjusters (v2) --------------------------------------------
   //
   // Clicks are whole detents; turns are read off a collar to a tenth. The unit
@@ -823,7 +902,8 @@
     todayLabel, pressureNote, postDelta, tiresSummary,
     ADJUSTERS, ADJUSTER_DEFAULT_UNIT, adjusterUnit, readAdjuster, formatAdjuster,
     adjusterStep, adjusterDisplay, adjusterOnUnitChange, suspensionSummary, compactAdjuster,
-    ADJUSTER_LIMIT, normalizeMinus, MINUS, headerBikeLine, headerTrackLine,
+    ADJUSTER_LIMIT, normalizeMinus, MINUS,
+    UNDO_SECONDS, createUndoWindow, CARRY_FIELDS, lastSessionForBike, carryPlan, startSessionEffect, headerBikeLine, headerTrackLine,
     isSessionField, SESSION_FIELD_IDS, SESSION_FIELD_CONTAINERS,
   };
   if (typeof window !== "undefined") window.SessionProgress = api;

@@ -58,7 +58,7 @@ main {
 .brand-mark {
   width: 14px; height: 14px; border-radius: 3px;
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.15);
+  box-shadow: 0 0 0 3px var(--bg-elev);
 }
 .brand-name { font-family: Orbitron, Barlow, system-ui, sans-serif; font-weight: 700; letter-spacing: 0.02em; font-size: 1.1rem; }
 .tagline { margin: 4px 0 0; color: var(--text-dim); font-size: 0.85rem; }
@@ -69,7 +69,7 @@ main {
   font-size: 0.82rem;
   line-height: 1.35;
   text-decoration: none;
-  border-bottom: 1px solid rgba(255, 102, 0, 0.45);
+  border-bottom: 1px solid var(--bg-elev);
 }
 .pro-cta strong {
   color: var(--text);
@@ -112,7 +112,7 @@ main {
 }
 .tab[aria-selected="true"] {
   background: var(--accent);
-  color: #1a0a00;
+  color: var(--bg);
   border-color: var(--accent);
 }
 
@@ -238,7 +238,7 @@ input:focus, textarea:focus {
 .chip input { width: 18px; height: 18px; }
 .chip:has(input:checked) {
   border-color: var(--accent);
-  background: rgba(255, 102, 0, 0.12);
+  background: var(--bg-elev);
 }
 
 button {
@@ -274,7 +274,7 @@ button {
 }
 .btn-primary {
   background: var(--accent);
-  color: #1a0a00;
+  color: var(--bg);
 }
 .btn-primary:active { background: var(--accent-dim); }
 .btn-secondary {
@@ -309,7 +309,7 @@ button {
   border: 1px solid transparent;
   border-radius: 12px;
   background: var(--accent);
-  color: #1a0a00;
+  color: var(--bg);
   cursor: pointer;
   text-align: center;
 }
@@ -319,7 +319,8 @@ button {
    solid orange, because it doesn't save or change session state. */
 .btn-dock-nav {
   width: 100%;
-  min-height: var(--tap);
+  /* 64px, not 72: at 701 a 72px dock pushes the REAR row below the fold. */
+  min-height: 64px;
   padding: 12px 16px;
   border: 1px solid var(--text-dim);
   border-radius: var(--radius);
@@ -330,6 +331,7 @@ button {
   cursor: pointer;
 }
 .btn-dock-nav .btn-transition-verb { display: block; font-size: 1.125rem; font-weight: 700; }
+.btn-dock-nav { border: 2px solid var(--accent); }
 .btn-dock-nav .btn-transition-effect { display: block; color: var(--text-dim); font-size: 0.8125rem; }
 .btn-dock-nav:active { background: var(--bg-elev-2); }
 
@@ -542,7 +544,7 @@ code {
   vertical-align: top;
 }
 .compare-table td.val { font-variant-numeric: tabular-nums; }
-.compare-table tr.diff td { background: rgba(255, 102, 0, 0.08); }
+.compare-table tr.diff td { background: var(--bg-elev); }
 .compare-table tr.diff td:first-child { border-left: 3px solid var(--accent); }
 
 select {
@@ -731,13 +733,16 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 /* Stage chip (C3). Never a solid fill - the rail already carries the active
    state; this names the stage the context line is describing. */
 .stage-chip {
-  flex: none;
+  /* Shrinkable and wrappable: at 200% "PRE - BEFORE ROLLOUT" is 385px against
+     358px of usable width, and flex:none made it push the page sideways. */
+  flex: 0 1 auto;
   min-width: 0;
   padding: 2px 6px;
   border: 1px solid var(--accent);
   border-radius: 4px;
   color: var(--accent);
-  font-size: 0.75rem;
+  /* Nothing a rider reads on PRE or POST sits below 13px. */
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   overflow-wrap: break-word;
@@ -759,6 +764,9 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
    flex container, so a long bike or track name cannot wrap until its item is
    allowed to shrink. A rider's own label must never be cut off or scaled down. */
 .context-bike {
+  /* Its own row: the track, session and chip then share the next one, and the
+     chip drops to a third line only when that row genuinely will not hold it. */
+  flex: 1 1 100%;
   font-size: 1.125rem;
   font-weight: 700;
   min-width: 0;
@@ -849,9 +857,9 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
 }
 /* Active: bar AND tint AND colour. Never colour alone - in direct sun a hue
    shift is the first thing to go. */
-.stage[aria-selected="true"] {
+.stage[aria-current="page"] {
   border-top-color: var(--accent);
-  background: rgba(255, 102, 0, .10);
+  background: var(--bg-elev);
   color: var(--accent);
 }
 .stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
@@ -876,6 +884,11 @@ select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
    with text size; the fallback already clears the default bar so the first
    paint is correct with the script disabled. */
 :root { --stage-bar-h: 64px; --dock-h: 0px; }
+/* An overscroll at the top of the page must not hand the gesture to the
+   browser's pull-to-refresh: on a phone that throws away unsaved entries, and
+   on iOS it is the only protection there is, because Safari mostly ignores
+   beforeunload. */
+html, body { overscroll-behavior-y: contain; }
 body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + var(--space-gap, 12px)); }
 .panel :is(input, select, textarea, button) {
   scroll-margin-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-inset-bottom, 0px) + 12px);
@@ -1017,8 +1030,11 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   text-align: left;
   cursor: pointer;
 }
-.tire-col-left { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
-.tire-col-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
+/* The label and pill take the slack and wrap; the reading keeps its place on
+   the right. Without this the 13px caption widened the right column enough to
+   wrap the whole row, costing 62px a tire. */
+.tire-col-left { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; flex: 1 1 0; min-width: 0; }
+.tire-col-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: 0 0 auto; min-width: 0; }
 .tire-name { font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; }
 /* The reference is history: dashed, dim, and never the value. */
 .tire-pill {
@@ -1038,11 +1054,11 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   background: var(--bg-elev-2);
   color: var(--text-dim);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.tire-today { color: var(--text-dim); font-size: 0.75rem; }
+.tire-today { color: var(--text-dim); font-size: 0.8125rem; }
 .tire-value { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
 .tire-num {
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -1085,8 +1101,10 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
    finger captures it implicitly, and the drag then fights the pad for it. */
 .drag-pad > * { pointer-events: none; }
 .pad-lines { position: absolute; inset: 0; }
-.pad-line { position: absolute; top: 22px; bottom: 22px; width: 1px; background: var(--border); }
-.pad-line--long { top: 8px; bottom: 8px; }
+/* Readable in sun: dim rather than border-grey, and the short ticks are half
+   the long ones so the pattern reads at a glance. */
+.pad-line { position: absolute; top: 30px; bottom: 30px; width: 1px; background: var(--text-dim); }
+.pad-line--long { top: 8px; bottom: 8px; width: 2px; }
 .pad-label {
   position: absolute;
   inset: 0;
@@ -1101,7 +1119,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   padding: 1px 8px;
   background: var(--bg-elev-2);
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   white-space: nowrap;
@@ -1111,7 +1129,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   background: var(--bg-elev-2);
   color: var(--text-dim);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-style: normal;
   white-space: nowrap;
 }
@@ -1122,7 +1140,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   justify-content: center;
   gap: 6px;
   min-height: 52px;
-  padding: 6px 12px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
@@ -1163,13 +1181,11 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .tire-note:empty { display: none; }
 .tire-same { flex: 0 1 auto; width: auto; max-width: 100%; min-height: 52px; padding: 10px 14px; white-space: normal; }
 
-/* 200% text: the controls grow and the pad's sub-line goes (v2 item 8). */
-@media (min-resolution: 0.001dppx) {
-  .control-row { grid-template-columns: minmax(72px, 4.5rem) minmax(0, 1fr) minmax(72px, 4.5rem); }
-  .pad-btn, .drag-pad { min-height: clamp(72px, 4.5rem, 80px); }
-}
-
-/* One stepper per row (C8)/* One stepper per row (C8)/* One stepper per row (C8): minus, the value, plus - so the number is never
+/* Was wrapped in @media (min-resolution: 0.001dppx), which matches every
+   display, so the rules were always on. Kept unconditionally. */
+.control-row { grid-template-columns: minmax(72px, 4.5rem) minmax(0, 1fr) minmax(72px, 4.5rem); }
+.pad-btn, .drag-pad { min-height: clamp(72px, 4.5rem, 80px); }
+/* One stepper per row (C8)/* (stepper layout, continued)/* (stepper layout, continued): minus, the value, plus - so the number is never
    squeezed between two fixed buttons. Replaces a 400px media query that put
    the value on its own line below that width and crushed it to ~28px above
    it, which is what a 412px phone was showing. */
@@ -1195,7 +1211,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   line-height: 1;
   cursor: pointer;
 }
-.stepper-btn:active { background: var(--accent-dim); color: #1a0a00; }
+.stepper-btn:active { background: var(--accent-dim); color: var(--bg); }
 .stepper-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .stepper-btn[disabled] { opacity: 0.45; cursor: default; }
 /* min-width: 0 so the input may shrink between two fixed buttons at 320px -
@@ -1222,6 +1238,55 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 /* No breakpoint: the row wraps when the number cannot sit comfortably beside
    the buttons, which is a question about available space, not viewport width. */
 .stepper > input { flex: 1 1 6rem; }
+
+/* --- Symptom chips (C15) ------------------------------------------------- */
+
+.symptoms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.symptoms .chip {
+  align-items: center;
+  min-height: 56px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.symptoms .chip > span {
+  min-width: 0;
+  overflow-wrap: anywhere;   /* the label wraps rather than being cut */
+}
+/* Selected reads as a border and a mark, not a wash of colour: a tint over a
+   dark background disappears in sunlight. */
+.symptoms .chip:has(input:checked) {
+  border: 2px solid var(--accent);
+  padding: 9px 11px;
+  background: var(--bg-elev-2);
+}
+.symptoms .chip:has(input:checked) > span::before {
+  content: "";
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 6px;
+  vertical-align: -0.1em;
+  background: var(--accent);
+  -webkit-mask: url(../icons/check.svg) center / contain no-repeat;
+  mask: url(../icons/check.svg) center / contain no-repeat;
+}
+
+/* --- Sun: high contrast ---------------------------------------------------- */
+
+@media (prefers-contrast: more) {
+  .tire-card, .adj-card, .ruler, .drag-pad, .typed-field, .bike-state,
+  .pressure-box, .symptoms .chip {
+    border-color: var(--text-dim);
+  }
+  .tire-pill { border-width: 2px; }
+}
 
 /* --- Suspension adjusters (v2) -------------------------------------------- */
 
@@ -1251,7 +1316,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
   text-align: left;
   cursor: pointer;
 }
-.adj-name { font-size: 0.9375rem; font-weight: 700; }
+.adj-name { flex: 1 1 0; min-width: 0; font-size: 0.9375rem; font-weight: 700; }
 .adj-value {
   min-width: 0;
   color: var(--text);
@@ -1299,6 +1364,8 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 .unit-opt + .unit-opt { border-left: 1px solid var(--text-dim); }
 .unit-opt.is-on { background: var(--accent); color: var(--bg); }
 .susp-done { margin-bottom: 14px; }
+/* Undo sits where the dock button would, at the same height. */
+.undo-post { margin: 0; }
 .state-edit { flex: 0 0 auto; width: auto; min-height: 48px; padding: 10px 14px; margin-left: auto; }
 
 /* --- Auto-save switch (C6) ------------------------------------------------ */
@@ -1453,7 +1520,22 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
 
 /* Committed PRE values. readOnly, not disabled, so they stay focusable and
    readable - the rider is meant to be able to read what they went out on. */
-.is-locked[readonly] { opacity: 0.75; border-style: dashed; }
+/* A locked PRE value is still the rider's reading and has to be legible in
+   sun: full opacity, with the dashed border and a lock saying why it cannot
+   be edited rather than fading it out. */
+.is-locked[readonly] { opacity: 1; border-style: dashed; }
+.tire-card:has(.is-locked[readonly]) .tire-name::after,
+.adj-card:has(.is-locked[readonly]) .adj-name::after {
+  content: "";
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 6px;
+  vertical-align: -0.05em;
+  background: var(--text-dim);
+  -webkit-mask: url(../icons/lock.svg) center / contain no-repeat;
+  mask: url(../icons/lock.svg) center / contain no-repeat;
+}
 
 /* What the rider went out on, shown on POST next to the readings they take
    coming back in. */
@@ -1519,7 +1601,7 @@ body { padding-bottom: calc(var(--stage-bar-h) + var(--dock-h) + env(safe-area-i
     white-space: normal;
     text-align: left;
   }
-  .stage[aria-selected="true"] { border-top-color: transparent; border-left-color: var(--accent); }
+  .stage[aria-current="page"] { border-top-color: transparent; border-left-color: var(--accent); }
   .stage-icon { width: 1.375rem; height: 1.375rem; }
   .stage-label { font-size: 0.9375rem; }
   body { padding-bottom: 0; padding-left: 220px; }
