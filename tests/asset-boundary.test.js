@@ -57,7 +57,7 @@ const APPROVED_PUBLIC_FILES = [
 // requires be served from this origin rather than a CDN. Listing the tree
 // here is what makes it web-addressable, which is the point of this file.
 const APPROVED_PUBLIC_TREES = ["assets", "icons"]; // images/icons only, checked below
-const APPROVED_TREE_EXTENSIONS = new Set([".png", ".webp", ".ico", ".svg", ".woff2"]);
+const APPROVED_TREE_EXTENSIONS = new Set([".png", ".webp", ".ico", ".svg", ".woff2", ".mp4"]);
 
 const actual = [];
 (function walk(dir) {
